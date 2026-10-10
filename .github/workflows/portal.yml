@@ -13,7 +13,9 @@
 #         bundle-artifact: estate-bundle
 #
 # The repository's Pages source must be "GitHub Actions". With deploy: false
-# the site is uploaded as an artifact named clearcutt-portal-site instead.
+# the site is uploaded as an artifact named clearcutt-portal-site instead; the
+# caller still grants the permissions above, because GitHub checks them for
+# every job in the workflow, including the skipped deploy job.
 name: portal
 on:
   workflow_call:

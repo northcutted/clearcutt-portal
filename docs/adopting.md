@@ -60,7 +60,7 @@ jobs:
 | `bundle-artifact` | (required) | Name of the artifact holding the bundle |
 | `bundle-path` | `.` | Directory of the bundle inside the artifact |
 | `title` | the estate's name | Site title |
-| `deploy` | `true` | Deploy to Pages; `false` uploads the site as the artifact `clearcutt-portal-site` instead |
+| `deploy` | `true` | Deploy to Pages; `false` uploads the site as the artifact `clearcutt-portal-site` instead (the caller still grants `pages: write` and `id-token: write`, which GitHub checks for every job; to avoid that, use the action) |
 | `portal-version` | the workflow's own release | A release tag (signature-verified), or a commit to build from source |
 
 The workflow's output `page-url` is the deployed site's address. The site is

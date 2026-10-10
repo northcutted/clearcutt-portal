@@ -1,0 +1,99 @@
+# Publishes a ClearCutt portal to GitHub Pages from a clearcutt-verify
+# bundle. Run clearcutt-verify in an earlier job, upload the directory it
+# writes as an artifact, and pass the artifact's name:
+#
+#   jobs:
+#     verify:
+#       ...   # clearcutt-verify estate verify --out estate; upload estate/ as "estate-bundle"
+#     portal:
+#       needs: verify
+#       uses: northcutted/clearcutt-portal/.github/workflows/portal.yml@v0.1.0
+#       permissions: {contents: read, pages: write, id-token: write}
+#       with:
+#         bundle-artifact: estate-bundle
+#
+# The repository's Pages source must be "GitHub Actions". With deploy: false
+# the site is uploaded as an artifact named clearcutt-portal-site instead.
+name: portal
+on:
+  workflow_call:
+    inputs:
+      bundle-artifact:
+        description: Name of the artifact holding the bundle (estate-report.json, and optionally estate-history.json).
+        type: string
+        required: true
+      bundle-path:
+        description: Directory of the bundle inside the artifact.
+        type: string
+        default: .
+      title:
+        description: Site title. Default is the estate's name from the report.
+        type: string
+        default: ""
+      deploy:
+        description: Deploy to GitHub Pages. When false, upload the site as an artifact.
+        type: boolean
+        default: true
+      portal-version:
+        description: clearcutt-portal release to build with (a tag), or a commit to build from source.
+        type: string
+        default: v0.1.0
+    outputs:
+      page-url:
+        description: The deployed site's URL.
+        value: ${{ jobs.deploy.outputs.page-url }}
+permissions: {}
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: read
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ inputs.bundle-artifact }}
+          path: .estate-bundle
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: northcutted/clearcutt-portal
+          ref: ${{ inputs.portal-version }}
+          path: .clearcutt-portal
+          persist-credentials: false
+      - id: pages
+        if: inputs.deploy
+        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
+      - id: portal
+        uses: ./.clearcutt-portal
+        with:
+          bundle: .estate-bundle/${{ inputs.bundle-path }}
+          output: .clearcutt-portal-site
+          site-url: ${{ steps.pages.outputs.origin }}
+          base-path: ${{ steps.pages.outputs.base_path || '/' }}
+          title: ${{ inputs.title }}
+          version: ${{ startsWith(inputs.portal-version, 'v') && inputs.portal-version || 'source' }}
+      - if: inputs.deploy
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: ${{ steps.portal.outputs.dir }}
+      - if: ${{ !inputs.deploy }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: clearcutt-portal-site
+          path: ${{ steps.portal.outputs.dir }}
+
+  deploy:
+    if: inputs.deploy
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    outputs:
+      page-url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

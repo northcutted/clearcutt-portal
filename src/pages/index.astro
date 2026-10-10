@@ -1,0 +1,294 @@
+---
+import Layout from '../layouts/Layout.astro';
+import Chip from '../components/Chip.astro';
+import EvidenceCells from '../components/EvidenceCells.astro';
+import StatusCell from '../components/StatusCell.astro';
+import VulnSummary from '../components/VulnSummary.astro';
+import PolicySummary from '../components/PolicySummary.astro';
+import { loadBundle } from '../lib/bundle.ts';
+import { byVerdict, imageLabel, staleImages } from '../lib/estate.ts';
+import { formatTime, plural } from '../lib/format.ts';
+import {
+  EVIDENCE_KINDS,
+  SEVERITIES,
+  TONE_GLYPH,
+  drift,
+  evidenceStatus,
+  reproducibility,
+  strength,
+  verdict,
+  type Tone,
+} from '../lib/present.ts';
+import { href } from '../lib/site.ts';
+
+const { report } = loadBundle();
+const { summary, metadata, policy } = report;
+const images = byVerdict(report.images);
+const attention = images.filter((i) => i.verdict.status !== 'verified');
+const stale = staleImages(report);
+const withBase = summary.bases.proven + summary.bases.claimed;
+const recipes = summary.reproducibility.reproduced + summary.reproducibility.notReproduced + summary.reproducibility.notChecked;
+
+const verdictTiles: { status: string; count: number }[] = [
+  { status: 'verified', count: summary.verdicts.verified },
+  { status: 'failed', count: summary.verdicts.failed },
+  { status: 'unverified', count: summary.verdicts.unverified },
+];
+
+const otherTiles: { label: string; value: number; tone: Tone; note: string }[] = [
+  {
+    label: 'Base proven',
+    value: summary.bases.proven,
+    tone: 'good',
+    note: `by layer digests; ${summary.bases.claimed} more rest on a claim`,
+  },
+  {
+    label: 'On a stale base',
+    value: summary.bases.stale,
+    tone: summary.bases.stale > 0 ? 'warn' : 'good',
+    note: `of ${plural(withBase, 'image')} with a known base`,
+  },
+  {
+    label: 'Base unresolved',
+    value: summary.bases.unresolved,
+    tone: summary.bases.unresolved > 0 ? 'unknown' : 'muted',
+    note: "no base could be determined",
+  },
+  {
+    label: 'Vulnerabilities unknown',
+    value: summary.vulnerabilities.notScanned,
+    tone: summary.vulnerabilities.notScanned > 0 ? 'unknown' : 'muted',
+    note: 'images with no vulnerability data',
+  },
+  {
+    label: 'Reproduced',
+    value: summary.reproducibility.reproduced,
+    tone: summary.reproducibility.notReproduced > 0 ? 'bad' : 'good',
+    note: `of ${plural(recipes, 'image')} with a recipe or rebase record${policy.reproduce ? '' : ' (this run did not rebuild)'}`,
+  },
+];
+
+const evidenceColumns = [
+  { key: 'verified', status: 'verified' },
+  { key: 'present', status: 'present' },
+  { key: 'failed', status: 'failed' },
+  { key: 'missing', status: 'missing' },
+  { key: 'unknown', status: 'unknown' },
+  { key: 'notApplicable', status: 'not-applicable' },
+] as const;
+const vulns = summary.vulnerabilities;
+const sources = metadata.sources.map((s) => [s.registry, s.namespace].filter(Boolean).join('/'));
+---
+<Layout title="Overview">
+  <header class="page-head">
+    <p class="eyebrow">Estate overview</p>
+    <h1>{metadata.name}</h1>
+    <p class="lede">
+      {metadata.generator.name} checked {plural(summary.images, 'image')} from {sources.join(', ')} against the
+      policy below, finishing at {formatTime(metadata.generatedAt)}. Each image is verified, failed, or unverified,
+      with the reasons it wasn't verified.
+    </p>
+  </header>
+
+  <section aria-labelledby="verdicts">
+    <h2 id="verdicts">Verdicts</h2>
+    <div class="tiles">
+      {verdictTiles.map((tile) => {
+        const term = verdict(tile.status);
+        return (
+          <div class={`tile tone-${term.tone}`}>
+            <p class="tile-value">{tile.count}</p>
+            <p class="tile-label">{TONE_GLYPH[term.tone]} {term.label}</p>
+            <p class="tile-note">{term.meaning}</p>
+          </div>
+        );
+      })}
+    </div>
+    <div class="tiles">
+      {otherTiles.map((tile) => (
+        <div class={`tile tone-${tile.tone}`}>
+          <p class="tile-value">{tile.value}</p>
+          <p class="tile-label">{tile.label}</p>
+          <p class="tile-note">{tile.note}</p>
+        </div>
+      ))}
+    </div>
+  </section>
+
+  {report.warnings.length > 0 && (
+    <section class="callout" aria-labelledby="warnings">
+      <h2 id="warnings">Problems this run hit</h2>
+      <ul>{report.warnings.map((w) => <li>{w}</li>)}</ul>
+    </section>
+  )}
+
+  <section aria-labelledby="attention">
+    <h2 id="attention">Not verified, and why</h2>
+    {attention.length === 0 ? (
+      <p>Every image meets every requirement in the policy.</p>
+    ) : (
+      <div class="grid">
+        {attention.map((image) => (
+          <article class="card">
+            <p><a href={href(`images/${image.id}/`)}><strong>{imageLabel(image)}</strong></a></p>
+            <p class="dim small mono">{image.repository}</p>
+            <p><Chip term={verdict(image.verdict.status)} /></p>
+            {image.verdict.reasons.length > 0 && (
+              <ul class="reasons">{image.verdict.reasons.map((r) => <li>{r}</li>)}</ul>
+            )}
+          </article>
+        ))}
+      </div>
+    )}
+  </section>
+
+  <section aria-labelledby="stale">
+    <h2 id="stale">Stale bases</h2>
+    {stale.length === 0 ? (
+      <p>No image is on an older version of its base than the newest one this run observed.</p>
+    ) : (
+      <>
+        <p class="lede small">
+          Behind is measured against the newest version of the same base observed in this run, not against upstream.
+          {policy.maxDaysBehind ? ` The policy fails images more than ${policy.maxDaysBehind} days behind.` : ' The policy sets no limit.'}
+        </p>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Image</th><th>Base</th><th>How it's known</th><th class="num">Versions behind</th><th class="num">Days behind</th></tr>
+            </thead>
+            <tbody>
+              {stale.map((image) => (
+                <tr>
+                  <td><a href={href(`images/${image.id}/`)}>{imageLabel(image)}</a></td>
+                  <td class="mono">{image.base.ref}</td>
+                  <td><Chip term={strength(image.base.strength)} /></td>
+                  <td class="num">{image.base.versionsBehind}</td>
+                  <td class="num">
+                    {image.base.daysBehind}
+                    {policy.maxDaysBehind && image.base.daysBehind > policy.maxDaysBehind ? ' (over the limit)' : ''}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </>
+    )}
+  </section>
+
+  <section aria-labelledby="images">
+    <h2 id="images">Images</h2>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Image</th>
+            <th>Verdict</th>
+            <th>Base</th>
+            {EVIDENCE_KINDS.map((k) => <th class="center tight" title={k.label}>{k.short}</th>)}
+            <th>Vulnerabilities</th>
+            <th class="center tight">Rebuild</th>
+          </tr>
+        </thead>
+        <tbody>
+          {images.map((image) => (
+            <tr>
+              <td>
+                <a href={href(`images/${image.id}/`)}>{imageLabel(image)}</a>
+                <div class="dim small mono nowrap">{image.repository}</div>
+              </td>
+              <td><Chip term={verdict(image.verdict.status)} /></td>
+              <td>
+                {image.base ? (
+                  <span class="inline-list">
+                    <Chip term={strength(image.base.strength)} />
+                    <Chip term={drift(image.base.drift)} />
+                  </span>
+                ) : image.root ? (
+                  <span class="dim small" title={image.root}>root</span>
+                ) : (
+                  <Chip term={{ label: 'Unresolved', tone: 'unknown', meaning: (image.unresolved ?? []).join('; ') || 'No base could be determined.' }} />
+                )}
+              </td>
+              <EvidenceCells image={image} />
+              <td><VulnSummary vulnerabilities={image.vulnerabilities} /></td>
+              <td class="center tight"><StatusCell term={reproducibility(image.reproducibility.status)} subject="Rebuild" detail={image.reproducibility.detail} /></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+    <p class="small dim">
+      {(['good', 'claim', 'warn', 'bad', 'unknown', 'muted'] as Tone[]).map((tone, i) => {
+        const names: Record<Tone, string> = {
+          good: 'verified',
+          claim: 'present, unverified',
+          warn: 'missing',
+          bad: 'failed',
+          unknown: 'unknown',
+          muted: 'not applicable',
+        };
+        return <>{i > 0 && ' · '}<span class={`chip-glyph tone-${tone}`}>{TONE_GLYPH[tone]}</span> {names[tone]}</>;
+      })}
+    </p>
+  </section>
+
+  <section aria-labelledby="evidence">
+    <h2 id="evidence">Evidence across the estate</h2>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Evidence</th>
+            {evidenceColumns.map((c) => <th class="num">{evidenceStatus(c.status).short ?? evidenceStatus(c.status).label}</th>)}
+          </tr>
+        </thead>
+        <tbody>
+          {EVIDENCE_KINDS.map((kind) => {
+            const counts = summary.evidence[kind.key];
+            return (
+              <tr>
+                <td title={kind.meaning}>{kind.label}</td>
+                {evidenceColumns.map((c) => <td class="num">{counts ? counts[c.key] : '—'}</td>)}
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section aria-labelledby="vulns">
+    <h2 id="vulns">Vulnerabilities</h2>
+    <p class="lede small">
+      Totals over the {plural(vulns.scanned, 'image')} with vulnerability data.
+      {vulns.notScanned > 0
+        ? ` ${plural(vulns.notScanned, 'image has', 'images have')} none, so their vulnerabilities are unknown and these totals are a floor for the estate, not its total.`
+        : ' Every image has vulnerability data.'}
+      Each image's findings describe the day its report was made.
+    </p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th></th>{SEVERITIES.map((s) => <th class="num">{s}</th>)}</tr></thead>
+        <tbody>
+          <tr><td>Findings</td>{SEVERITIES.map((s) => <td class="num">{vulns.counts[s]}</td>)}</tr>
+          <tr><td>With a fix</td>{SEVERITIES.map((s) => <td class="num">{vulns.fixable[s]}</td>)}</tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <PolicySummary policy={policy} />
+
+  <aside class="callout" aria-labelledby="limits">
+    <h2 id="limits">What this does not prove</h2>
+    <ul>
+      <li>A verified signature or attestation proves who signed it, as the policy defines trust. It doesn't prove the image is safe to run.</li>
+      <li>"Present" evidence exists but wasn't checked against a trusted signer. Treat it as a claim.</li>
+      <li>Vulnerability findings describe the day each report was made. Newer advisories aren't in them.</li>
+      <li>Staleness is measured against the newest base version observed in this run. A base that is itself out of date leaves its consumers looking current.</li>
+      <li>Unknown means unknown. It is never counted as zero, absent, or a pass.</li>
+    </ul>
+  </aside>
+</Layout>

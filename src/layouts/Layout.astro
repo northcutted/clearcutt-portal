@@ -1,0 +1,92 @@
+---
+import '../styles/global.css';
+import ThemeToggle from '../components/ThemeToggle.astro';
+import { loadBundle } from '../lib/bundle.ts';
+import { formatTime } from '../lib/format.ts';
+import { href, portalVersion, siteTitle } from '../lib/site.ts';
+
+interface Props {
+  title?: string;
+  description?: string;
+}
+
+const { title, description } = Astro.props;
+const { report, history } = loadBundle();
+const site = siteTitle();
+const fullTitle = title ? `${title} · ${site}` : site;
+const desc = description ?? `What clearcutt-verify found and proved about the ${report.metadata.name} image estate.`;
+
+const nav = [
+  { path: '', label: 'Overview' },
+  { path: 'bases/', label: 'Bases' },
+  { path: 'packages/', label: 'Packages' },
+  { path: 'history/', label: 'History' },
+  { path: 'about/', label: 'About' },
+];
+const here = Astro.url.pathname.replace(/\/?$/, '/');
+const isCurrent = (path: string) => {
+  const target = href(path).replace(/\/?$/, '/');
+  return path === '' ? here === target : here.startsWith(target);
+};
+const generator = report.metadata.generator;
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <script is:inline>
+      try {
+        var stored = localStorage.getItem('theme');
+        var dark = stored === 'dark' || (stored !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+        if (dark) document.documentElement.classList.add('dark');
+      } catch (e) {}
+    </script>
+    <title>{fullTitle}</title>
+    <meta name="description" content={desc} />
+    <meta name="generator" content={`clearcutt-portal ${portalVersion()}`} />
+    <meta name="theme-color" content="#eff1f5" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#1e1e2e" media="(prefers-color-scheme: dark)" />
+    <link rel="icon" type="image/svg+xml" href={href('favicon.svg')} />
+  </head>
+  <body>
+    <a class="sr-only" href="#main">Skip to content</a>
+    <header class="site-header">
+      <div class="wrap">
+        <a class="brand" href={href('')}>
+          <span class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7l8-4 8 4-8 4-8-4z"></path><path d="M4 12l8 4 8-4"></path><path d="M4 17l8 4 8-4"></path></svg>
+          </span>
+          <span>
+            <span class="brand-title">{site}</span><br />
+            <span class="brand-sub">Image estate</span>
+          </span>
+        </a>
+        <nav class="site-nav" aria-label="Main">
+          {nav.map((item) => (
+            <a href={href(item.path)} aria-current={isCurrent(item.path) ? 'page' : undefined}>{item.label}</a>
+          ))}
+          <ThemeToggle />
+        </nav>
+      </div>
+    </header>
+    <main id="main">
+      <div class="wrap">
+        <slot />
+      </div>
+    </main>
+    <footer class="site-footer">
+      <div class="wrap">
+        <p>
+          Built from the estate report <code>{generator.name} {generator.version}</code> wrote at {formatTime(report.metadata.generatedAt)}
+          {history ? ` with ${history.entries.length} history entries` : ' (no history)'}.
+          The site shows what that report says and nothing more.
+        </p>
+        <p>
+          Raw data: <a href={href('estate-report.json')}>estate-report.json</a>{history && <>, <a href={href('estate-history.json')}>estate-history.json</a></>}
+          · Rendered by <a href="https://github.com/northcutted/clearcutt-portal">clearcutt-portal</a> {portalVersion()}
+        </p>
+      </div>
+    </footer>
+  </body>
+</html>

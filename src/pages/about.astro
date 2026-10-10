@@ -1,0 +1,107 @@
+---
+import Layout from '../layouts/Layout.astro';
+import Chip from '../components/Chip.astro';
+import PolicySummary from '../components/PolicySummary.astro';
+import { API_VERSION, loadBundle } from '../lib/bundle.ts';
+import { formatTime } from '../lib/format.ts';
+import { drift, evidenceStatus, reproducibility, strength, verdict } from '../lib/present.ts';
+import { href, portalVersion } from '../lib/site.ts';
+
+const { report, history } = loadBundle();
+const { metadata } = report;
+const vocab = [
+  {
+    title: 'Evidence',
+    intro: 'Every piece of supply-chain evidence for every image has one of these statuses.',
+    terms: ['verified', 'present', 'failed', 'missing', 'unknown', 'not-applicable'].map(evidenceStatus),
+  },
+  {
+    title: 'Verdicts',
+    intro: 'Whether an image meets the policy. An image that is not verified lists one reason per requirement it misses.',
+    terms: ['verified', 'failed', 'unverified'].map(verdict),
+  },
+  {
+    title: 'How a base is known',
+    intro: 'Only layer digests are proof. Everything else is something the image\'s author wrote.',
+    terms: ['proof', 'declared', 'assisted', 'weak'].map(strength),
+  },
+  {
+    title: 'Base currency',
+    intro: 'Measured against the newest version of the same base observed in the run, not against upstream.',
+    terms: ['current', 'stale', 'unknown'].map(drift),
+  },
+  {
+    title: 'Rebuilds',
+    intro: 'Whether rebuilding the image from its recipe, or repeating its rebase, gives the same digest.',
+    terms: ['reproduced', 'not-reproduced', 'not-checked', 'no-recipe'].map(reproducibility),
+  },
+];
+const sources = metadata.sources.map((s) =>
+  [s.registry, s.namespace].filter(Boolean).join('/') + (s.repositories?.length ? ` (${s.repositories.join(', ')})` : ''),
+);
+---
+<Layout title="About" description="How to read this site, and where its data comes from.">
+  <header class="page-head">
+    <p class="eyebrow">About</p>
+    <h1>How to read this site</h1>
+    <div class="lede prose">
+      <p>
+        This site shows what <a href="https://github.com/northcutted/clearcutt-verify">clearcutt-verify</a> found and proved
+        about an image estate in one run. It was generated from that run's report, without contacting a registry, and
+        says nothing the report doesn't.
+      </p>
+      <p>
+        The difference between proven and claimed runs through every page. Proven means checked: a signature verified
+        against a signer the policy trusts, or a base established by comparing layer digests. Claimed means someone
+        wrote it down: a label, an annotation, or evidence nobody could check. Unknown means the run couldn't find out,
+        and it is never shown as zero, absent, or a pass.
+      </p>
+    </div>
+  </header>
+
+  {vocab.map((group) => (
+    <section>
+      <h2>{group.title}</h2>
+      <p class="lede small">{group.intro}</p>
+      <div class="table-wrap">
+        <table>
+          <tbody>
+            {group.terms.map((t) => (
+              <tr><td style="width: 13rem"><Chip term={t} /></td><td>{t.meaning}</td></tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  ))}
+
+  <section>
+    <h2>Vulnerabilities and packages</h2>
+    <div class="prose">
+      <p>
+        Findings describe the day their report was made, which each image page shows. An image with no vulnerability
+        data is unknown, not clean, and estate totals cover only the images that had data.
+      </p>
+      <p>
+        "Which images ship this package" is answered only for images whose package set could be read. The packages
+        pages name the images that weren't covered, because a package's absence says nothing about them.
+      </p>
+    </div>
+  </section>
+
+  <PolicySummary policy={report.policy} />
+
+  <section>
+    <h2>This report</h2>
+    <dl class="kv">
+      <dt>Estate</dt><dd>{metadata.name}</dd>
+      <dt>Written by</dt><dd><code>{metadata.generator.name} {metadata.generator.version}</code></dd>
+      <dt>Finished</dt><dd>{formatTime(metadata.generatedAt)}</dd>
+      <dt>Read from</dt><dd>{sources.join('; ')}</dd>
+      <dt>Format</dt><dd><code>{report.apiVersion}</code> (this portal reads <code>{API_VERSION}</code>)</dd>
+      <dt>History</dt><dd>{history ? `${history.entries.length} runs` : 'none in this bundle'}</dd>
+      <dt>Raw data</dt><dd><a href={href('estate-report.json')}>estate-report.json</a>{history && <>, <a href={href('estate-history.json')}>estate-history.json</a></>}</dd>
+      <dt>Rendered by</dt><dd><a href="https://github.com/northcutted/clearcutt-portal">clearcutt-portal</a> {portalVersion()}</dd>
+    </dl>
+  </section>
+</Layout>

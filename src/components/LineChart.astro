@@ -1,0 +1,48 @@
+---
+// One measure over the estate's runs: a 2px line, a dot per run, the latest
+// value labelled. Runs where the measure is unknown leave a gap marked "?".
+import { lineGeometry, type Point } from '../lib/charts.ts';
+import { formatDay, formatTime } from '../lib/format.ts';
+
+interface Props {
+  title: string;
+  note?: string;
+  points: Point[];
+}
+const { title, note, points } = Astro.props;
+const W = 240;
+const H = 120;
+const box = { x0: 26, x1: W - 26, y0: 12, y1: H - 22 };
+const g = lineGeometry(points, box);
+const sorted = [...points].sort((a, b) => a.at.localeCompare(b.at));
+const first = sorted[0];
+const last = sorted[sorted.length - 1];
+const latest = g.dots[g.dots.length - 1];
+const sameDay = first && last && formatDay(first.at) === formatDay(last.at);
+const tickLabel = (at: string) => (sameDay ? formatTime(at)!.slice(11) : formatDay(at));
+const describe = last
+  ? `${title}. Latest run ${formatTime(last.at)}: ${last.value === null ? 'unknown' : last.value}.`
+  : `${title}. No runs.`;
+---
+<figure class="chart">
+  <figcaption>{title}{note && <span class="dim"> · {note}</span>}</figcaption>
+  <svg viewBox={`0 0 ${W} ${H}`} width={W} role="img" aria-label={describe}>
+    <line class="axis" x1={box.x0} x2={box.x1} y1={box.y1} y2={box.y1} />
+    <line class="axis" x1={box.x0} x2={box.x1} y1={box.y0} y2={box.y0} opacity="0.5" />
+    <text class="tick" x={box.x0 - 6} y={box.y0 + 3} text-anchor="end">{g.yMax}</text>
+    <text class="tick" x={box.x0 - 6} y={box.y1 + 3} text-anchor="end">0</text>
+    {first && <text class="tick" x={box.x0} y={H - 6} text-anchor="start">{tickLabel(first.at)}</text>}
+    {last && last !== first && <text class="tick" x={box.x1} y={H - 6} text-anchor="end">{tickLabel(last.at)}</text>}
+    {g.paths.map((d) => <path class="line" d={d} />)}
+    {g.gaps.map((gap) => (
+      <text class="gap-mark" x={gap.x} y={box.y1 - 4} text-anchor="middle"><title>{formatTime(gap.at)}: unknown</title>?</text>
+    ))}
+    {g.dots.map((dot) => (
+      <>
+        <circle class="hit" cx={dot.x} cy={dot.y} r="12" tabindex="0"><title>{formatTime(dot.at)}: {dot.value}</title></circle>
+        <circle class="dot" cx={dot.x} cy={dot.y} r="4" />
+      </>
+    ))}
+    {latest && <text class="value-label" x={latest.x + 8} y={latest.y + 4}>{latest.value}</text>}
+  </svg>
+</figure>

@@ -1,0 +1,17 @@
+---
+// A status shown as a pill: a glyph, a label, and the meaning on hover.
+import { TONE_GLYPH, type Term } from '../lib/present.ts';
+
+interface Props {
+  term: Term;
+  /** Use the term's short label. */
+  short?: boolean;
+  /** Text to show instead of the term's label. */
+  label?: string;
+  /** Hover text; defaults to the term's meaning. */
+  title?: string;
+}
+const { term, short = false, label, title } = Astro.props;
+const text = label ?? (short ? (term.short ?? term.label) : term.label);
+---
+<span class={`chip tone-${term.tone}`} title={title ?? term.meaning}><span class="chip-glyph" aria-hidden="true">{TONE_GLYPH[term.tone]}</span>{text}</span>

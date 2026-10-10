@@ -1,0 +1,702 @@
+/* Catppuccin palette, carried over from the ClearCutt catalog site.
+   :root is Latte (light); .dark is Mocha. Values are RGB triples so they can
+   be used with an alpha: rgb(var(--ink-800) / 0.4). */
+:root {
+  color-scheme: light;
+  --ink-950: 239 241 245; /* Base: page background */
+  --ink-900: 230 233 239; /* Mantle */
+  --ink-800: 204 208 218; /* Surface0 */
+  --ink-700: 188 192 204; /* Surface1 */
+  --ink-600: 172 176 190; /* Surface2 */
+  --ink-500: 156 160 176; /* Overlay0 */
+  --ink-400: 124 127 147; /* Overlay2 */
+  --ink-300: 108 111 133; /* Subtext0: secondary text */
+  --ink-200: 92 95 119; /* Subtext1 */
+  --ink-100: 76 79 105; /* Text */
+  --ink-50: 46 48 70; /* headings */
+
+  --accent: 136 57 239; /* Mauve */
+  --link: 30 102 245; /* Blue */
+
+  --tone-good: 64 160 43; /* Green */
+  --tone-claim: 30 102 245; /* Blue */
+  --tone-warn: 254 100 11; /* Peach */
+  --tone-bad: 210 15 57; /* Red */
+  --tone-unknown: 124 127 147; /* Overlay2 */
+  --tone-muted: 156 160 176; /* Overlay0 */
+
+  --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+}
+
+.dark {
+  color-scheme: dark;
+  --ink-950: 30 30 46;
+  --ink-900: 49 50 68;
+  --ink-800: 69 71 90;
+  --ink-700: 88 91 112;
+  --ink-600: 108 112 134;
+  --ink-500: 127 132 156;
+  --ink-400: 147 153 178;
+  --ink-300: 166 173 200;
+  --ink-200: 186 194 222;
+  --ink-100: 205 214 244;
+  --ink-50: 230 233 252;
+
+  --accent: 203 166 247;
+  --link: 137 180 250;
+
+  --tone-good: 166 227 161;
+  --tone-claim: 137 180 250;
+  --tone-warn: 250 179 135;
+  --tone-bad: 243 139 168;
+  --tone-unknown: 166 173 200;
+  --tone-muted: 127 132 156;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  background: rgb(var(--ink-950));
+  color: rgb(var(--ink-100));
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+h1,
+h2,
+h3 {
+  color: rgb(var(--ink-50));
+  line-height: 1.25;
+  margin: 0;
+}
+h1 {
+  font-size: 1.75rem;
+  font-weight: 650;
+}
+h2 {
+  font-size: 1.2rem;
+  font-weight: 650;
+}
+h3 {
+  font-size: 1rem;
+  font-weight: 650;
+}
+p {
+  margin: 0;
+}
+
+a {
+  color: rgb(var(--link));
+  text-decoration: underline;
+  text-decoration-color: rgb(var(--link) / 0.35);
+  text-underline-offset: 3px;
+}
+a:hover {
+  text-decoration-color: currentColor;
+}
+
+code,
+.mono {
+  font-family: var(--font-mono);
+  font-size: 0.86em;
+}
+
+:focus-visible {
+  outline: 2px solid rgb(var(--accent));
+  outline-offset: 2px;
+}
+
+::selection {
+  background: rgb(var(--accent) / 0.3);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ── Page frame ─────────────────────────────────────────────────────── */
+
+.wrap {
+  width: 100%;
+  max-width: 76rem;
+  margin: 0 auto;
+  padding: 0 1.25rem;
+}
+
+.site-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: rgb(var(--ink-950) / 0.92);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid rgb(var(--ink-800));
+}
+.site-header .wrap {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem 1.5rem;
+  padding-top: 0.75rem;
+  padding-bottom: 0.75rem;
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  color: rgb(var(--ink-50));
+  text-decoration: none;
+}
+.brand-mark {
+  display: inline-flex;
+  width: 2rem;
+  height: 2rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.6rem;
+  border: 1px solid rgb(var(--accent) / 0.35);
+  background: rgb(var(--accent) / 0.1);
+  color: rgb(var(--accent));
+}
+.brand-title {
+  font-weight: 650;
+  line-height: 1.2;
+}
+.brand-sub {
+  font-size: 0.7rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgb(var(--ink-300));
+}
+.site-nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 1.1rem;
+}
+.site-nav a {
+  color: rgb(var(--ink-200));
+  text-decoration: none;
+  font-weight: 550;
+}
+.site-nav a:hover,
+.site-nav a[aria-current='page'] {
+  color: rgb(var(--ink-50));
+}
+.site-nav a[aria-current='page'] {
+  text-decoration: underline;
+  text-decoration-color: rgb(var(--accent));
+  text-decoration-thickness: 2px;
+  text-underline-offset: 6px;
+}
+
+main {
+  flex: 1;
+  padding: 2rem 0 4rem;
+}
+main > .wrap > * + * {
+  margin-top: 2.25rem;
+}
+
+.site-footer {
+  border-top: 1px solid rgb(var(--ink-800));
+  padding: 1.5rem 0;
+  font-size: 0.8rem;
+  color: rgb(var(--ink-300));
+}
+.site-footer p + p {
+  margin-top: 0.35rem;
+}
+
+.theme-toggle {
+  display: inline-flex;
+  width: 2rem;
+  height: 2rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.5rem;
+  border: 1px solid rgb(var(--ink-700));
+  background: rgb(var(--ink-900));
+  color: rgb(var(--ink-200));
+  cursor: pointer;
+}
+.theme-toggle:hover {
+  color: rgb(var(--ink-50));
+  border-color: rgb(var(--accent) / 0.5);
+}
+.theme-toggle svg {
+  width: 1rem;
+  height: 1rem;
+}
+.theme-toggle .is-hidden {
+  display: none;
+}
+
+/* ── Building blocks ────────────────────────────────────────────────── */
+
+.page-head > * + * {
+  margin-top: 0.5rem;
+}
+.eyebrow {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: rgb(var(--accent));
+}
+.lede {
+  max-width: 48rem;
+  color: rgb(var(--ink-200));
+}
+.dim {
+  color: rgb(var(--ink-300));
+}
+.small {
+  font-size: 0.82rem;
+}
+.prose {
+  max-width: 48rem;
+}
+.prose > * + * {
+  margin-top: 0.75rem;
+}
+.prose ul {
+  padding-left: 1.2rem;
+  margin: 0.5rem 0 0;
+}
+.prose li + li {
+  margin-top: 0.3rem;
+}
+
+section > * + * {
+  margin-top: 0.85rem;
+}
+
+.card {
+  border: 1px solid rgb(var(--ink-800));
+  background: rgb(var(--ink-900) / 0.55);
+  border-radius: 0.75rem;
+  padding: 1rem 1.15rem;
+}
+.card > * + * {
+  margin-top: 0.6rem;
+}
+
+.callout {
+  border: 1px solid rgb(var(--ink-700));
+  border-left: 3px solid rgb(var(--accent));
+  background: rgb(var(--ink-900) / 0.55);
+  border-radius: 0.5rem;
+  padding: 0.9rem 1.1rem;
+  font-size: 0.88rem;
+}
+.callout h2,
+.callout h3 {
+  font-size: 0.75rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgb(var(--accent));
+}
+.callout ul {
+  margin: 0.5rem 0 0;
+  padding-left: 1.1rem;
+}
+.callout li + li {
+  margin-top: 0.3rem;
+}
+
+.grid {
+  display: grid;
+  gap: 0.85rem;
+  grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+}
+
+.tiles {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
+}
+.tile {
+  border: 1px solid rgb(var(--ink-800));
+  border-top: 3px solid rgb(var(--tone, var(--ink-700)));
+  background: rgb(var(--ink-900) / 0.55);
+  border-radius: 0.6rem;
+  padding: 0.8rem 1rem;
+}
+.tile-value {
+  font-family: var(--font-mono);
+  font-size: 1.6rem;
+  font-weight: 650;
+  color: rgb(var(--ink-50));
+  line-height: 1.2;
+}
+.tile-label {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: rgb(var(--ink-100));
+}
+.tile-note {
+  margin-top: 0.25rem;
+  font-size: 0.76rem;
+  color: rgb(var(--ink-300));
+}
+.tile.tone-unknown {
+  border-top-style: dashed;
+}
+
+/* Tones. Each has a glyph as well as a color; see TONE_GLYPH. */
+.tone-good {
+  --tone: var(--tone-good);
+}
+.tone-claim {
+  --tone: var(--tone-claim);
+}
+.tone-warn {
+  --tone: var(--tone-warn);
+}
+.tone-bad {
+  --tone: var(--tone-bad);
+}
+.tone-unknown {
+  --tone: var(--tone-unknown);
+}
+.tone-muted {
+  --tone: var(--tone-muted);
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  white-space: nowrap;
+  border: 1px solid rgb(var(--tone, var(--ink-600)) / 0.6);
+  background: rgb(var(--tone, var(--ink-600)) / 0.1);
+  border-radius: 999px;
+  padding: 0.05rem 0.55rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: rgb(var(--ink-100));
+  line-height: 1.6;
+}
+.chip-glyph {
+  color: rgb(var(--tone, var(--ink-300)));
+  font-weight: 800;
+}
+.chip.tone-unknown {
+  border-style: dashed;
+  background: transparent;
+}
+.chip.tone-muted {
+  background: transparent;
+  color: rgb(var(--ink-300));
+}
+
+/* A status as a single glyph, for dense tables; the label is in title and
+   for screen readers. */
+.cell-status {
+  display: inline-flex;
+  width: 1.45rem;
+  height: 1.45rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.35rem;
+  border: 1px solid rgb(var(--tone) / 0.6);
+  background: rgb(var(--tone) / 0.12);
+  color: rgb(var(--tone));
+  font-weight: 800;
+  font-size: 0.8rem;
+}
+.cell-status.tone-unknown {
+  border-style: dashed;
+  background: transparent;
+}
+.cell-status.tone-muted {
+  border-color: transparent;
+  background: transparent;
+}
+
+.table-wrap {
+  overflow-x: auto;
+  border: 1px solid rgb(var(--ink-800));
+  border-radius: 0.6rem;
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.86rem;
+}
+th,
+td {
+  text-align: left;
+  padding: 0.5rem 0.75rem;
+  vertical-align: top;
+  border-bottom: 1px solid rgb(var(--ink-800));
+}
+th {
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgb(var(--ink-300));
+  background: rgb(var(--ink-900) / 0.7);
+  font-weight: 650;
+  white-space: nowrap;
+}
+tbody tr:last-child td {
+  border-bottom: 0;
+}
+tbody tr:hover td {
+  background: rgb(var(--ink-900) / 0.45);
+}
+td.num,
+th.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+td.center,
+th.center {
+  text-align: center;
+}
+
+.kv {
+  display: grid;
+  grid-template-columns: minmax(9rem, max-content) 1fr;
+  gap: 0.4rem 1.25rem;
+  font-size: 0.88rem;
+}
+.kv dt {
+  color: rgb(var(--ink-300));
+}
+.kv dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+details > summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: rgb(var(--ink-50));
+}
+details[open] > summary {
+  margin-bottom: 0.75rem;
+}
+
+.filter {
+  width: 100%;
+  max-width: 24rem;
+  padding: 0.45rem 0.7rem;
+  border-radius: 0.5rem;
+  border: 1px solid rgb(var(--ink-700));
+  background: rgb(var(--ink-900));
+  color: rgb(var(--ink-50));
+  font: inherit;
+}
+
+.reasons {
+  margin: 0.35rem 0 0;
+  padding-left: 1.1rem;
+  font-size: 0.85rem;
+  color: rgb(var(--ink-200));
+}
+
+.inline-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.5rem;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ── Charts ─────────────────────────────────────────────────────────────
+   Status marks use their own steps (validated for color-vision deficiency
+   against each surface); "unknown" is grey and hatched, so it never reads
+   as a value. Text inside a mark uses the matching on-color. */
+:root {
+  --chart-good: 47 143 31;
+  --chart-unknown: 140 143 161;
+  --chart-bad: 210 15 57;
+  --chart-line: 136 57 239;
+  --chart-on-good: 255 255 255;
+  --chart-on-unknown: 30 30 46;
+  --chart-on-bad: 255 255 255;
+}
+.dark {
+  --chart-good: 64 160 43;
+  --chart-unknown: 127 132 156;
+  --chart-bad: 230 69 83;
+  --chart-line: 203 166 247;
+  --chart-on-good: 30 30 46;
+  --chart-on-unknown: 30 30 46;
+  --chart-on-bad: 30 30 46;
+}
+
+.chart {
+  margin: 0;
+  border: 1px solid rgb(var(--ink-800));
+  background: rgb(var(--ink-900) / 0.55);
+  border-radius: 0.6rem;
+  padding: 0.75rem 0.9rem 0.5rem;
+}
+.chart figcaption {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: rgb(var(--ink-50));
+}
+.chart figcaption .dim {
+  font-weight: 400;
+}
+.chart svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+.chart .axis {
+  stroke: rgb(var(--ink-700));
+  stroke-width: 1;
+}
+.chart .tick {
+  fill: rgb(var(--ink-300));
+  font-size: 10px;
+  font-family: var(--font-sans);
+}
+.chart .value-label {
+  fill: rgb(var(--ink-50));
+  font-size: 11px;
+  font-weight: 650;
+  font-family: var(--font-sans);
+}
+.chart .line {
+  fill: none;
+  stroke: rgb(var(--chart-line));
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.chart .dot {
+  fill: rgb(var(--chart-line));
+  stroke: rgb(var(--ink-950));
+  stroke-width: 2;
+}
+.chart .gap-mark {
+  fill: rgb(var(--ink-300));
+  font-size: 11px;
+  font-weight: 700;
+  font-family: var(--font-sans);
+}
+.chart .hit {
+  fill: transparent;
+}
+.chart .hit:hover + .dot,
+.chart .hit:focus + .dot {
+  stroke: rgb(var(--ink-50));
+}
+.seg-good {
+  fill: rgb(var(--chart-good));
+}
+.seg-unknown {
+  fill: rgb(var(--chart-unknown));
+}
+.seg-bad {
+  fill: rgb(var(--chart-bad));
+}
+.seg-label {
+  font-size: 11px;
+  font-weight: 700;
+  font-family: var(--font-sans);
+}
+.seg-label.on-good {
+  fill: rgb(var(--chart-on-good));
+}
+.seg-label.on-unknown {
+  fill: rgb(var(--chart-on-unknown));
+}
+.seg-label.on-bad {
+  fill: rgb(var(--chart-on-bad));
+}
+.hatch-line {
+  stroke: rgb(var(--ink-950) / 0.55);
+  stroke-width: 1.5;
+}
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 1rem;
+  font-size: 0.82rem;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.swatch {
+  display: inline-block;
+  width: 0.85rem;
+  height: 0.85rem;
+  border-radius: 3px;
+}
+.swatch.good {
+  background: rgb(var(--chart-good));
+}
+.swatch.bad {
+  background: rgb(var(--chart-bad));
+}
+.swatch.unknown {
+  background: repeating-linear-gradient(45deg, rgb(var(--chart-unknown)) 0 3px, rgb(var(--ink-950) / 0.55) 3px 4.5px);
+}
+.multiples {
+  display: grid;
+  gap: 0.85rem;
+  grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr));
+}
+
+.nowrap {
+  white-space: nowrap;
+}
+th.tight,
+td.tight {
+  padding-left: 0.3rem;
+  padding-right: 0.3rem;
+}
+td .mono,
+td.mono,
+td code {
+  overflow-wrap: anywhere;
+}
+.chart svg[width] {
+  max-width: 100%;
+  width: auto;
+}

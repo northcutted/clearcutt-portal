@@ -1,0 +1,68 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import PackagesUnknown from '../../components/PackagesUnknown.astro';
+import { loadBundle } from '../../lib/bundle.ts';
+import { packageGroups } from '../../lib/estate.ts';
+import { plural } from '../../lib/format.ts';
+import { href } from '../../lib/site.ts';
+
+const { report } = loadBundle();
+const groups = packageGroups(report);
+const { known, unknown } = report.summary.packages;
+---
+<Layout title="Packages" description="Which images ship which package versions.">
+  <header class="page-head">
+    <p class="eyebrow">Packages</p>
+    <h1>Which images ship a package</h1>
+    <p class="lede">
+      {plural(groups.length, 'package')} in {plural(report.packages.length, 'version')}, read from the package sets of
+      {plural(known, 'image')}. {unknown > 0 ? `${plural(unknown, 'image is', 'images are')} not covered.` : ''}
+    </p>
+  </header>
+
+  <PackagesUnknown />
+
+  <section aria-labelledby="list">
+    <h2 id="list">All packages</h2>
+    <p><input class="filter" type="search" placeholder="Filter by name or type, e.g. openssl" aria-label="Filter packages" data-filter /></p>
+    <p class="small dim" data-count aria-live="polite"></p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Package</th><th>Type</th><th>Versions</th><th class="num">Images</th></tr></thead>
+        <tbody>
+          {groups.map((g) => (
+            <tr data-text={`${g.name} ${g.type}`.toLowerCase()}>
+              <td><a href={href(`packages/${g.slug}/`)}>{g.name}</a></td>
+              <td>{g.type}</td>
+              <td class="mono small">{g.versions.map((v) => v.version).join(', ')}</td>
+              <td class="num">{g.images.length}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  </section>
+</Layout>
+
+<script>
+  const input = document.querySelector<HTMLInputElement>('[data-filter]');
+  const count = document.querySelector<HTMLElement>('[data-count]');
+  const rows = [...document.querySelectorAll<HTMLElement>('tr[data-text]')];
+  const apply = () => {
+    const q = input!.value.trim().toLowerCase();
+    let shown = 0;
+    for (const row of rows) {
+      row.hidden = q !== '' && !row.dataset.text!.includes(q);
+      if (!row.hidden) shown++;
+    }
+    count!.textContent = q === '' ? '' : `${shown} of ${rows.length} packages match.`;
+  };
+  input?.addEventListener('input', apply);
+  if (input) {
+    const q = new URLSearchParams(location.search).get('q');
+    if (q) {
+      input.value = q;
+      apply();
+    }
+  }
+</script>

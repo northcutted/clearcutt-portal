@@ -1,0 +1,63 @@
+---
+// Verdicts per run, newest first: verified, unverified, failed. Each segment
+// carries its count when it fits; the table below the chart has every value.
+import type { HistoryEntry } from '../lib/contract.gen.ts';
+import { stack } from '../lib/charts.ts';
+import { formatTime } from '../lib/format.ts';
+import { TONE_GLYPH } from '../lib/present.ts';
+
+interface Props {
+  entries: HistoryEntry[];
+}
+const entries = [...Astro.props.entries].sort((a, b) => b.generatedAt.localeCompare(a.generatedAt));
+const W = 1100;
+const LABEL = 170;
+const BAR = 16;
+const ROW = 26;
+const H = entries.length * ROW + 4;
+const kinds = [
+  { key: 'verified', cls: 'good', label: 'Verified' },
+  { key: 'unverified', cls: 'unknown', label: 'Unverified' },
+  { key: 'failed', cls: 'bad', label: 'Failed' },
+] as const;
+const fits = (text: string, width: number) => width >= text.length * 7 + 12;
+---
+<figure class="chart">
+  <figcaption>Verdicts per run</figcaption>
+  <ul class="legend" aria-hidden="true">
+    <li><span class="swatch good"></span>{TONE_GLYPH.good} Verified</li>
+    <li><span class="swatch unknown"></span>{TONE_GLYPH.unknown} Unverified</li>
+    <li><span class="swatch bad"></span>{TONE_GLYPH.bad} Failed</li>
+  </ul>
+  <svg viewBox={`0 0 ${W} ${H}`} width={W} role="img" aria-label="Verdicts per run; the table below lists every value.">
+    <defs>
+      <pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+        <line class="hatch-line" x1="0" y1="0" x2="0" y2="6" />
+      </pattern>
+    </defs>
+    {entries.map((entry, i) => {
+      const v = entry.summary.verdicts;
+      const y = i * ROW + 4;
+      const segs = stack(kinds.map((k) => ({ key: k.key, value: v[k.key] })), W - LABEL, 2);
+      return (
+        <g>
+          <text class="tick" x={LABEL - 10} y={y + BAR - 4} text-anchor="end">{formatTime(entry.generatedAt)}</text>
+          {segs.map((s) => {
+            const kind = kinds.find((k) => k.key === s.key)!;
+            return (
+              <g>
+                <rect class={`seg-${kind.cls}`} x={LABEL + s.x} y={y} width={s.width} height={BAR} rx="3">
+                  <title>{formatTime(entry.generatedAt)}: {s.value} {kind.label.toLowerCase()}</title>
+                </rect>
+                {kind.cls === 'unknown' && <rect x={LABEL + s.x} y={y} width={s.width} height={BAR} rx="3" fill="url(#hatch)" pointer-events="none" />}
+                {fits(String(s.value), s.width) && (
+                  <text class={`seg-label on-${kind.cls}`} x={LABEL + s.x + 6} y={y + BAR - 4} pointer-events="none">{s.value}</text>
+                )}
+              </g>
+            );
+          })}
+        </g>
+      );
+    })}
+  </svg>
+</figure>

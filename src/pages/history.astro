@@ -1,0 +1,165 @@
+---
+import Layout from '../layouts/Layout.astro';
+import LineChart from '../components/LineChart.astro';
+import VerdictBars from '../components/VerdictBars.astro';
+import type { HistoryEntry, Summary } from '../lib/contract.gen.ts';
+import type { Point } from '../lib/charts.ts';
+import { loadBundle } from '../lib/bundle.ts';
+import { chronological } from '../lib/estate.ts';
+import { formatTime, plural } from '../lib/format.ts';
+import { TONE_GLYPH, type Tone } from '../lib/present.ts';
+
+const { history } = loadBundle();
+const series = chronological(history);
+const newestFirst = [...series].reverse();
+const latest = newestFirst[0];
+const previous = newestFirst[1];
+
+// Vulnerability totals cover scanned images only; with none scanned they are
+// unknown, not zero.
+const vuln = (s: Summary, sev: 'critical' | 'high') => (s.vulnerabilities.scanned > 0 ? s.vulnerabilities.counts[sev] : null);
+const verified = (s: Summary, kind: string) => s.evidence[kind]?.verified ?? null;
+
+const measures: { title: string; note?: string; value: (s: Summary) => number | null; up: 'good' | 'bad' }[] = [
+  { title: 'Verified images', value: (s) => s.verdicts.verified, up: 'good' },
+  { title: 'Failed images', value: (s) => s.verdicts.failed, up: 'bad' },
+  { title: 'Unverified images', value: (s) => s.verdicts.unverified, up: 'bad' },
+  { title: 'Images on a stale base', value: (s) => s.bases.stale, up: 'bad' },
+  { title: 'Bases proven by layer digests', value: (s) => s.bases.proven, up: 'good' },
+  { title: 'Critical findings', note: 'scanned images only', value: (s) => vuln(s, 'critical'), up: 'bad' },
+  { title: 'High findings', note: 'scanned images only', value: (s) => vuln(s, 'high'), up: 'bad' },
+  { title: 'Images with no vulnerability data', value: (s) => s.vulnerabilities.notScanned, up: 'bad' },
+  { title: 'Signatures verified', value: (s) => verified(s, 'signature'), up: 'good' },
+  { title: 'Reproduced', value: (s) => s.reproducibility.reproduced, up: 'good' },
+];
+
+const points = (value: (s: Summary) => number | null): Point[] =>
+  series.map((e: HistoryEntry) => ({ at: e.generatedAt, value: value(e.summary) }));
+
+function delta(m: (typeof measures)[number]): { text: string; tone: Tone } | null {
+  if (!latest || !previous) return null;
+  const a = m.value(previous.summary);
+  const b = m.value(latest.summary);
+  if (a === null || b === null) return { text: 'change unknown', tone: 'unknown' };
+  const d = b - a;
+  if (d === 0) return { text: 'no change', tone: 'muted' };
+  const better = (d > 0) === (m.up === 'good');
+  return { text: `${d > 0 ? '+' : ''}${d} since the previous run`, tone: better ? 'good' : 'warn' };
+}
+const headline = measures.slice(0, 8);
+---
+<Layout title="History" description="How the estate's verdicts, bases, and findings changed from run to run.">
+  <header class="page-head">
+    <p class="eyebrow">History and trends</p>
+    <h1>History</h1>
+    <p class="lede">
+      How the estate's headline numbers changed from one clearcutt-verify run to the next. Each run is compared with
+      the policy in force at the time.
+    </p>
+  </header>
+
+  {!history ? (
+    <section class="card">
+      <h2>No history in this bundle</h2>
+      <p>
+        This bundle has only the current report. clearcutt-verify writes <code>estate-history.json</code> when it is given
+        earlier runs; until then there is no trend to show, and nothing here should be read as "no change".
+      </p>
+    </section>
+  ) : (
+    <>
+      <section aria-labelledby="latest">
+        <h2 id="latest">Latest run</h2>
+        <p class="small dim">
+          {formatTime(latest!.generatedAt)}{previous ? `, compared with ${formatTime(previous.generatedAt)}` : ''}.
+          {plural(series.length, 'run')} recorded.
+        </p>
+        <div class="tiles">
+          {headline.map((m) => {
+            const value = m.value(latest!.summary);
+            const d = delta(m);
+            return (
+              <div class={`tile ${value === null ? 'tone-unknown' : ''}`}>
+                <p class="tile-value">{value === null ? '?' : value}</p>
+                <p class="tile-label">{m.title}</p>
+                <p class="tile-note">
+                  {value === null ? 'unknown: no image was scanned' : d ? <><span class={`chip-glyph tone-${d.tone}`}>{TONE_GLYPH[d.tone]}</span> {d.text}</> : 'one run so far'}
+                </p>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
+      {series.length < 2 ? (
+        <p>One run so far. A trend needs at least two.</p>
+      ) : (
+        <>
+          <section aria-labelledby="verdicts">
+            <h2 id="verdicts">Verdicts</h2>
+            <VerdictBars entries={series} />
+          </section>
+
+          <section aria-labelledby="trends">
+            <h2 id="trends">Trends</h2>
+            <p class="lede small">
+              One chart per measure, each on its own scale. Finding counts cover only the images that had vulnerability
+              data in that run; a change in how many were scanned moves them too.
+            </p>
+            <div class="multiples">
+              {measures.map((m) => <LineChart title={m.title} note={m.note} points={points(m.value)} />)}
+            </div>
+          </section>
+        </>
+      )}
+
+      <section aria-labelledby="runs">
+        <h2 id="runs">Every run</h2>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Run</th><th class="num">Images</th><th class="num">Verified</th><th class="num">Failed</th><th class="num">Unverified</th>
+                <th class="num">Stale</th><th class="num">Proven</th><th class="num">Claimed</th><th class="num">Unresolved</th>
+                <th class="num">Critical</th><th class="num">High</th><th class="num">Not scanned</th><th class="num">Reproduced</th>
+              </tr>
+            </thead>
+            <tbody>
+              {newestFirst.map((e) => {
+                const s = e.summary;
+                const scanned = s.vulnerabilities.scanned > 0;
+                return (
+                  <tr>
+                    <td>{formatTime(e.generatedAt)}{e.ref && <div class="dim small mono">{e.ref}</div>}</td>
+                    <td class="num">{s.images}</td>
+                    <td class="num">{s.verdicts.verified}</td>
+                    <td class="num">{s.verdicts.failed}</td>
+                    <td class="num">{s.verdicts.unverified}</td>
+                    <td class="num">{s.bases.stale}</td>
+                    <td class="num">{s.bases.proven}</td>
+                    <td class="num">{s.bases.claimed}</td>
+                    <td class="num">{s.bases.unresolved}</td>
+                    <td class="num">{scanned ? s.vulnerabilities.counts.critical : '?'}</td>
+                    <td class="num">{scanned ? s.vulnerabilities.counts.high : '?'}</td>
+                    <td class="num">{s.vulnerabilities.notScanned}</td>
+                    <td class="num">{s.reproducibility.reproduced}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        <p class="small dim">? means unknown: no image had vulnerability data in that run.</p>
+      </section>
+
+      <aside class="callout" aria-labelledby="limits">
+        <h2 id="limits">Reading a trend</h2>
+        <ul>
+          <li>Each run is judged against the policy in force when it ran. A change in policy changes the verdicts without any image changing.</li>
+          <li>A run that read fewer images, or scanned fewer, can look better without anything having improved. Compare the image and not-scanned counts first.</li>
+          <li>The history holds each run's headline numbers only. What changed for a particular image isn't recorded.</li>
+        </ul>
+      </aside>
+    </>
+  )}
+</Layout>

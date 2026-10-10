@@ -1,0 +1,72 @@
+---
+// What the images were held to in this run.
+import type { Policy, Signer } from '../lib/contract.gen.ts';
+import { EVIDENCE_KINDS } from '../lib/present.ts';
+
+interface Props {
+  policy: Policy;
+}
+const { policy } = Astro.props;
+const kindLabel = (key: string) => EVIDENCE_KINDS.find((k) => k.key === key)?.label ?? key;
+
+function signerLines(s: Signer): [string, string][] {
+  const lines: [string, string][] = [];
+  if (s.identity) lines.push(['Identity', s.identity]);
+  if (s.identityRegexp) lines.push(['Identity matching', s.identityRegexp]);
+  if (s.issuer) lines.push(['Issuer', s.issuer]);
+  if (s.key) lines.push(['Key', s.key]);
+  if (s.sourceRepository) lines.push(['Run in repository', s.sourceRepository]);
+  if (s.sourceRepositoryOwner) lines.push(['Run in a repository of', s.sourceRepositoryOwner]);
+  if (s.sourceRef) lines.push(['Run on ref', s.sourceRef]);
+  if (s.sourceMatchesImage) lines.push(['Run in', "the repository the image names as its source"]);
+  return lines;
+}
+---
+<section aria-labelledby="policy">
+  <h2 id="policy">Policy</h2>
+  <dl class="kv">
+    <dt>Required, verified</dt>
+    <dd>{policy.required.length > 0 ? policy.required.map(kindLabel).join(', ') : 'nothing'}</dd>
+    <dt>Vulnerabilities</dt>
+    <dd>
+      {policy.failOn
+        ? `fail at ${policy.failOn} or above${policy.onlyFixed ? ', counting only findings with a fix' : ''}`
+        : 'never fail on findings'}
+    </dd>
+    <dt>Base age</dt>
+    <dd>{policy.maxDaysBehind ? `fail when more than ${policy.maxDaysBehind} days behind` : 'no limit'}</dd>
+    <dt>Rebuilds</dt>
+    <dd>{policy.reproduce ? 'this run rebuilt images to check them' : "this run didn't rebuild images"}</dd>
+    <dt>Trusted signers</dt>
+    <dd>
+      {policy.trustedSigners.length === 0 ? (
+        'none: nothing could be verified, only found'
+      ) : (
+        <ol class="signers">
+          {policy.trustedSigners.map((s) => (
+            <li>
+              <dl class="kv">
+                {signerLines(s).map(([k, v]) => (
+                  <>
+                    <dt>{k}</dt>
+                    <dd><code>{v}</code></dd>
+                  </>
+                ))}
+              </dl>
+            </li>
+          ))}
+        </ol>
+      )}
+    </dd>
+  </dl>
+</section>
+
+<style>
+  .signers {
+    margin: 0;
+    padding-left: 1.2rem;
+  }
+  .signers > li + li {
+    margin-top: 0.6rem;
+  }
+</style>

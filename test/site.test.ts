@@ -1,7 +1,7 @@
 // Builds real sites from the vendored bundles and checks what they say.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, readdirSync, realpathSync, statSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { before, describe, test } from 'node:test';
@@ -149,6 +149,31 @@ describe('the CLI', () => {
     );
     assert.equal(run.status, 0, `build failed:\n${run.stdout}\n${run.stderr}`);
     assert.ok(readFileSync(path.join(cwd, 'site/index.html'), 'utf8').includes('example-estate'));
+  });
+
+  test('builds into a directory whose path starts with the portal\'s', () => {
+    // Astro compares paths as strings: /x/clearcutt-portal-site looks like
+    // it is inside /x/clearcutt-portal.
+    const out = `${root}-site-test`;
+    try {
+      const run = cli('build', '--bundle', MINIMAL, '--out', out);
+      assert.equal(run.status, 0, `build failed:\n${run.stdout}\n${run.stderr}`);
+      assert.ok(readFileSync(path.join(out, 'index.html'), 'utf8').includes('example-estate'));
+      assert.ok(!existsSync(path.join(out, '.prerender')));
+    } finally {
+      rmSync(out, { recursive: true, force: true });
+    }
+  });
+
+  test('rebuilds over an earlier site, but not over other files', () => {
+    const out = build(MINIMAL);
+    assert.equal(cli('build', '--bundle', MINIMAL, '--out', out).status, 0);
+    const other = mkdtempSync(path.join(tmpdir(), 'portal-other-'));
+    writeFileSync(path.join(other, 'keep.txt'), 'mine');
+    const run = cli('build', '--bundle', MINIMAL, '--out', other);
+    assert.equal(run.status, 2);
+    assert.match(run.stderr, /not empty, and not a site this command built/);
+    assert.equal(readFileSync(path.join(other, 'keep.txt'), 'utf8'), 'mine');
   });
 
   test('usage errors exit 2', () => {

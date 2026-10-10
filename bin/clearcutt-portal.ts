@@ -7,6 +7,7 @@
 // build validates the bundle against the vendored contract, then renders the
 // site into --out (default _site). check only validates. Both exit 1 when the
 // bundle doesn't match the contract, and 2 on a usage error.
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, renameSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
@@ -71,6 +72,11 @@ if (values.site) {
 }
 const base = `/${values.base!.replace(/^\/+|\/+$/g, '')}`;
 const outDir = path.resolve(values.out!);
+// The site replaces --out, so only an empty directory or an earlier site may
+// be there.
+if (existsSync(outDir) && readdirSync(outDir).length > 0 && !existsSync(path.join(outDir, 'estate-report.json'))) {
+  fail(`--out ${outDir}: not empty, and not a site this command built; choose another directory`, 2);
+}
 
 process.env[BUNDLE_ENV] = bundleDir;
 if (values.title) process.env[TITLE_ENV] = values.title;
@@ -78,18 +84,26 @@ if (values.title) process.env[TITLE_ENV] = values.title;
 // else's CI shouldn't phone home.
 process.env.ASTRO_TELEMETRY_DISABLED = '1';
 
-// Astro resolves its own dependencies, and stages prerendered chunks, from
-// the working directory; run it from the portal's. Every path the user gave
-// is already absolute.
+// Astro stages prerendered chunks next to its output and imports them from
+// there, so the output must be inside the portal's directory, where its
+// node_modules are; and it decides "inside" by comparing path strings (an
+// --out of /x/portal-site counts as inside /x/portal). Build into a staging
+// directory that really is inside, from the portal's directory, then move
+// the site to --out. Every path the user gave is already absolute.
 const root = fileURLToPath(new URL('..', import.meta.url));
 process.chdir(root);
-
-const { build } = await import('astro');
-await build({
-  root,
-  outDir,
-  site,
-  base,
-  logLevel: 'warn',
-});
+const staging = mkdtempSync(path.join(root, '.build-'));
+try {
+  const { build } = await import('astro');
+  await build({ root, outDir: staging, site, base, logLevel: 'warn' });
+  rmSync(outDir, { recursive: true, force: true });
+  mkdirSync(path.dirname(outDir), { recursive: true });
+  try {
+    renameSync(staging, outDir);
+  } catch {
+    cpSync(staging, outDir, { recursive: true });
+  }
+} finally {
+  rmSync(staging, { recursive: true, force: true });
+}
 console.log(`${outDir}: site for ${images} images, served from ${site ? new URL(base, site).href : base}`);

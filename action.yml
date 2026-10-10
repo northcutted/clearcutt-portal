@@ -1,0 +1,125 @@
+# Builds a ClearCutt portal: a static website for an image estate, from the
+# bundle clearcutt-verify writes (estate-report.json, and optionally
+# estate-history.json).
+#
+#   - uses: northcutted/clearcutt-portal@v0.1.0
+#     with:
+#       bundle: verify-out
+#
+# At a release tag, the action downloads that release's source archive and
+# verifies its Sigstore signature (made by this repository's release workflow
+# at that tag) before installing its locked dependencies and building. At any
+# other ref, or as a local action (uses: ./), it builds from the action's own
+# source. Either way the build reads only the bundle: nothing contacts a
+# registry, and the site loads nothing from another origin.
+name: ClearCutt Portal
+description: Build a static website for an image estate from clearcutt-verify's estate report
+author: northcutted
+branding:
+  icon: layers
+  color: purple
+inputs:
+  bundle:
+    description: Directory with estate-report.json (and optionally estate-history.json), as clearcutt-verify writes it.
+    required: true
+  output:
+    description: Directory to write the site to.
+    required: false
+    default: _site
+  site-url:
+    description: Origin the site is served from, e.g. https://acme.github.io. Optional; used for absolute URLs.
+    required: false
+    default: ""
+  base-path:
+    description: Path the site is served under, e.g. /images-portal for a GitHub Pages project site.
+    required: false
+    default: /
+  title:
+    description: Site title. Default is the estate's name from the report.
+    required: false
+    default: ""
+  version:
+    description: Release to use, e.g. v0.1.0. Default is the tag this action was used at; "source" (or a non-tag ref) builds from the action's source.
+    required: false
+    default: ""
+outputs:
+  dir:
+    description: Absolute path of the built site.
+    value: ${{ steps.build.outputs.dir }}
+  version:
+    description: The portal version used ("source" when built from source).
+    value: ${{ steps.version.outputs.version }}
+runs:
+  using: composite
+  steps:
+    - name: Choose the version
+      id: version
+      shell: bash
+      env:
+        INPUT: ${{ inputs.version }}
+        ACTION_REF: ${{ github.action_ref }}
+      run: |
+        v=$INPUT
+        if [ -z "$v" ] && [[ "$ACTION_REF" =~ ^v[0-9] ]]; then v=$ACTION_REF; fi
+        if [ -z "$v" ] || ! [[ "$v" =~ ^v[0-9] ]]; then v=source; fi
+        echo "version=$v" >> "$GITHUB_OUTPUT"
+
+    - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      with:
+        node-version: 24
+    - if: steps.version.outputs.version != 'source'
+      uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+    - name: Install clearcutt-portal
+      id: install
+      shell: bash
+      env:
+        VERSION: ${{ steps.version.outputs.version }}
+        SRC: ${{ github.action_path }}
+        ACTION_REF: ${{ github.action_ref }}
+        REPO: northcutted/clearcutt-portal
+      run: |
+        set -euo pipefail
+        if [ "$VERSION" = source ]; then
+          dir=$SRC
+          label="source@${ACTION_REF:-$(git -C "$SRC" rev-parse --short HEAD 2>/dev/null || echo unknown)}"
+        else
+          asset="clearcutt-portal-$VERSION.tar.gz"
+          url="https://github.com/$REPO/releases/download/$VERSION"
+          work="$RUNNER_TEMP/clearcutt-portal"
+          mkdir -p "$work"
+          curl -fsSL --retry 3 -o "$work/$asset" "$url/$asset"
+          curl -fsSL --retry 3 -o "$work/$asset.sigstore.json" "$url/$asset.sigstore.json"
+          cosign verify-blob \
+            --bundle "$work/$asset.sigstore.json" \
+            --certificate-identity "https://github.com/$REPO/.github/workflows/release.yml@refs/tags/$VERSION" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            "$work/$asset"
+          tar -xzf "$work/$asset" -C "$work"
+          dir="$work/clearcutt-portal-$VERSION"
+          label=$VERSION
+        fi
+        # The lockfile pins every dependency by integrity hash; install
+        # scripts don't run.
+        (cd "$dir" && npm ci --ignore-scripts --no-audit --no-fund)
+        echo "dir=$dir" >> "$GITHUB_OUTPUT"
+        echo "label=$label" >> "$GITHUB_OUTPUT"
+
+    - name: Build the site
+      id: build
+      shell: bash
+      env:
+        PORTAL: ${{ steps.install.outputs.dir }}
+        CLEARCUTT_PORTAL_VERSION: ${{ steps.install.outputs.label }}
+        BUNDLE: ${{ inputs.bundle }}
+        OUTPUT: ${{ inputs.output }}
+        SITE_URL: ${{ inputs.site-url }}
+        BASE_PATH: ${{ inputs.base-path }}
+        TITLE: ${{ inputs.title }}
+      run: |
+        set -euo pipefail
+        args=(build --bundle "$BUNDLE" --out "$OUTPUT" --base "${BASE_PATH:-/}")
+        if [ -n "$SITE_URL" ]; then args+=(--site "$SITE_URL"); fi
+        if [ -n "$TITLE" ]; then args+=(--title "$TITLE"); fi
+        node "$PORTAL/bin/clearcutt-portal.ts" "${args[@]}"
+        echo "dir=$(cd "$OUTPUT" && pwd)" >> "$GITHUB_OUTPUT"

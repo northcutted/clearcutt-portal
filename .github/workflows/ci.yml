@@ -1,0 +1,75 @@
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Types check, and match the vendored contract
+        run: npm run check
+      - run: npm test
+      - name: The vendored contract matches clearcutt-verify at the pinned commit
+        run: scripts/sync-contract.sh --check
+
+  # The action as a fleet uses it, from source.
+  action:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - id: portal
+        uses: ./
+        with:
+          bundle: contract/examples/minimal
+          base-path: /some-portal
+          title: CI
+      - name: The site is there, under the base path
+        env:
+          DIR: ${{ steps.portal.outputs.dir }}
+        run: |
+          test -f "$DIR/index.html"
+          test -f "$DIR/images/docker-io-library-redis/index.html"
+          grep -q 'href="/some-portal/bases/"' "$DIR/index.html"
+          grep -q '<title>Overview · CI</title>' "$DIR/index.html"
+
+  # What a release publishes: the source archive alone must build.
+  archive:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - run: |
+          git archive --format=tar.gz --prefix=clearcutt-portal-test/ -o "$RUNNER_TEMP/portal.tar.gz" HEAD
+          tar -xzf "$RUNNER_TEMP/portal.tar.gz" -C "$RUNNER_TEMP"
+          cd "$RUNNER_TEMP/clearcutt-portal-test"
+          npm ci --ignore-scripts --no-audit --no-fund
+          node bin/clearcutt-portal.ts build --bundle "$GITHUB_WORKSPACE/contract/fixtures/northcutted-images" --out "$RUNNER_TEMP/site"
+          test -f "$RUNNER_TEMP/site/images/platform-tools/index.html"
+
+  actionlint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: actionlint
+        run: |
+          bash <(curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/914e7df21a07ef503a81201c76d2b11c789d3fca/scripts/download-actionlint.bash) 1.7.12
+          ./actionlint -color

@@ -1,0 +1,60 @@
+# Publishes a release when a v* tag is pushed: the source archive the action
+# builds from (git archive of the tag), signed keylessly by this workflow (a
+# Sigstore bundle next to it) and covered by SLSA provenance, plus SHA256SUMS.
+# The action (action.yml) verifies the signature against this workflow's
+# identity at the tag before building with it.
+#
+# Cut a release with scripts/release.sh vX.Y.Z.
+name: release
+on:
+  push:
+    tags: ["v*"]
+permissions:
+  contents: read
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the release
+      id-token: write # keyless signing and provenance
+      attestations: write # provenance
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm run check && npm test
+
+      - name: Package
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: |
+          [ "v$(node -p 'require("./package.json").version')" = "$VERSION" ] || { echo "::error::package.json version is not $VERSION"; exit 1; }
+          mkdir -p dist
+          # git archive is deterministic: anyone can rerun this at the tag
+          # and compare the digest.
+          git archive --format=tar.gz --prefix="clearcutt-portal-$VERSION/" -o "dist/clearcutt-portal-$VERSION.tar.gz" "$VERSION"
+
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: dist/clearcutt-portal-*.tar.gz
+
+      - name: Sign
+        run: |
+          for f in dist/clearcutt-portal-*.tar.gz; do
+            cosign sign-blob --yes --bundle "$f.sigstore.json" "$f"
+          done
+          (cd dist && sha256sum clearcutt-portal-*.tar.gz > SHA256SUMS)
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ github.ref_name }}
+        run: |
+          # The CHANGELOG section for this version is the release notes.
+          awk -v v="## $VERSION" '$0 ~ "^## " { p = (index($0, v) == 1) } p' CHANGELOG.md | tail -n +2 > notes.md
+          gh release create "$VERSION" dist/* --title "$VERSION" --notes-file notes.md --verify-tag

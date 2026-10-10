@@ -85,12 +85,16 @@ jobs:
         with:
           name: ci-bundle
           path: contract/examples/minimal/
+  # GitHub requires the caller to grant what every job in portal.yml asks
+  # for, including the deploy job that deploy: false skips. Only main may
+  # deploy to the github-pages environment, so this can't publish.
   workflow:
     needs: workflow-bundle
     uses: ./.github/workflows/portal.yml
     permissions:
       contents: read
-      pages: read
+      pages: write
+      id-token: write
     with:
       bundle-artifact: ci-bundle
       deploy: false

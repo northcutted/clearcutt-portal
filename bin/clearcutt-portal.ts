@@ -78,9 +78,15 @@ if (values.title) process.env[TITLE_ENV] = values.title;
 // else's CI shouldn't phone home.
 process.env.ASTRO_TELEMETRY_DISABLED = '1';
 
+// Astro resolves its own dependencies, and stages prerendered chunks, from
+// the working directory; run it from the portal's. Every path the user gave
+// is already absolute.
+const root = fileURLToPath(new URL('..', import.meta.url));
+process.chdir(root);
+
 const { build } = await import('astro');
 await build({
-  root: fileURLToPath(new URL('..', import.meta.url)),
+  root,
   outDir,
   site,
   base,

@@ -1,7 +1,7 @@
 // Builds real sites from the vendored bundles and checks what they say.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { mkdtempSync, readFileSync, readdirSync, realpathSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { before, describe, test } from 'node:test';
@@ -136,6 +136,19 @@ describe('the CLI', () => {
     const run = cli('check', '--bundle', MINIMAL);
     assert.equal(run.status, 0, run.stderr);
     assert.match(run.stdout, /clearcutt.dev\/v1 report of 4 images with 2 history entries/);
+  });
+
+  test('builds from any working directory, with relative paths', () => {
+    // A fleet's workflow runs the portal from its own checkout, not the
+    // portal's.
+    const cwd = realpathSync(mkdtempSync(path.join(tmpdir(), 'portal-cwd-')));
+    const run = spawnSync(
+      process.execPath,
+      [path.join(root, 'bin/clearcutt-portal.ts'), 'build', '--bundle', path.relative(cwd, MINIMAL), '--out', 'site'],
+      { cwd, encoding: 'utf8' },
+    );
+    assert.equal(run.status, 0, `build failed:\n${run.stdout}\n${run.stderr}`);
+    assert.ok(readFileSync(path.join(cwd, 'site/index.html'), 'utf8').includes('example-estate'));
   });
 
   test('usage errors exit 2', () => {

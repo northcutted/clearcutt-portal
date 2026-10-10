@@ -1,0 +1,24 @@
+---
+// An image's vulnerability counts in one line, or "unknown" when the image
+// has no vulnerability data: never zero.
+import type { Vulnerabilities } from '../lib/contract.gen.ts';
+import Chip from './Chip.astro';
+
+interface Props {
+  vulnerabilities: Vulnerabilities | undefined;
+}
+const { vulnerabilities: v } = Astro.props;
+const unknown = { label: 'Unknown', tone: 'unknown' as const, meaning: 'No vulnerability data: unknown, not clean.' };
+const total = v ? Object.values(v.counts).reduce((a, b) => a + b, 0) : 0;
+---
+{v ? (
+  total === 0 ? (
+    <span title={`No findings in a report from ${v.scannedAt ?? 'an unknown date'}`}>0 findings</span>
+  ) : (
+    <span class="mono nowrap" title={`${total} findings: ${v.counts.critical} critical, ${v.counts.high} high, ${v.counts.medium} medium, ${v.counts.low} low, ${v.counts.negligible} negligible, ${v.counts.unknown} unknown severity`}>
+      <strong>{v.counts.critical}</strong> C · <strong>{v.counts.high}</strong> H
+    </span>
+  )
+) : (
+  <Chip term={unknown} />
+)}

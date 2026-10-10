@@ -1,0 +1,15 @@
+---
+// A status as a single glyph, for dense tables. The label is in the tooltip
+// and read out by screen readers.
+import { TONE_GLYPH, type Term } from '../lib/present.ts';
+
+interface Props {
+  term: Term;
+  /** What the status is about, e.g. "Signature". */
+  subject: string;
+  detail?: string;
+}
+const { term, subject, detail } = Astro.props;
+const text = `${subject}: ${term.label}${detail ? `. ${detail}` : ''}`;
+---
+<span class={`cell-status tone-${term.tone}`} title={text}><span aria-hidden="true">{TONE_GLYPH[term.tone]}</span><span class="sr-only">{text}</span></span>

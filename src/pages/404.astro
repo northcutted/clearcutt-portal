@@ -1,0 +1,11 @@
+---
+import Layout from '../layouts/Layout.astro';
+import { href } from '../lib/site.ts';
+---
+<Layout title="Not found">
+  <header class="page-head">
+    <h1>Not found</h1>
+    <p class="lede">There's no page here. Image pages are named by the image's ID in the report, which can change if the image leaves the estate.</p>
+    <p><a href={href('')}>Back to the overview</a></p>
+  </header>
+</Layout>

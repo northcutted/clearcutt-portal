@@ -1,0 +1,74 @@
+---
+// One base repository and the images built on it, recursively.
+import type { BaseNode } from '../lib/estate.ts';
+import { imageLabel } from '../lib/estate.ts';
+import { formatDay, plural } from '../lib/format.ts';
+import { drift, method, strength, verdict } from '../lib/present.ts';
+import { href } from '../lib/site.ts';
+import Chip from './Chip.astro';
+import Digest from './Digest.astro';
+
+interface Props {
+  node: BaseNode;
+}
+const { node } = Astro.props;
+const b = node.base;
+---
+<div class="base-node">
+  <p>
+    <strong class="mono">{node.repository}</strong>
+    {node.images.map((image) => (
+      <> · <a href={href(`images/${image.id}/`)}>{imageLabel(image)}</a> <Chip term={verdict(image.verdict.status)} /></>
+    ))}
+  </p>
+  {b && (
+    <p class="small dim">
+      Newest observed: <code>{b.currentRef}</code> <Digest digest={b.currentDigest} />
+      {b.currentCreated && <>, created {formatDay(b.currentCreated)}</>}
+      {' · '}{plural(b.consumers, 'consumer')} on {plural(b.versions, 'version')}
+      {b.staleConsumers > 0 && <>, <strong>{b.staleConsumers} stale</strong></>}
+    </p>
+  )}
+  {node.consumers.length > 0 && (
+    <ul class="consumers">
+      {node.consumers.map((c) => (
+        <li>
+          <p>
+            <a href={href(`images/${c.image.id}/`)}>{imageLabel(c.image)}</a>{' '}
+            <Chip term={strength(c.link.strength)} title={`By ${method(c.link.method)}. ${strength(c.link.strength).meaning}`} />{' '}
+            <Chip
+              term={drift(c.link.drift)}
+              label={c.link.drift === 'stale' ? `${c.link.daysBehind} days behind` : undefined}
+            />{' '}
+            <span class="dim small">on <code>{c.link.ref}</code> <Digest digest={c.link.digest} /></span>
+          </p>
+          {c.asBase && <Astro.self node={c.asBase} />}
+        </li>
+      ))}
+    </ul>
+  )}
+</div>
+
+<style>
+  .base-node > * + * {
+    margin-top: 0.3rem;
+  }
+  .consumers {
+    list-style: none;
+    margin: 0.5rem 0 0 0.4rem;
+    padding: 0 0 0 1rem;
+    border-left: 2px solid rgb(var(--ink-700));
+  }
+  .consumers > li {
+    position: relative;
+    padding: 0.25rem 0;
+  }
+  .consumers > li::before {
+    content: '';
+    position: absolute;
+    left: -1rem;
+    top: 0.95rem;
+    width: 0.7rem;
+    border-top: 2px solid rgb(var(--ink-700));
+  }
+</style>

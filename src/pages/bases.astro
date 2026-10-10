@@ -1,0 +1,143 @@
+---
+import Layout from '../layouts/Layout.astro';
+import BaseTree from '../components/BaseTree.astro';
+import Chip from '../components/Chip.astro';
+import { loadBundle } from '../lib/bundle.ts';
+import { baseGraph, imageLabel, staleImages } from '../lib/estate.ts';
+import { plural } from '../lib/format.ts';
+import { TONE_GLYPH, method, strength, type Tone } from '../lib/present.ts';
+import { href } from '../lib/site.ts';
+
+const { report } = loadBundle();
+const { bases } = report.summary;
+const graph = baseGraph(report);
+const stale = staleImages(report);
+const limit = report.policy.maxDaysBehind;
+
+const tiles: { label: string; value: number; tone: Tone; note: string }[] = [
+  { label: 'Proven', value: bases.proven, tone: 'good', note: 'base established by layer digests' },
+  { label: 'Claimed', value: bases.claimed, tone: 'claim', note: "base named by the image's author, not checked" },
+  { label: 'Unresolved', value: bases.unresolved, tone: bases.unresolved > 0 ? 'unknown' : 'muted', note: 'no base could be determined' },
+  { label: 'Roots', value: bases.roots, tone: 'muted', note: 'base images, or built from scratch' },
+  { label: 'Current', value: bases.current, tone: 'good', note: 'on the newest observed version of their base' },
+  { label: 'Stale', value: bases.stale, tone: bases.stale > 0 ? 'warn' : 'good', note: 'a newer version of their base was observed' },
+];
+const strengths = ['proof', 'declared', 'assisted', 'weak'];
+---
+<Layout title="Bases" description="Which images are built on which, how each relationship is known, and how current each image's base is.">
+  <header class="page-head">
+    <p class="eyebrow">Base-image graph</p>
+    <h1>Bases</h1>
+    <p class="lede">
+      Which images are built on which, how each relationship is known, and how far each image is behind the newest
+      version of its base that this run observed.
+    </p>
+  </header>
+
+  <section aria-label="Summary">
+    <div class="tiles">
+      {tiles.map((t) => (
+        <div class={`tile tone-${t.tone}`}>
+          <p class="tile-value">{t.value}</p>
+          <p class="tile-label">{t.tone !== 'muted' && `${TONE_GLYPH[t.tone]} `}{t.label}</p>
+          <p class="tile-note">{t.note}</p>
+        </div>
+      ))}
+    </div>
+  </section>
+
+  <section aria-labelledby="graph">
+    <h2 id="graph">Graph</h2>
+    {graph.roots.length === 0 ? (
+      <p>No image in this report was found to be built on another.</p>
+    ) : (
+      <div class="grid wide">
+        {graph.roots.map((node) => <div class="card"><BaseTree node={node} /></div>)}
+      </div>
+    )}
+  </section>
+
+  <section aria-labelledby="stale">
+    <h2 id="stale">Stale</h2>
+    {stale.length === 0 ? (
+      <p>No image is behind the newest observed version of its base.</p>
+    ) : (
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Image</th><th>Base</th><th>Newest observed</th><th>How it's known</th><th class="num">Versions behind</th><th class="num">Days behind</th></tr></thead>
+          <tbody>
+            {stale.map((image) => (
+              <tr>
+                <td><a href={href(`images/${image.id}/`)}>{imageLabel(image)}</a></td>
+                <td class="mono small">{image.base.ref}</td>
+                <td class="mono small">{image.base.currentRef ?? '—'}</td>
+                <td><Chip term={strength(image.base.strength)} /></td>
+                <td class="num">{image.base.versionsBehind}</td>
+                <td class="num">{image.base.daysBehind}{limit && image.base.daysBehind > limit ? ` (over ${limit})` : ''}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    )}
+  </section>
+
+  {graph.unresolved.length > 0 && (
+    <section aria-labelledby="unresolved">
+      <h2 id="unresolved">Base unknown</h2>
+      <p class="lede small">These are findings, not omissions: the evidence available didn't establish what these images are built on.</p>
+      <div class="grid">
+        {graph.unresolved.map((image) => (
+          <article class="card">
+            <p><a href={href(`images/${image.id}/`)}>{imageLabel(image)}</a></p>
+            <ul class="reasons">{(image.unresolved ?? []).map((r) => <li>{r}</li>)}</ul>
+          </article>
+        ))}
+      </div>
+    </section>
+  )}
+
+  {graph.standalone.length > 0 && (
+    <section aria-labelledby="standalone">
+      <h2 id="standalone">Roots nothing here is built on</h2>
+      <ul>
+        {graph.standalone.map((image) => (
+          <li><a href={href(`images/${image.id}/`)}>{imageLabel(image)}</a>{image.root && <span class="dim small"> · {image.root}</span>}</li>
+        ))}
+      </ul>
+    </section>
+  )}
+
+  <section aria-labelledby="methods">
+    <h2 id="methods">How a base is known</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Strength</th><th>Method</th><th>What it means</th></tr></thead>
+        <tbody>
+          {strengths.map((s) => (
+            <tr>
+              <td><Chip term={strength(s)} /></td>
+              <td class="small">{s === 'proof' ? method('layer-prefix') : s === 'declared' ? `${method('oci-base-digest')}, ${method('buildpacks-metadata')}` : s === 'assisted' ? method('oci-base-name') : method('history')}</td>
+              <td class="small">{strength(s).meaning}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+    <p class="small dim">{plural(bases.proven, 'relationship')} proven, {plural(bases.claimed, 'claim')}. Only layer digests are proof.</p>
+  </section>
+
+  <aside class="callout" aria-labelledby="limits">
+    <h2 id="limits">What this does not prove</h2>
+    <ul>
+      <li>A proven base shows the image contains the base's layers. It doesn't show that base was the one intended, or that either image is signed or scanned.</li>
+      <li>Behind is measured against the newest version observed in this run. If a base family is itself out of date, its consumers still look current.</li>
+    </ul>
+  </aside>
+</Layout>
+
+<style>
+  .grid.wide {
+    grid-template-columns: repeat(auto-fill, minmax(24rem, 1fr));
+  }
+</style>

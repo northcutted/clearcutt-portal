@@ -1,0 +1,58 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import Chip from '../../components/Chip.astro';
+import PackagesUnknown from '../../components/PackagesUnknown.astro';
+import { loadBundle } from '../../lib/bundle.ts';
+import { imageLabel, imagesById, packageGroups, type PackageGroup } from '../../lib/estate.ts';
+import { plural } from '../../lib/format.ts';
+import { evidenceStatus } from '../../lib/present.ts';
+import { href } from '../../lib/site.ts';
+
+export function getStaticPaths() {
+  return packageGroups(loadBundle().report).map((group) => ({ params: { slug: group.slug }, props: { group } }));
+}
+
+const { group } = Astro.props as { group: PackageGroup };
+const { report } = loadBundle();
+const byId = imagesById(report);
+---
+<Layout title={group.name} description={`Which images ship ${group.name}.`}>
+  <header class="page-head">
+    <p class="eyebrow">Package · {group.type}</p>
+    <h1>{group.name}</h1>
+    <p class="lede">
+      {plural(group.images.length, 'image ships', 'images ship')} it, in {plural(group.versions.length, 'version')}.
+    </p>
+  </header>
+
+  <PackagesUnknown />
+
+  {group.versions.map((v) => (
+    <section>
+      <h2 class="mono">{v.version}</h2>
+      {v.purl && <p class="small dim mono">{v.purl}</p>}
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Image</th><th>Repository</th><th>SBOM evidence</th></tr></thead>
+          <tbody>
+            {v.images.map((id) => {
+              const image = byId.get(id)!;
+              return (
+                <tr>
+                  <td><a href={href(`images/${id}/`)}>{imageLabel(image)}</a></td>
+                  <td class="mono small">{image.repository}</td>
+                  <td><Chip term={evidenceStatus(image.evidence.sbom.status)} /></td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  ))}
+
+  <p class="small dim">
+    SBOM evidence is the image's SBOM status, for context: the report doesn't say which source each image's package
+    list was read from.
+  </p>
+</Layout>

@@ -1,0 +1,11 @@
+---
+// A digest, shortened, with the full value on hover and for copying.
+import { shortDigest } from '../lib/format.ts';
+
+interface Props {
+  digest: string | undefined;
+  full?: boolean;
+}
+const { digest, full = false } = Astro.props;
+---
+{digest ? <code title={digest}>{full ? digest : shortDigest(digest)}</code> : <span class="dim">unknown</span>}

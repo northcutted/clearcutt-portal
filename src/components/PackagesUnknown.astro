@@ -1,0 +1,23 @@
+---
+// The caveat every package answer needs: images whose package set couldn't
+// be read might ship anything.
+import { loadBundle } from '../lib/bundle.ts';
+import { imageLabel, packagesUnknown } from '../lib/estate.ts';
+import { plural } from '../lib/format.ts';
+import { href } from '../lib/site.ts';
+
+const { report } = loadBundle();
+const unknown = packagesUnknown(report);
+---
+{unknown.length === 0 ? (
+  <p class="small dim">Every image's package set was read, so an image missing from this page doesn't ship it.</p>
+) : (
+  <div class="callout">
+    <h3>Not covered</h3>
+    <p>
+      {plural(unknown.length, "image's package set", "images' package sets")} couldn't be read. Whether they ship this
+      is unknown:{' '}
+      {unknown.map((image, i) => <>{i > 0 && ', '}<a href={href(`images/${image.id}/`)}>{imageLabel(image)}</a></>)}.
+    </p>
+  </div>
+)}

@@ -1,0 +1,295 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import Chip from '../../components/Chip.astro';
+import Digest from '../../components/Digest.astro';
+import Findings from '../../components/Findings.astro';
+import type { Image } from '../../lib/contract.gen.ts';
+import { loadBundle } from '../../lib/bundle.ts';
+import { consumersOf, imageLabel, imagesById, packagesOf } from '../../lib/estate.ts';
+import { bytes, daysBetween, formatDay, formatTime, plural } from '../../lib/format.ts';
+import {
+  EVIDENCE_KINDS,
+  SEVERITIES,
+  drift,
+  evidenceStatus,
+  method,
+  reproMethod,
+  reproducibility,
+  sourceBasis,
+  strength,
+  verdict,
+  vulnSource,
+} from '../../lib/present.ts';
+import { href } from '../../lib/site.ts';
+
+export function getStaticPaths() {
+  return loadBundle().report.images.map((image) => ({ params: { id: image.id }, props: { image } }));
+}
+
+const { image } = Astro.props as { image: Image };
+const { report } = loadBundle();
+const byId = imagesById(report);
+const baseImage = image.base?.imageId ? byId.get(image.base.imageId) : undefined;
+const consumers = consumersOf(report, image);
+const packages = image.packages === undefined ? [] : packagesOf(report, image);
+const v = image.vulnerabilities;
+const scanAge = daysBetween(v?.scannedAt, report.metadata.generatedAt);
+const repro = image.reproducibility;
+const rebasedFrom = image.factory?.rebasedFrom;
+const rebasedFromImage = rebasedFrom
+  ? report.images.find((i) => `${i.repository}@${i.digest}` === rebasedFrom)
+  : undefined;
+const signerText = (s: NonNullable<Image['evidence']['signature']['signer']>) =>
+  s.identity ?? s.identityRegexp ?? s.key ?? s.sourceRepository ?? 'unknown signer';
+---
+<Layout title={imageLabel(image)} description={`What clearcutt-verify found and proved about ${image.repository}.`}>
+  <header class="page-head">
+    <p class="eyebrow">Image</p>
+    <h1>{imageLabel(image)}</h1>
+    <p class="mono dim">{image.repository}</p>
+    {image.description && <p class="lede">{image.description}</p>}
+    <p><Chip term={verdict(image.verdict.status)} /></p>
+    {image.verdict.reasons.length > 0 && <ul class="reasons">{image.verdict.reasons.map((r) => <li>{r}</li>)}</ul>}
+    {image.warnings.length > 0 && (
+      <div class="callout">
+        <h2>Problems reading this image</h2>
+        <ul>{image.warnings.map((w) => <li>{w}</li>)}</ul>
+      </div>
+    )}
+  </header>
+
+  <section aria-labelledby="identity">
+    <h2 id="identity">Identity</h2>
+    <dl class="kv">
+      <dt>Digest</dt><dd><Digest digest={image.digest} full /></dd>
+      <dt>Tags</dt><dd>{image.tags.length > 0 ? image.tags.map((t) => <code>{t}</code>) : <span class="dim">none</span>}</dd>
+      <dt>Created</dt><dd>{formatTime(image.created) ?? <span class="dim">not recorded</span>}</dd>
+      <dt>Built by</dt><dd><code>{image.builder.kind}</code> <span class="dim small">({image.builder.basis})</span></dd>
+      <dt>Source</dt>
+      <dd>
+        {image.source ? (
+          <>
+            <a href={image.source.url}>{image.source.url}</a>
+            {image.source.revision && <> at <code>{image.source.revision}</code></>}{' '}
+            <Chip term={sourceBasis(image.source.basis)} />
+          </>
+        ) : (
+          <span class="dim">not recorded</span>
+        )}
+      </dd>
+      {image.factory && (
+        <>
+          <dt>clearcutt-factory</dt>
+          <dd>
+            {[
+              image.factory.kind && `${image.factory.kind}${image.factory.name ? ` ${image.factory.name}` : ''}`,
+              image.factory.stack && `on stack ${image.factory.stack}`,
+              image.factory.version && `built with ${image.factory.version}`,
+              image.factory.inputs &&
+                `pins ${plural(image.factory.inputs.packages, 'package')}, ${plural(image.factory.inputs.tools, 'tool')}, ${plural(image.factory.inputs.images, 'image')}`,
+              image.factory.sourceDateEpoch !== undefined &&
+                `files clamped to ${formatDay(new Date(image.factory.sourceDateEpoch * 1000).toISOString())}`,
+            ]
+              .filter(Boolean)
+              .join('; ')}
+          </dd>
+        </>
+      )}
+    </dl>
+  </section>
+
+  <section aria-labelledby="base">
+    <h2 id="base">Base</h2>
+    {image.base ? (
+      <dl class="kv">
+        <dt>Built on</dt>
+        <dd>
+          <code>{image.base.ref}</code>
+          {baseImage && <> (<a href={href(`images/${baseImage.id}/`)}>{imageLabel(baseImage)}</a>)</>}
+          <br /><Digest digest={image.base.digest} full />
+        </dd>
+        <dt>How it's known</dt>
+        <dd>
+          <Chip term={strength(image.base.strength)} /> by {method(image.base.method)}.
+          <span class="dim small"> {strength(image.base.strength).meaning}</span>
+        </dd>
+        <dt>Currency</dt>
+        <dd>
+          <Chip term={drift(image.base.drift)} />
+          {image.base.drift === 'stale' && (
+            <> {plural(image.base.versionsBehind, 'version')} and {plural(image.base.daysBehind, 'day')} behind</>
+          )}
+          {image.base.currentRef && (
+            <div class="small">
+              Newest observed: <code>{image.base.currentRef}</code> <Digest digest={image.base.currentDigest} />
+            </div>
+          )}
+          <div class="dim small">Measured against the newest version observed in this run, not against upstream.</div>
+        </dd>
+      </dl>
+    ) : image.root ? (
+      <p><strong>Root.</strong> {image.root}</p>
+    ) : (
+      <>
+        <p>
+          <Chip term={{ label: 'Unresolved', tone: 'unknown', meaning: 'No base could be determined.' }} /> No base could be determined.
+        </p>
+        {(image.unresolved?.length ?? 0) > 0 && <ul class="reasons">{image.unresolved!.map((r) => <li>{r}</li>)}</ul>}
+      </>
+    )}
+    {consumers.length > 0 && (
+      <p>
+        Built on this image:{' '}
+        {consumers.map((c, i) => <>{i > 0 && ', '}<a href={href(`images/${c.id}/`)}>{imageLabel(c)}</a></>)}
+      </p>
+    )}
+  </section>
+
+  <section aria-labelledby="evidence">
+    <h2 id="evidence">Evidence</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Evidence</th><th>Status</th><th>Signed by</th><th>Found as</th><th>When</th><th>Detail</th></tr></thead>
+        <tbody>
+          {EVIDENCE_KINDS.map((kind) => {
+            const item = image.evidence[kind.key];
+            const platforms = Object.entries(item.platforms ?? {});
+            return (
+              <tr>
+                <td title={kind.meaning}>{kind.label}</td>
+                <td><Chip term={evidenceStatus(item.status)} /></td>
+                <td class="small">
+                  {item.signer ? (
+                    <>
+                      <code>{signerText(item.signer)}</code>
+                      {item.signer.issuer && <div class="dim">issuer {item.signer.issuer}</div>}
+                      {item.signer.sourceRepository && <div class="dim">run in {item.signer.sourceRepository}</div>}
+                    </>
+                  ) : (
+                    <span class="dim">—</span>
+                  )}
+                </td>
+                <td class="small">{item.source ? <code>{item.source}</code> : <span class="dim">—</span>}</td>
+                <td class="small nowrap">{formatTime(item.timestamp) ?? <span class="dim">—</span>}</td>
+                <td class="small">
+                  {item.detail}
+                  {platforms.length > 0 && (
+                    <ul class="inline-list">
+                      {platforms.map(([p, s]) => <li><Chip term={evidenceStatus(s)} label={`${p}: ${evidenceStatus(s).short ?? evidenceStatus(s).label}`} /></li>)}
+                    </ul>
+                  )}
+                  {item.ref && <div class="dim mono">{item.ref}</div>}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section aria-labelledby="vulns">
+    <h2 id="vulns">Vulnerabilities</h2>
+    {v ? (
+      <>
+        <p>
+          From {vulnSource(v.source)}{v.scanner && <> ({v.scanner})</>}, made {formatTime(v.scannedAt) ?? 'at an unknown time'}
+          {scanAge !== undefined && scanAge > 0 && <>, {plural(scanAge, 'day')} before this report</>}. The findings describe that day.
+          {v.source === 'attestation' && (
+            <> The report itself is <Chip term={evidenceStatus(image.evidence.vulnerabilityScan.status)} />.</>
+          )}
+        </p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th></th>{SEVERITIES.map((s) => <th class="num">{s}</th>)}</tr></thead>
+            <tbody>
+              <tr><td>Findings</td>{SEVERITIES.map((s) => <td class="num">{v.counts[s]}</td>)}</tr>
+              <tr><td>With a fix</td>{SEVERITIES.map((s) => <td class="num">{v.fixable[s]}</td>)}</tr>
+            </tbody>
+          </table>
+        </div>
+        <Findings findings={v.findings} />
+      </>
+    ) : (
+      <p>
+        <Chip term={{ label: 'Unknown', tone: 'unknown', meaning: 'No vulnerability data.' }} /> This image has no vulnerability
+        data, so how many vulnerabilities it has is unknown. {image.evidence.vulnerabilityScan.detail}
+      </p>
+    )}
+  </section>
+
+  <section aria-labelledby="tests">
+    <h2 id="tests">Tests and rebuilds</h2>
+    <dl class="kv">
+      <dt>Tests</dt>
+      <dd><Chip term={evidenceStatus(image.evidence.tests.status)} /> {image.evidence.tests.detail}</dd>
+      <dt>Rebuild</dt>
+      <dd>
+        <Chip term={reproducibility(repro.status)} />
+        {reproMethod(repro.method) && <> {reproMethod(repro.method)}</>}
+        {repro.checkedAt && <>, {formatTime(repro.checkedAt)}</>}
+        {repro.digest && (
+          <div class="small">
+            Rebuild gave <Digest digest={repro.digest} full />
+            {repro.digest === image.digest ? ', the same digest as the image.' : ', which differs from the image.'}
+          </div>
+        )}
+        {repro.detail && <div class="small">{repro.detail}</div>}
+        {!repro.digest && !repro.detail && <span class="dim small"> {reproducibility(repro.status).meaning}</span>}
+      </dd>
+    </dl>
+  </section>
+
+  <section aria-labelledby="rebase">
+    <h2 id="rebase">Rebase history</h2>
+    {rebasedFrom ? (
+      <>
+        <p>
+          Rebased from <code>{rebasedFrom}</code>
+          {rebasedFromImage && <> (<a href={href(`images/${rebasedFromImage.id}/`)}>{imageLabel(rebasedFromImage)}</a>)</>}{' '}onto {image.base ? <code>{image.base.ref}</code> : 'its base'}. Rebase record: <Chip term={evidenceStatus(image.evidence.rebase.status)} />
+        </p>
+        <p class="dim small">The report records the most recent rebase. Earlier ones aren't in it.</p>
+      </>
+    ) : (
+      <p>
+        <Chip term={evidenceStatus(image.evidence.rebase.status)} /> {image.evidence.rebase.detail ?? evidenceStatus(image.evidence.rebase.status).meaning}
+      </p>
+    )}
+  </section>
+
+  <section aria-labelledby="platforms">
+    <h2 id="platforms">Platforms</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Platform</th><th>Digest</th><th class="num">Layers</th><th class="num">Compressed size</th></tr></thead>
+        <tbody>
+          {image.platforms.map((p) => (
+            <tr><td>{p.platform}</td><td><Digest digest={p.digest} full /></td><td class="num">{p.layers}</td><td class="num">{bytes(p.size)}</td></tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section aria-labelledby="packages">
+    <h2 id="packages">Packages</h2>
+    {image.packages === undefined ? (
+      <p>
+        <Chip term={{ label: 'Unknown', tone: 'unknown', meaning: "The package set couldn't be read." }} /> This image's package set
+        couldn't be read, so what it ships is unknown.
+      </p>
+    ) : (
+      <details>
+        <summary>{plural(image.packages, 'package version')}</summary>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Package</th><th>Version</th><th>Type</th></tr></thead>
+            <tbody>
+              {packages.map((p) => <tr><td>{p.name}</td><td class="mono">{p.version}</td><td>{p.type}</td></tr>)}
+            </tbody>
+          </table>
+        </div>
+      </details>
+    )}
+  </section>
+</Layout>

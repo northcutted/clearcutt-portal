@@ -1,0 +1,28 @@
+{
+  "name": "clearcutt-portal",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Static website for an OCI image estate, generated from clearcutt-verify's estate report",
+  "license": "Apache-2.0",
+  "type": "module",
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "scripts": {
+    "dev": "astro dev",
+    "build": "node bin/clearcutt-portal.ts build",
+    "check": "astro check && node scripts/gen-types.ts --check",
+    "gen-types": "node scripts/gen-types.ts",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "ajv": "8.20.0",
+    "astro": "7.3.8"
+  },
+  "devDependencies": {
+    "@astrojs/check": "0.9.10",
+    "@types/node": "24.19.2",
+    "json-schema-to-typescript": "16.0.0",
+    "typescript": "6.0.3"
+  }
+}

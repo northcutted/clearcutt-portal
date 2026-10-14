@@ -67,7 +67,7 @@ const sources = metadata.sources.map((s) =>
         <table>
           <tbody>
             {group.terms.map((t) => (
-              <tr><td style="width: 13rem"><Chip term={t} /></td><td>{t.meaning}</td></tr>
+              <tr><td class="term-cell"><Chip term={t} /></td><td>{t.meaning}</td></tr>
             ))}
           </tbody>
         </table>

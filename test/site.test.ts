@@ -1,7 +1,17 @@
 // Builds real sites from the vendored bundles and checks what they say.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  realpathSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { before, describe, test } from 'node:test';
@@ -30,6 +40,21 @@ function htmlFiles(dir: string): string[] {
 }
 
 const read = (dir: string, page: string) => readFileSync(path.join(dir, page), 'utf8');
+
+/** The site's Content-Security-Policy, as directive name → sources. */
+function policy(html: string): Map<string, string[]> {
+  const metas = [...html.matchAll(/<meta http-equiv="content-security-policy" content="([^"]*)"/g)];
+  assert.equal(metas.length, 1, 'one CSP <meta> per page');
+  return new Map(
+    metas[0][1]
+      .split(';')
+      .map((d) => d.trim().split(/\s+/))
+      .filter((d) => d[0])
+      .map(([name, ...sources]) => [name, sources]),
+  );
+}
+
+const sha256 = (text: string) => `'sha256-${createHash('sha256').update(text).digest('base64')}'`;
 const text = (html: string) =>
   html
     .replace(/<script[\s\S]*?<\/script>/g, '')
@@ -106,9 +131,85 @@ describe('the example site', () => {
     assert.match(text(read(site, 'packages/index.html')), /Whether they ship this is unknown/);
   });
 
+  test('every page carries a CSP that allows only its own scripts and styles', () => {
+    for (const file of htmlFiles(site)) {
+      const html = readFileSync(file, 'utf8');
+      const csp = policy(html);
+      assert.deepEqual(csp.get('default-src'), ["'none'"], file);
+      assert.deepEqual(csp.get('base-uri'), ["'none'"], file);
+      assert.deepEqual(csp.get('form-action'), ["'none'"], file);
+      const scripts = csp.get('script-src') ?? [];
+      const styles = csp.get('style-src') ?? [];
+      for (const sources of [scripts, styles]) {
+        assert.ok(sources.includes("'self'"), file);
+        for (const unsafe of ["'unsafe-inline'", "'unsafe-eval'", "'unsafe-hashes'", '*', 'data:', 'https:']) {
+          assert.ok(!sources.includes(unsafe), `${file}: ${unsafe}`);
+        }
+      }
+      // Every inline script and style is allowed by its hash; every file is
+      // the site's own.
+      for (const m of html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/g)) {
+        const src = m[1].match(/\bsrc="([^"]*)"/)?.[1];
+        if (src) assert.ok(src.startsWith('/portal/'), `${file}: script ${src}`);
+        else assert.ok(scripts.includes(sha256(m[2])), `${file}: an inline script has no hash in the CSP`);
+      }
+      for (const m of html.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/g)) {
+        assert.ok(styles.includes(sha256(m[1])), `${file}: an inline style has no hash in the CSP`);
+      }
+      for (const m of html.matchAll(/<link\b[^>]*rel="stylesheet"[^>]*>/g)) {
+        assert.match(m[0], /href="\/portal\//, file);
+      }
+      // Attributes a hash can't cover.
+      assert.doesNotMatch(html, /<[^>]+\sstyle="/, `${file}: style attribute`);
+      assert.doesNotMatch(html, /<[^>]+\son[a-z]+="/, `${file}: event handler attribute`);
+      assert.match(html, /<head>[\s\S]*content-security-policy[\s\S]*<\/head>/, file);
+    }
+  });
+
   test('a rebased image names what it was rebased from', () => {
     const page = text(read(site, 'images/ghcr-io-acme-images-billing/index.html'));
     assert.match(page, /Rebased from ghcr\.io\/acme\/images\/billing@sha256:0{64} onto/);
+  });
+});
+
+describe('a report written by someone hostile', () => {
+  let site: string;
+  before(() => {
+    const bundle = editedBundle(MINIMAL, (r) => {
+      r.images[0].source = { url: 'javascript:alert(document.domain)', basis: 'label' };
+      r.images[2].source = { url: 'https://github.com@evil.example/acme', basis: 'annotation' };
+      r.images[3].source = { url: 'https://example.test/acme/redis', basis: 'label' };
+      r.images[3].description = '<script>alert(1)</script><img src=x onerror=alert(1)>';
+    });
+    site = build(bundle);
+  });
+
+  test('a source URL that is not http(s) is shown as text, never as a link', () => {
+    const page = read(site, 'images/cgr-dev-chainguard-static/index.html');
+    assert.doesNotMatch(page, /href="javascript:/i);
+    assert.match(page, /<code>javascript:alert\(document\.domain\)<\/code> <span class="dim small">\(not linked/);
+    assert.match(read(site, 'images/ghcr-io-acme-images-billing/index.html'), /<code>https:\/\/github\.com@evil\.example\/acme<\/code>/);
+  });
+
+  test('an http(s) source URL is a link', () => {
+    assert.match(
+      read(site, 'images/docker-io-library-redis/index.html'),
+      /<a href="https:\/\/example\.test\/acme\/redis" rel="noreferrer">https:\/\/example\.test\/acme\/redis<\/a>/,
+    );
+  });
+
+  test('no page links anywhere but this site and http(s)', () => {
+    for (const file of htmlFiles(site)) {
+      for (const [, h] of readFileSync(file, 'utf8').matchAll(/\shref="([^"]*)"/g)) {
+        assert.match(h, /^(\/|#|https?:\/\/)/, `${file}: href="${h}"`);
+      }
+    }
+  });
+
+  test('markup in report text is escaped', () => {
+    const page = read(site, 'images/docker-io-library-redis/index.html');
+    assert.doesNotMatch(page, /<script>alert|<img src=x/);
+    assert.match(page, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
   });
 });
 

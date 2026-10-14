@@ -530,6 +530,10 @@ details[open] > summary {
   margin: 0;
 }
 
+.term-cell {
+  width: 13rem;
+}
+
 @media (prefers-reduced-motion: reduce) {
   * {
     transition: none !important;

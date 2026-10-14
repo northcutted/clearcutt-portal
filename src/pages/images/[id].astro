@@ -2,6 +2,7 @@
 import Layout from '../../layouts/Layout.astro';
 import Chip from '../../components/Chip.astro';
 import Digest from '../../components/Digest.astro';
+import ExternalLink from '../../components/ExternalLink.astro';
 import Findings from '../../components/Findings.astro';
 import type { Image } from '../../lib/contract.gen.ts';
 import { loadBundle } from '../../lib/bundle.ts';
@@ -69,7 +70,7 @@ const signerText = (s: NonNullable<Image['evidence']['signature']['signer']>) =>
       <dd>
         {image.source ? (
           <>
-            <a href={image.source.url}>{image.source.url}</a>
+            <ExternalLink url={image.source.url} />
             {image.source.revision && <> at <code>{image.source.revision}</code></>}{' '}
             <Chip term={sourceBasis(image.source.basis)} />
           </>

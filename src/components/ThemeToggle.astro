@@ -1,46 +1,9 @@
 ---
-// System → light → dark. The <head> script in Layout sets the class before
-// first paint; this only wires the button.
+// System → light → dark. public/theme.js, loaded in Layout's <head>, sets the
+// class before first paint and wires this button.
 ---
 <button type="button" class="theme-toggle" data-theme-toggle aria-label="Theme: system" title="Theme (system, light, dark)">
   <svg data-theme-icon="system" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="13" rx="2"></rect><path d="M8 21h8M12 17v4"></path></svg>
   <svg data-theme-icon="light" class="is-hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"></path></svg>
   <svg data-theme-icon="dark" class="is-hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
 </button>
-<script is:inline>
-  (function () {
-    var KEY = 'theme';
-    var CYCLE = ['system', 'light', 'dark'];
-    function readMode() {
-      try {
-        var v = localStorage.getItem(KEY);
-        if (v === 'light' || v === 'dark') return v;
-      } catch (e) {}
-      return 'system';
-    }
-    function apply(mode) {
-      var dark = mode === 'dark' || (mode === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
-      document.documentElement.classList.toggle('dark', dark);
-      document.querySelectorAll('[data-theme-toggle]').forEach(function (btn) {
-        btn.setAttribute('aria-label', 'Theme: ' + mode + (mode === 'system' ? ' (' + (dark ? 'dark' : 'light') + ')' : ''));
-        btn.querySelectorAll('[data-theme-icon]').forEach(function (icon) {
-          icon.classList.toggle("is-hidden", icon.getAttribute("data-theme-icon") !== mode);
-        });
-      });
-    }
-    apply(readMode());
-    document.querySelectorAll('[data-theme-toggle]').forEach(function (btn) {
-      btn.addEventListener('click', function () {
-        var next = CYCLE[(CYCLE.indexOf(readMode()) + 1) % CYCLE.length];
-        try {
-          if (next === 'system') localStorage.removeItem(KEY);
-          else localStorage.setItem(KEY, next);
-        } catch (e) {}
-        apply(next);
-      });
-    });
-    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function () {
-      if (readMode() === 'system') apply('system');
-    });
-  })();
-</script>

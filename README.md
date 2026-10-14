@@ -79,6 +79,16 @@ The build reads the bundle and nothing else: it contacts no registry, and the
 site it writes loads nothing from another origin. A bundle that doesn't match
 the contract stops the build (exit 1) with the fields that are wrong.
 
+The site replaces `--out`, so `--out` must be new, empty, or a site an earlier
+build wrote (each has a `.clearcutt-portal-site` file), and can't be the
+bundle, inside it, or around it.
+
+Much of a report is written by whoever built an image, so the site treats it
+as untrusted: every page carries a Content-Security-Policy that runs only the
+site's own scripts and styles, report text is always escaped, and a value from
+the report (an image's source URL) becomes a link only when it is an http or
+https URL.
+
 ## The data contract
 
 The bundle format belongs to clearcutt-verify: `apiVersion: clearcutt.dev/v1`,

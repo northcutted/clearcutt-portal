@@ -5,9 +5,11 @@
 //   clearcutt-portal check --bundle DIR
 //
 // build validates the bundle against the vendored contract, then renders the
-// site into --out (default _site). check only validates. Both exit 1 when the
-// bundle doesn't match the contract, and 2 on a usage error.
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, renameSync, rmSync } from 'node:fs';
+// site into --out (default _site), replacing what is there. --out must be
+// empty, missing, or a site an earlier build wrote (it has a SITE_MARKER
+// file), and must not overlap the bundle. check only validates. Both exit 1
+// when the bundle doesn't match the contract, and 2 on a usage error.
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
@@ -21,6 +23,49 @@ const usage = `usage:
 function fail(message: string, code: number): never {
   console.error(message);
   process.exit(code);
+}
+
+/** Written into every site, so a later build knows it may replace it. */
+const SITE_MARKER = '.clearcutt-portal-site';
+
+/** The file a path names (device and inode), following symlinks. */
+function fileId(p: string): string | undefined {
+  try {
+    const s = statSync(p);
+    return `${s.dev}:${s.ino}`;
+  } catch {
+    return undefined;
+  }
+}
+
+/** p with symlinks resolved, as far as it exists. */
+function realPath(p: string): string {
+  const rest: string[] = [];
+  let head = p;
+  while (!existsSync(head) && path.dirname(head) !== head) {
+    rest.unshift(path.basename(head));
+    head = path.dirname(head);
+  }
+  try {
+    return path.join(realpathSync.native(head), ...rest);
+  } catch {
+    return p;
+  }
+}
+
+/**
+ * Whether `inner` is `outer` or somewhere inside it. Walks up from where
+ * `inner` really is and compares directories rather than names, so neither
+ * a symlink nor a differently-cased name on a case-insensitive file system
+ * hides an overlap.
+ */
+function within(inner: string, outer: string): boolean {
+  const target = fileId(outer);
+  if (target === undefined) return false;
+  for (let p = realPath(inner); ; p = path.dirname(p)) {
+    if (fileId(p) === target) return true;
+    if (path.dirname(p) === p) return false;
+  }
 }
 
 const [command, ...rest] = process.argv.slice(2);
@@ -72,10 +117,25 @@ if (values.site) {
 }
 const base = `/${values.base!.replace(/^\/+|\/+$/g, '')}`;
 const outDir = path.resolve(values.out!);
-// The site replaces --out, so only an empty directory or an earlier site may
-// be there.
-if (existsSync(outDir) && readdirSync(outDir).length > 0 && !existsSync(path.join(outDir, 'estate-report.json'))) {
-  fail(`--out ${outDir}: not empty, and not a site this command built; choose another directory`, 2);
+const root = fileURLToPath(new URL('..', import.meta.url));
+// The site replaces --out, deleting everything in it. It must not overlap
+// the bundle (the build reads it, and it holds files that aren't the site's)
+// or this portal, and anything already there must be a site a build wrote.
+if (within(outDir, bundleDir) || within(bundleDir, outDir)) {
+  fail(`--out ${outDir}: overlaps the bundle ${bundleDir}; write the site somewhere else`, 2);
+}
+if (within(root, outDir)) {
+  fail(`--out ${outDir}: contains clearcutt-portal itself; write the site somewhere else`, 2);
+}
+if (existsSync(outDir)) {
+  if (!statSync(outDir).isDirectory()) fail(`--out ${outDir}: not a directory`, 2);
+  if (readdirSync(outDir).length > 0 && !existsSync(path.join(outDir, SITE_MARKER))) {
+    fail(
+      `--out ${outDir}: not empty, and not a site clearcutt-portal built (no ${SITE_MARKER}); ` +
+        'the build would delete what is there, so choose an empty or new directory',
+      2,
+    );
+  }
 }
 
 process.env[BUNDLE_ENV] = bundleDir;
@@ -90,12 +150,15 @@ process.env.ASTRO_TELEMETRY_DISABLED = '1';
 // --out of /x/portal-site counts as inside /x/portal). Build into a staging
 // directory that really is inside, from the portal's directory, then move
 // the site to --out. Every path the user gave is already absolute.
-const root = fileURLToPath(new URL('..', import.meta.url));
 process.chdir(root);
 const staging = mkdtempSync(path.join(root, '.build-'));
 try {
   const { build } = await import('astro');
   await build({ root, outDir: staging, site, base, logLevel: 'warn' });
+  writeFileSync(
+    path.join(staging, SITE_MARKER),
+    'Written by clearcutt-portal build. The next build into this directory replaces everything in it.\n',
+  );
   rmSync(outDir, { recursive: true, force: true });
   mkdirSync(path.dirname(outDir), { recursive: true });
   try {

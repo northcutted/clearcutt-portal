@@ -86,7 +86,7 @@ The action installs a release, verifies its signature, and builds:
 | Input | Default | What it does |
 |---|---|---|
 | `bundle` | (required) | The bundle directory |
-| `output` | `_site` | Where to write the site |
+| `output` | `_site` | Where to write the site: a new or empty directory, or a site an earlier build wrote, which it replaces |
 | `base-path` | `/` | Path the site is served under |
 | `site-url` | none | Origin the site is served from, for absolute URLs |
 | `title` | the estate's name | Site title |

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
+  cpSync,
   existsSync,
   mkdtempSync,
   readFileSync,
@@ -10,6 +11,7 @@ import {
   realpathSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -40,6 +42,16 @@ function htmlFiles(dir: string): string[] {
 }
 
 const read = (dir: string, page: string) => readFileSync(path.join(dir, page), 'utf8');
+
+/** Every file under dir, with its contents, to show nothing was touched. */
+function snapshot(dir: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const f of readdirSync(dir, { recursive: true, encoding: 'utf8' }).sort()) {
+    const file = path.join(dir, f);
+    if (statSync(file).isFile()) out[f] = readFileSync(file, 'utf8');
+  }
+  return out;
+}
 
 /** The site's Content-Security-Policy, as directive name → sources. */
 function policy(html: string): Map<string, string[]> {
@@ -273,8 +285,59 @@ describe('the CLI', () => {
     writeFileSync(path.join(other, 'keep.txt'), 'mine');
     const run = cli('build', '--bundle', MINIMAL, '--out', other);
     assert.equal(run.status, 2);
-    assert.match(run.stderr, /not empty, and not a site this command built/);
+    assert.match(run.stderr, /not empty, and not a site clearcutt-portal built/);
     assert.equal(readFileSync(path.join(other, 'keep.txt'), 'utf8'), 'mine');
+  });
+
+  test('marks each site it writes, and replaces only a marked one', () => {
+    const out = build(MINIMAL);
+    assert.ok(existsSync(path.join(out, '.clearcutt-portal-site')));
+    // A directory that merely holds a report, like a bundle, isn't a site.
+    const lookalike = editedBundle(MINIMAL, () => {});
+    writeFileSync(path.join(lookalike, 'policy.yaml'), 'mine');
+    const before = snapshot(lookalike);
+    const run = cli('build', '--bundle', MINIMAL, '--out', lookalike);
+    assert.equal(run.status, 2);
+    assert.match(run.stderr, /not a site clearcutt-portal built/);
+    assert.deepEqual(snapshot(lookalike), before);
+  });
+
+  test('never writes the site into, around, or over the bundle', () => {
+    // In a directory of its own, so "around it" is a directory this test owns.
+    const bundle = path.join(mkdtempSync(path.join(tmpdir(), 'portal-around-')), 'bundle');
+    cpSync(MINIMAL, bundle, { recursive: true });
+    writeFileSync(path.join(bundle, 'policy.yaml'), 'mine');
+    writeFileSync(path.join(bundle, 'refs.txt'), 'ghcr.io/acme/images/billing:latest\n');
+    const before = snapshot(bundle);
+    const link = path.join(mkdtempSync(path.join(tmpdir(), 'portal-link-')), 'site');
+    symlinkSync(bundle, link);
+    for (const out of [
+      bundle, // the bundle itself
+      `${bundle}${path.sep}`,
+      path.join(bundle, 'site'), // inside it
+      path.join(bundle, 'site', '..'),
+      path.dirname(bundle), // around it
+      link, // a symlink to it
+      path.join(link, 'nested'),
+    ]) {
+      const run = cli('build', '--bundle', bundle, '--out', out);
+      assert.equal(run.status, 2, `--out ${out}: ${run.stdout}\n${run.stderr}`);
+      assert.match(run.stderr, /overlaps the bundle/, out);
+      assert.deepEqual(snapshot(bundle), before, `--out ${out} touched the bundle`);
+    }
+    // Through a symlink, from the other side: --out is the real directory.
+    const viaLink = cli('build', '--bundle', link, '--out', bundle);
+    assert.equal(viaLink.status, 2);
+    assert.deepEqual(snapshot(bundle), before);
+  });
+
+  test('refuses a file as --out', () => {
+    const file = path.join(mkdtempSync(path.join(tmpdir(), 'portal-file-')), 'site');
+    writeFileSync(file, 'mine');
+    const run = cli('build', '--bundle', MINIMAL, '--out', file);
+    assert.equal(run.status, 2);
+    assert.match(run.stderr, /not a directory/);
+    assert.equal(readFileSync(file, 'utf8'), 'mine');
   });
 
   test('an image id that is not a plain page name is a bundle error, not a crash', () => {

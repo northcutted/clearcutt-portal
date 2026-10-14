@@ -118,7 +118,7 @@ const headline = measures.slice(0, 8);
       <section aria-labelledby="runs">
         <h2 id="runs">Every run</h2>
         <div class="table-wrap">
-          <table>
+          <table class="runs">
             <thead>
               <tr>
                 <th>Run</th><th class="num">Images</th><th class="num">Verified</th><th class="num">Failed</th><th class="num">Unverified</th>
@@ -133,7 +133,7 @@ const headline = measures.slice(0, 8);
                 const scanned = s.vulnerabilities.scanned > 0;
                 return (
                   <tr>
-                    <td>{formatTime(e.generatedAt)}{e.ref && <div class="dim small mono">{e.ref}</div>}</td>
+                    <td class="nowrap">{formatTime(e.generatedAt)}{e.ref && <div class="dim small mono">{e.ref}</div>}</td>
                     <td class="num">{s.images}</td>
                     <td class="num">{s.verdicts.verified}</td>
                     <td class="num">{s.verdicts.failed}</td>
@@ -167,3 +167,16 @@ const headline = measures.slice(0, 8);
     </>
   )}
 </Layout>
+
+<style>
+  /* Thirteen numeric columns: tighter, with headings that may wrap, so the
+     table fits beside the run's time instead of squeezing it. */
+  .runs th,
+  .runs td {
+    padding-left: 0.45rem;
+    padding-right: 0.45rem;
+  }
+  .runs th.num {
+    white-space: normal;
+  }
+</style>

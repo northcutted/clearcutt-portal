@@ -21,7 +21,7 @@ import {
   verdict,
   vulnSource,
 } from '../../lib/present.ts';
-import { href } from '../../lib/site.ts';
+import { imageHref } from '../../lib/site.ts';
 
 export function getStaticPaths() {
   return loadBundle().report.images.map((image) => ({ params: { id: image.id }, props: { image } }));
@@ -106,7 +106,7 @@ const signerText = (s: NonNullable<Image['evidence']['signature']['signer']>) =>
         <dt>Built on</dt>
         <dd>
           <code>{image.base.ref}</code>
-          {baseImage && <> (<a href={href(`images/${baseImage.id}/`)}>{imageLabel(baseImage)}</a>)</>}
+          {baseImage && <> (<a href={imageHref(baseImage.id)}>{imageLabel(baseImage)}</a>)</>}
           <br /><Digest digest={image.base.digest} full />
         </dd>
         <dt>How it's known</dt>
@@ -141,7 +141,7 @@ const signerText = (s: NonNullable<Image['evidence']['signature']['signer']>) =>
     {consumers.length > 0 && (
       <p>
         Built on this image:{' '}
-        {consumers.map((c, i) => <>{i > 0 && ', '}<a href={href(`images/${c.id}/`)}>{imageLabel(c)}</a></>)}
+        {consumers.map((c, i) => <>{i > 0 && ', '}<a href={imageHref(c.id)}>{imageLabel(c)}</a></>)}
       </p>
     )}
   </section>
@@ -247,7 +247,7 @@ const signerText = (s: NonNullable<Image['evidence']['signature']['signer']>) =>
       <>
         <p>
           Rebased from <code>{rebasedFrom}</code>
-          {rebasedFromImage && <> (<a href={href(`images/${rebasedFromImage.id}/`)}>{imageLabel(rebasedFromImage)}</a>)</>}{' '}onto {image.base ? <code>{image.base.ref}</code> : 'its base'}. Rebase record: <Chip term={evidenceStatus(image.evidence.rebase.status)} />
+          {rebasedFromImage && <> (<a href={imageHref(rebasedFromImage.id)}>{imageLabel(rebasedFromImage)}</a>)</>}{' '}onto {image.base ? <code>{image.base.ref}</code> : 'its base'}. Rebase record: <Chip term={evidenceStatus(image.evidence.rebase.status)} />
         </p>
         <p class="dim small">The report records the most recent rebase. Earlier ones aren't in it.</p>
       </>

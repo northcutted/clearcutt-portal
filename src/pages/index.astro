@@ -19,7 +19,7 @@ import {
   verdict,
   type Tone,
 } from '../lib/present.ts';
-import { href } from '../lib/site.ts';
+import { imageHref } from '../lib/site.ts';
 
 const { report } = loadBundle();
 const { summary, metadata, policy } = report;
@@ -130,7 +130,7 @@ const sources = metadata.sources.map((s) => [s.registry, s.namespace].filter(Boo
       <div class="grid">
         {attention.map((image) => (
           <article class="card">
-            <p><a href={href(`images/${image.id}/`)}><strong>{imageLabel(image)}</strong></a></p>
+            <p><a href={imageHref(image.id)}><strong>{imageLabel(image)}</strong></a></p>
             <p class="dim small mono">{image.repository}</p>
             <p><Chip term={verdict(image.verdict.status)} /></p>
             {image.verdict.reasons.length > 0 && (
@@ -160,7 +160,7 @@ const sources = metadata.sources.map((s) => [s.registry, s.namespace].filter(Boo
             <tbody>
               {stale.map((image) => (
                 <tr>
-                  <td><a href={href(`images/${image.id}/`)}>{imageLabel(image)}</a></td>
+                  <td><a href={imageHref(image.id)}>{imageLabel(image)}</a></td>
                   <td class="mono">{image.base.ref}</td>
                   <td><Chip term={strength(image.base.strength)} /></td>
                   <td class="num">{image.base.versionsBehind}</td>
@@ -195,7 +195,7 @@ const sources = metadata.sources.map((s) => [s.registry, s.namespace].filter(Boo
           {images.map((image) => (
             <tr>
               <td>
-                <a href={href(`images/${image.id}/`)}>{imageLabel(image)}</a>
+                <a href={imageHref(image.id)}>{imageLabel(image)}</a>
                 <div class="dim small mono nowrap">{image.repository}</div>
               </td>
               <td><Chip term={verdict(image.verdict.status)} /></td>

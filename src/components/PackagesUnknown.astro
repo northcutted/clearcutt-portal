@@ -4,7 +4,7 @@
 import { loadBundle } from '../lib/bundle.ts';
 import { imageLabel, packagesUnknown } from '../lib/estate.ts';
 import { plural } from '../lib/format.ts';
-import { href } from '../lib/site.ts';
+import { imageHref } from '../lib/site.ts';
 
 const { report } = loadBundle();
 const unknown = packagesUnknown(report);
@@ -17,7 +17,7 @@ const unknown = packagesUnknown(report);
     <p>
       {plural(unknown.length, "image's package set", "images' package sets")} couldn't be read. Whether they ship this
       is unknown:{' '}
-      {unknown.map((image, i) => <>{i > 0 && ', '}<a href={href(`images/${image.id}/`)}>{imageLabel(image)}</a></>)}.
+      {unknown.map((image, i) => <>{i > 0 && ', '}<a href={imageHref(image.id)}>{imageLabel(image)}</a></>)}.
     </p>
   </div>
 )}

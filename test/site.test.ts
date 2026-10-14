@@ -277,6 +277,16 @@ describe('the CLI', () => {
     assert.equal(readFileSync(path.join(other, 'keep.txt'), 'utf8'), 'mine');
   });
 
+  test('an image id that is not a plain page name is a bundle error, not a crash', () => {
+    const bad = editedBundle(MINIMAL, (r) => (r.images[3].id = '../../escape'));
+    const out = mkdtempSync(path.join(tmpdir(), 'portal-site-'));
+    const run = cli('build', '--bundle', bad, '--out', out);
+    assert.equal(run.status, 1);
+    assert.match(run.stderr, /image id "\.\.\/\.\.\/escape" can't name a page/);
+    assert.doesNotMatch(run.stderr, /\n\s+at /, 'no stack trace');
+    assert.deepEqual(readdirSync(out), []);
+  });
+
   test('usage errors exit 2', () => {
     assert.equal(cli('build').status, 2);
     assert.equal(cli('frobnicate', '--bundle', MINIMAL).status, 2);

@@ -82,15 +82,36 @@ function readDocument<T>(file: string, kind: string, validate: ValidateFunction)
   return doc as T;
 }
 
+/**
+ * What an image ID may look like. Each image's page is images/<id>/, so an ID
+ * must be one plain path segment: no slashes, no "..", nothing a file system
+ * or a URL treats specially. The schema allows any string; clearcutt-verify
+ * writes lowercase letters, digits, and dashes.
+ */
+export const IMAGE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+
 // Checks the promises the schema can't express but every page relies on:
-// image IDs are unique (they are URLs), and every ID a report refers to
-// names an image in it.
+// image IDs are safe, unique page names (they are URLs and directories), and
+// every ID a report refers to names an image in it.
 function checkReferences(file: string, report: EstateReport): void {
   const ids = new Set<string>();
+  const folded = new Map<string, string>();
   const problems: string[] = [];
   for (const image of report.images) {
+    if (!IMAGE_ID.test(image.id)) {
+      problems.push(
+        `image id ${JSON.stringify(image.id)} can't name a page: use 1 to 128 letters, digits, ".", "_", or "-", starting with a letter or digit`,
+      );
+    }
     if (ids.has(image.id)) problems.push(`image id ${JSON.stringify(image.id)} appears more than once`);
     ids.add(image.id);
+    // Pages are directories, and on a case-insensitive file system these
+    // would be the same one.
+    const other = folded.get(image.id.toLowerCase());
+    if (other !== undefined && other !== image.id) {
+      problems.push(`image ids ${JSON.stringify(other)} and ${JSON.stringify(image.id)} differ only in case`);
+    }
+    folded.set(image.id.toLowerCase(), image.id);
   }
   for (const image of report.images) {
     const baseId = image.base?.imageId;

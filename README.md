@@ -92,8 +92,9 @@ When reading a bundle, the portal:
 - refuses any `apiVersion` other than `clearcutt.dev/v1`;
 - validates both files against the schemas, ignoring fields it doesn't know,
   since v1 only grows by adding optional fields;
-- refuses a report whose image IDs repeat, or whose bases and packages name
-  images that aren't in it;
+- refuses a report whose image IDs repeat or can't name a page (each must be
+  one path segment of letters, digits, `.`, `_`, and `-`), or whose bases and
+  packages name images that aren't in it;
 - shows enum values it doesn't know as they are, marked unknown.
 
 Changes to the contract are proposed as issues on

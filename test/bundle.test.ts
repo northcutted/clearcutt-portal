@@ -66,3 +66,30 @@ test('packages must name images in the report', () => {
   const dir = editedBundle(MINIMAL, (r) => r.packages[0].images.push('nowhere'));
   assert.throws(() => readBundle(dir), /image "nowhere" is not an image in the report/);
 });
+
+test('image ids must be plain page names, since each is a directory and a URL', () => {
+  for (const id of ['../../escape', 'a/b', 'a\\b', '..', '.hidden', '-dash', 'has space', 'é', '', 'x'.repeat(129)]) {
+    const dir = editedBundle(MINIMAL, (r) => {
+      // Keep the report's own references consistent, so the id is the only problem.
+      const old = r.images[0].id;
+      r.images[0].id = id;
+      for (const pkg of r.packages) pkg.images = pkg.images.map((i: string) => (i === old ? id : i));
+      for (const image of r.images) if (image.base?.imageId === old) image.base.imageId = id;
+    });
+    assert.throws(
+      () => readBundle(dir),
+      (err: Error) => err instanceof BundleError && err.message.includes(`image id ${JSON.stringify(id)} can't name a page`),
+      JSON.stringify(id),
+    );
+  }
+});
+
+test('image ids may use letters, digits, dots, underscores, and dashes', () => {
+  const dir = editedBundle(MINIMAL, (r) => (r.images[3].id = 'Redis_7.2-alpine'));
+  assert.equal(readBundle(dir).report.images[3].id, 'Redis_7.2-alpine');
+});
+
+test('image ids that differ only in case are refused, since they would share a directory', () => {
+  const dir = editedBundle(MINIMAL, (r) => (r.images[3].id = r.images[0].id.toUpperCase()));
+  assert.throws(() => readBundle(dir), /differ only in case/);
+});

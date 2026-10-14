@@ -1,0 +1,40 @@
+# Warns when the vendored contract falls behind clearcutt-verify's latest
+# release. PR CI only checks contract/ against the pinned commit, which stays
+# deterministic; this job asks upstream, so it runs on a schedule (and by
+# hand) and never gates a pull request. A failed run means: run
+# scripts/sync-contract.sh <release>, render the new fields, and open a PR.
+name: contract upstream
+on:
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: clearcutt-verify ref to compare with. Default is its latest release.
+        type: string
+        default: ""
+permissions:
+  contents: read
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: The vendored contract matches clearcutt-verify's latest release
+        env:
+          REF: ${{ inputs.ref }}
+        run: |
+          set -o pipefail
+          if ! scripts/sync-contract.sh --check-upstream ${REF:+"$REF"} 2>&1 | tee "$RUNNER_TEMP/out"; then
+            {
+              echo '## contract/ differs from clearcutt-verify'
+              echo
+              echo '```'
+              tail -n 50 "$RUNNER_TEMP/out"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::warning title=Contract drift::contract/ differs from clearcutt-verify ${REF:-at its latest release}; see the job summary."
+            exit 1
+          fi

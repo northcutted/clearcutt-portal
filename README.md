@@ -96,6 +96,9 @@ described by JSON Schemas in its [`contract/`](https://github.com/northcutted/cl
 This repository builds only against a copy of that directory, pinned to a
 commit in [`contract/UPSTREAM`](contract/UPSTREAM); CI checks the copy still
 matches. The TypeScript types the pages use are generated from those schemas.
+A weekly job ([`contract-upstream.yml`](.github/workflows/contract-upstream.yml))
+fails when the copy differs from clearcutt-verify's latest release, without
+ever gating a pull request.
 
 When reading a bundle, the portal:
 
@@ -123,7 +126,8 @@ npm ci --ignore-scripts
 npm run dev          # the site, from contract/fixtures/northcutted-images
 npm test             # unit tests, and real builds of the vendored bundles
 npm run check        # types, and that src/lib/contract.gen.ts matches the schemas
-scripts/sync-contract.sh <commit> && npm run gen-types   # move to a newer contract
+scripts/sync-contract.sh main     # move to verify's newest contract (or a tag/commit); regenerates types
+scripts/sync-contract.sh --check-upstream   # does contract/ match verify's latest release?
 scripts/release.sh v0.2.0   # after adding a CHANGELOG section: re-pin refs, commit, tag
 ```
 

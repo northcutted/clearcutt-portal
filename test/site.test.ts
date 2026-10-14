@@ -178,6 +178,48 @@ describe('the example site', () => {
     }
   });
 
+  test('the skip link is the first thing on the page, and shows when focused', () => {
+    const html = read(site, 'index.html');
+    assert.match(html, /<body>\s*<a class="skip-link" href="#main">Skip to content<\/a>/);
+    assert.match(html, /<main id="main"/);
+    const css = readdirSync(path.join(site, '_assets'))
+      .filter((f) => f.endsWith('.css'))
+      .map((f) => read(site, `_assets/${f}`))
+      .join('');
+    assert.match(css, /\.skip-link:focus\{transform:none\}/);
+  });
+
+  test('every chip opens its meaning, for keyboard, touch, and screen readers alike', () => {
+    for (const file of htmlFiles(site)) {
+      const html = readFileSync(file, 'utf8');
+      const ids = [...html.matchAll(/\sid="([^"]+)"/g)].map((m) => m[1]);
+      assert.equal(new Set(ids).size, ids.length, `${file}: duplicate ids`);
+      const chips = [...html.matchAll(/<(\w+) [^>]*class="chip [^"]*"[^>]*>/g)];
+      for (const [tag, name] of chips.map((m) => [m[0], m[1]])) {
+        assert.equal(name, 'button', `${file}: ${tag}`);
+        const target = tag.match(/popovertarget="([^"]+)"/)?.[1];
+        const described = tag.match(/aria-describedby="([^"]+)"/)?.[1];
+        assert.ok(target && ids.includes(target), `${file}: ${tag} opens nothing`);
+        assert.ok(described && ids.includes(described), `${file}: ${tag} describes nothing`);
+        assert.match(html, new RegExp(`id="${target}" class="chip-tip" popover>`), file);
+      }
+    }
+    const page = read(site, 'images/cgr-dev-chainguard-static/index.html');
+    assert.match(text(page), /Present, unverified\. Found, but not checked/);
+  });
+
+  test('charts hold nothing focusable, and every charted value is in the table of runs', () => {
+    const html = read(site, 'history/index.html');
+    const charts = [...html.matchAll(/<svg\b[^>]*role="img"[^>]*>[\s\S]*?<\/svg>/g)].map((m) => m[0]);
+    assert.ok(charts.length > 5);
+    for (const svg of charts) {
+      assert.doesNotMatch(svg, /tabindex|<a\b|<button/);
+      assert.match(svg, /aria-label="[^"]+"/);
+    }
+    assert.match(html, /aria-label="Signatures verified\. 2 runs; latest [^"]+\. Every value is in the table of every run below\."/);
+    assert.match(text(html), /Not scanned Signatures verified Reproduced/);
+  });
+
   test('a rebased image names what it was rebased from', () => {
     const page = text(read(site, 'images/ghcr-io-acme-images-billing/index.html'));
     assert.match(page, /Rebased from ghcr\.io\/acme\/images\/billing@sha256:0{64} onto/);

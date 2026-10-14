@@ -1,5 +1,9 @@
 ---
-// A status shown as a pill: a glyph, a label, and the meaning on hover.
+// A status shown as a pill: a glyph and a label. The chip is a button that
+// opens what the status means (a toggletip), so the meaning reaches keyboard,
+// touch, and screen reader users, not only a mouse hovering over it. The
+// popover needs no script.
+import { uniqueId } from '../lib/ids.ts';
 import { TONE_GLYPH, type Term } from '../lib/present.ts';
 
 interface Props {
@@ -8,10 +12,11 @@ interface Props {
   short?: boolean;
   /** Text to show instead of the term's label. */
   label?: string;
-  /** Hover text; defaults to the term's meaning. */
+  /** What the chip explains; defaults to the term's meaning. */
   title?: string;
 }
 const { term, short = false, label, title } = Astro.props;
 const text = label ?? (short ? (term.short ?? term.label) : term.label);
+const id = uniqueId('chip');
 ---
-<span class={`chip tone-${term.tone}`} title={title ?? term.meaning}><span class="chip-glyph" aria-hidden="true">{TONE_GLYPH[term.tone]}</span>{text}</span>
+<button type="button" class={`chip tone-${term.tone}`} popovertarget={id} aria-describedby={`${id}-meaning`}><span class="chip-glyph" aria-hidden="true">{TONE_GLYPH[term.tone]}</span>{text}</button><span id={id} class="chip-tip" popover><strong aria-hidden="true">{text}.</strong> <span id={`${id}-meaning`}>{title ?? term.meaning}</span></span>

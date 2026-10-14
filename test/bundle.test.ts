@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { BundleError, readBundle } from '../src/lib/bundle.ts';
-import { FIXTURE, MINIMAL, editedBundle } from './helpers.ts';
+import { FIXTURE, MINIMAL, editedBundle, v015Bundle } from './helpers.ts';
 
 test('the vendored fixture and example are valid bundles', () => {
   for (const dir of [FIXTURE, MINIMAL]) {
@@ -92,4 +92,20 @@ test('image ids may use letters, digits, dots, underscores, and dashes', () => {
 test('image ids that differ only in case are refused, since they would share a directory', () => {
   const dir = editedBundle(MINIMAL, (r) => (r.images[3].id = r.images[0].id.toUpperCase()));
   assert.throws(() => readBundle(dir), /differ only in case/);
+});
+
+test('stacks must name images in the report', () => {
+  assert.equal(readBundle(v015Bundle()).report.stacks?.length, 1);
+  const dir = editedBundle(MINIMAL, (r) => {
+    r.stacks = [
+      {
+        repository: 'ghcr.io/acme/stacks/go',
+        ref: 'ghcr.io/acme/stacks/go:1',
+        versions: [{ digest: 'sha256:1', current: true, signature: { status: 'missing' }, images: ['nowhere'] }],
+        consumers: 1,
+        staleConsumers: 0,
+      },
+    ];
+  });
+  assert.throws(() => readBundle(dir), /stack ghcr.io\/acme\/stacks\/go: image "nowhere" is not an image in the report/);
 });

@@ -100,6 +100,42 @@ export function evidenceStatus(status: string): Term {
   return EVIDENCE_STATUS[status as EvidenceItem['status']] ?? asIs(status);
 }
 
+/**
+ * A smoke test the recipe declares: present, but nothing attests that it ran,
+ * so it reads as what it is rather than as a generic "present".
+ */
+export const DECLARED_TEST: Term = {
+  label: 'Declared in recipe',
+  short: 'Declared',
+  tone: 'claim',
+  meaning:
+    "The image's verified recipe declares a smoke test, which clearcutt-factory runs on every platform before it pushes, and it pushes nothing that fails. Nothing attests that the test ran, so it is a claim, not proof.",
+};
+
+/** An evidence item's status, said for what the item is. */
+export function evidenceTerm(kind: EvidenceKind, item: EvidenceItem): Term {
+  if (kind === 'tests' && item.status === 'present' && item.source === 'recipe') return DECLARED_TEST;
+  return evidenceStatus(item.status);
+}
+
+const EVIDENCE_SOURCE: Record<string, string> = {
+  'cosign-signature': 'cosign signature',
+  'cosign-attestation': 'cosign attestation',
+  'github-attestation': 'GitHub attestation',
+  'oci-referrer': 'OCI referrer (unsigned)',
+  recipe: 'declared in the recipe',
+};
+
+/** Where an evidence item was found, in words; unknown sources as they are. */
+export function evidenceSource(value: string): string {
+  return EVIDENCE_SOURCE[value] ?? value;
+}
+
+/** The evidence kind's label, e.g. "SBOM" for sbom; unknown kinds as they are. */
+export function evidenceKindLabel(key: string): string {
+  return EVIDENCE_KINDS.find((k) => k.key === key)?.label ?? key;
+}
+
 const VERDICT: Record<Verdict['status'], Term> = {
   verified: { label: 'Verified', tone: 'good', meaning: 'Meets every requirement in the policy.' },
   failed: { label: 'Failed', tone: 'bad', meaning: 'Violates at least one requirement in the policy.' },
@@ -224,4 +260,23 @@ const SOURCE_BASIS: Record<string, Term> = {
 
 export function sourceBasis(value: string): Term {
   return SOURCE_BASIS[value] ?? asIs(value);
+}
+
+/** Whether an app's stack version is the one the stack's tag names now. */
+export function stackVersionTerm(version: { current: boolean }, tagRead: boolean): Term {
+  if (version.current) {
+    return { label: 'Current', tone: 'good', meaning: "Pinned to the version the stack's tag names now." };
+  }
+  if (!tagRead) {
+    return {
+      label: 'Currency unknown',
+      tone: 'unknown',
+      meaning: "The stack's tag couldn't be read, so whether this is its newest version is unknown.",
+    };
+  }
+  return {
+    label: 'Older version',
+    tone: 'warn',
+    meaning: "Pinned to a version other than the one the stack's tag names now.",
+  };
 }

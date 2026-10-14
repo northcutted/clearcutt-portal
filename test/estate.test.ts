@@ -1,8 +1,20 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { readBundle } from '../src/lib/bundle.ts';
-import { baseGraph, byVerdict, chronological, packageGroups, packagesUnknown, staleImages } from '../src/lib/estate.ts';
-import { FIXTURE, MINIMAL, editedBundle } from './helpers.ts';
+import {
+  baseGraph,
+  byVerdict,
+  chronological,
+  imageChanges,
+  imageRuns,
+  packageGroups,
+  packagesUnknown,
+  rebasesOf,
+  stackAnchor,
+  stackOf,
+  staleImages,
+} from '../src/lib/estate.ts';
+import { FIXTURE, MINIMAL, STACK_REF, editedBundle, v015Bundle } from './helpers.ts';
 
 const fixture = readBundle(FIXTURE).report;
 const minimal = readBundle(MINIMAL).report;
@@ -89,4 +101,68 @@ test('history reads oldest first for charts', () => {
   const series = chronological(readBundle(MINIMAL).history);
   assert.ok(series[0].generatedAt < series[1].generatedAt);
   assert.deepEqual(chronological(null), []);
+});
+
+test("an image's runs say which recorded rows, and whether it was in them", () => {
+  const { history } = readBundle(v015Bundle());
+  const runs = imageRuns(history, 'static');
+  assert.deepEqual(
+    runs.map((r) => r.at),
+    history!.entries.map((e) => e.generatedAt),
+  );
+  assert.equal(runs[0].row?.id, 'static'); // the latest run recorded it
+  assert.equal(runs[1].row, null); // the previous one recorded rows, without it
+  assert.equal(runs[2].row, undefined); // the oldest recorded no rows
+  assert.deepEqual(imageRuns(null, 'static'), []);
+});
+
+test('rebases are listed once each, newest first, from the run that first recorded them', () => {
+  const row = (rebasedFrom: string | undefined, digest: string) => ({ id: 'x', digest, verdict: 'verified', rebasedFrom });
+  const runs = [
+    { at: '2026-10-04T00:00:00Z', row: row('repo@sha256:b', 'sha256:c') },
+    { at: '2026-10-03T00:00:00Z', row: row('repo@sha256:b', 'sha256:c') },
+    { at: '2026-10-02T00:00:00Z', row: row('repo@sha256:a', 'sha256:b') },
+    { at: '2026-10-01T00:00:00Z', row: row(undefined, 'sha256:a') },
+    { at: '2026-09-30T00:00:00Z', row: undefined },
+  ];
+  assert.deepEqual(
+    rebasesOf(runs).map((r) => [r.at, r.from, r.digest]),
+    [
+      ['2026-10-03T00:00:00Z', 'repo@sha256:b', 'sha256:c'],
+      ['2026-10-02T00:00:00Z', 'repo@sha256:a', 'sha256:b'],
+    ],
+  );
+});
+
+test('per-image changes between two runs need rows in both', () => {
+  const { history } = readBundle(v015Bundle());
+  const [latest, previous, oldest] = history!.entries;
+  assert.equal(imageChanges(previous, oldest), null);
+  const changes = imageChanges(latest, previous)!;
+  assert.deepEqual(
+    changes.map((c) => [c.id, c.kind]),
+    [
+      ['retired-image', 'removed'],
+      ['static', 'added'],
+      ['debian-tools', 'changed'],
+      ['platform-tools', 'changed'],
+    ],
+  );
+  const debian = changes.find((c) => c.id === 'debian-tools')!;
+  assert.deepEqual(debian.verdict, ['failed', 'verified']);
+  assert.ok(debian.digest);
+  assert.equal(debian.critical![0], 30);
+  assert.deepEqual(changes.find((c) => c.id === 'platform-tools')!.drift, ['stale', 'current']);
+  // An unchanged run has nothing to say.
+  assert.deepEqual(imageChanges(latest, latest), []);
+});
+
+test("an app's registry stack is found by the version it is pinned to", () => {
+  const report = readBundle(v015Bundle()).report;
+  const hello = report.images.find((i) => i.id === 'hello-app')!;
+  const found = stackOf(report, hello)!;
+  assert.equal(found.stack.ref, STACK_REF);
+  assert.equal(found.version.digest, hello.factory!.stackDigest);
+  assert.equal(stackAnchor(found.stack), 'stack-ghcr-io-northcutted-stacks-go');
+  assert.equal(stackOf(fixture, fixture.images.find((i) => i.id === 'hello-app')!), undefined);
 });

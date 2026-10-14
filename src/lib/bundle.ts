@@ -92,7 +92,8 @@ export const IMAGE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 
 // Checks the promises the schema can't express but every page relies on:
 // image IDs are safe, unique page names (they are URLs and directories), and
-// every ID a report refers to names an image in it.
+// every ID a report refers to (from a base, a package, or a stack) names an
+// image in it. History rows may name images that have since left.
 function checkReferences(file: string, report: EstateReport): void {
   const ids = new Set<string>();
   const folded = new Map<string, string>();
@@ -123,6 +124,15 @@ function checkReferences(file: string, report: EstateReport): void {
     for (const id of pkg.images) {
       if (!ids.has(id)) {
         problems.push(`package ${pkg.name} ${pkg.version}: image ${JSON.stringify(id)} is not an image in the report`);
+      }
+    }
+  }
+  for (const stack of report.stacks ?? []) {
+    for (const version of stack.versions) {
+      for (const id of version.images) {
+        if (!ids.has(id)) {
+          problems.push(`stack ${stack.repository}: image ${JSON.stringify(id)} is not an image in the report`);
+        }
       }
     }
   }

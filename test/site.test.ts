@@ -18,7 +18,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { before, describe, test } from 'node:test';
 import { readBundle } from '../src/lib/bundle.ts';
-import { FIXTURE, MINIMAL, editedBundle, root } from './helpers.ts';
+import { FIXTURE, MINIMAL, editedBundle, root, v015Bundle } from './helpers.ts';
 
 function cli(...args: string[]) {
   return spawnSync(process.execPath, [path.join(root, 'bin/clearcutt-portal.ts'), ...args], {
@@ -77,6 +77,15 @@ const text = (html: string) =>
     .replace(/&gt;/g, '>')
     .replace(/&amp;/g, '&')
     .replace(/\s+/g, ' ');
+
+/**
+ * The page's text as it first shows: without chips' closed explanations, and
+ * without the spaces text() leaves where a tag meets punctuation.
+ */
+const shown = (html: string) =>
+  text(html.replace(/<span id="[^"]+" class="chip-tip" popover>[\s\S]*?<\/span><\/span>/g, ''))
+    .replace(/\s+([,.;)])/g, '$1')
+    .replace(/\(\s+/g, '(');
 
 describe('the example site', () => {
   let site: string;
@@ -268,14 +277,212 @@ describe('a report written by someone hostile', () => {
 });
 
 describe('the fixture site', () => {
+  let site: string;
+  before(() => {
+    site = build(FIXTURE);
+  });
+
   test('builds, and every verified image shows each required kind verified', () => {
-    const site = build(FIXTURE);
     const report = readBundle(FIXTURE).report;
     for (const image of report.images.filter((i) => i.verdict.status === 'verified')) {
       const page = text(read(site, `images/${image.id}/index.html`));
       assert.match(page, /✓ Verified/);
     }
     assert.match(text(read(site, 'history/index.html')), /Verdicts per run/);
+  });
+
+  test("a smoke test the recipe declares reads as declared, not as a generic present", () => {
+    const page = shown(read(site, 'images/debian-tools/index.html'));
+    assert.match(page, /Tests ○ Declared in recipe .*declared in the recipe .*declares a smoke test \(\/usr\/local\/bin\/rg --version\)/);
+    assert.match(text(read(site, 'images/debian-tools/index.html')), /Tests ○ Declared in recipe Declared in recipe\. The image's verified recipe declares a smoke test/);
+    assert.match(shown(read(site, 'about/index.html')), /Declared in recipe .* Nothing attests that the test ran/);
+  });
+
+  test('a proven base says which platform images were compared', () => {
+    const page = shown(read(site, 'images/platform-tools/index.html'));
+    assert.match(page, /Proven by layer digests, comparing the linux\/amd64 images\./);
+  });
+
+  test('an image says where its package list was read from', () => {
+    const page = shown(read(site, 'images/platform-tools/index.html'));
+    assert.match(page, /Read from its SBOM, which is ✓ Verified; the union of the linux\/amd64, linux\/arm64 images' lists\./);
+    const pkg = shown(read(site, 'packages/index.html'));
+    assert.doesNotMatch(pkg, /of\d/);
+  });
+
+  test('package pages say where each image\'s list came from, not that the report is silent', () => {
+    const dir = path.join(site, 'packages');
+    const pages = readdirSync(dir).filter((f) => f !== 'index.html');
+    const page = shown(read(dir, `${pages[0]}/index.html`));
+    assert.match(page, /Package list read from/);
+    assert.match(page, /SBOM ✓ Verified/);
+    assert.doesNotMatch(page, /doesn't say which source/);
+  });
+
+  test('an app on a stack defined beside it says so', () => {
+    const page = shown(read(site, 'images/hello-app/index.html'));
+    assert.match(page, /Stack go defined beside the app, not in a registry; its definition's digest is sha256:cfdf348cb280\./);
+    assert.match(shown(read(site, 'stacks/index.html')), /No registry stacks in this report[\s\S]*Apps on stacks not listed here[\s\S]*hello-app:latest on go at sha256:cfdf348cb280/);
+    assert.match(read(site, 'index.html'), /<a href="\/stacks\/">Stacks<\/a>/);
+  });
+
+  test('history says per-image changes need two runs with rows, and no longer that they are never recorded', () => {
+    const page = shown(read(site, 'history/index.html'));
+    assert.match(page, /The previous run recorded no per-image rows \(clearcutt-verify writes them from v0\.15\)/);
+    assert.doesNotMatch(page, /isn't recorded\./);
+    assert.match(page, /UTC\. 3 runs recorded/);
+    const image = shown(read(site, 'images/debian-tools/index.html'));
+    assert.match(image, /This image over time .* 2026-10-10 16:51 UTC sha256:867c6cbf7f44 ✓ Verified ✓ Proven, ✓ current/);
+    assert.match(image, /2 earlier runs recorded no per-image rows and aren't shown/);
+  });
+
+  test('without a scan-age limit or stacks, the policy says so briefly', () => {
+    const page = shown(read(site, 'about/index.html'));
+    assert.match(page, /Scan age any age/);
+    assert.doesNotMatch(page, /Stack signers/);
+  });
+});
+
+describe('a report using everything clearcutt-verify v0.15 writes', () => {
+  let site: string;
+  before(() => {
+    site = build(v015Bundle());
+  });
+
+  test('the stacks page lists each version, its signature, and the apps pinned to it', () => {
+    const page = shown(read(site, 'stacks/index.html'));
+    assert.match(page, /ghcr\.io\/northcutted\/stacks\/go Tag apps name ghcr\.io\/northcutted\/stacks\/go:1 It points at sha256:c{64} Apps 1 app, 1 on an older version/);
+    assert.match(page, /sha256:cfdf348cb280 ! Older version .*✓ Verified .*\^https:\/\/github\\\.com\/northcutted\/clearcutt-factory\/ cosign signature hello-app:latest/);
+    assert.match(page, /checked against the 1 stack signer in the policy/);
+    assert.doesNotMatch(page, /Apps on stacks not listed here/);
+  });
+
+  test("an app's page names its registry stack, the version's currency and signature, and links to it", () => {
+    const html = read(site, 'images/hello-app/index.html');
+    assert.match(shown(html), /Stack go from the registry stack ghcr\.io\/northcutted\/stacks\/go:1, pinned at sha256:cfdf348cb280\. Version: ! Older version .* Signature: ✓ Verified/);
+    assert.match(html, /href="\/stacks\/#stack-ghcr-io-northcutted-stacks-go"/);
+    assert.match(read(site, 'stacks/index.html'), /id="stack-ghcr-io-northcutted-stacks-go"/);
+  });
+
+  test('the overview counts apps on an older stack version', () => {
+    assert.match(shown(read(site, 'index.html')), /1 On an older stack of 1 app on 1 registry stack/);
+  });
+
+  test('the policy shows the scan-age limit and the stack signers', () => {
+    const page = shown(read(site, 'about/index.html'));
+    assert.match(page, /Scan age unverified when the vulnerability scan is more than 7 days old/);
+    assert.match(page, /Stack signers Identity matching \^https:\/\/github\\\.com\/northcutted\/clearcutt-factory\//);
+    assert.match(shown(read(site, 'images/hello-app/index.html')), /The findings describe that day, within the policy's limit of 7 days\./);
+  });
+
+  test('a base digest of one platform image says which', () => {
+    assert.match(shown(read(site, 'images/platform-tools/index.html')), /sha256:1c451d46a0d5\w+ \(its linux\/amd64 image\)/);
+    assert.match(shown(read(site, 'bases/index.html')), /Newest observed: cgr\.dev\/chainguard\/wolfi-base:latest sha256:1c451d46a0d5 \(its linux\/amd64 image\)/);
+  });
+
+  test('a package list whose source is not recorded says so', () => {
+    assert.match(shown(read(site, 'images/debian-tools/index.html')), /Where this package set was read from isn't recorded\./);
+  });
+
+  test("an image's page shows it run by run, with trends", () => {
+    const page = shown(read(site, 'images/debian-tools/index.html'));
+    assert.match(page, /2026-10-10 16:51 UTC sha256:867c6cbf7f44 new digest ✓ Verified/);
+    assert.match(page, /2026-10-06 23:30 UTC sha256:dddddddddddd ✕ Failed .* 30 /);
+    assert.match(page, /1 earlier run recorded no per-image rows and isn't shown/);
+    assert.match(read(site, 'images/debian-tools/index.html'), /aria-label="Critical findings\. 2 runs; latest [^"]*: 25\. lowest 25, highest 30\. Every value is in the table above\."/);
+    assert.match(shown(read(site, 'images/static/index.html')), /2026-10-06 23:30 UTC Not in this run\./);
+  });
+
+  test('the history page lists what changed for each image', () => {
+    const page = shown(read(site, 'history/index.html'));
+    assert.match(page, /retired-image Not in this run/);
+    assert.match(page, /static:latest New in this run/);
+    assert.match(page, /debian-tools:latest Verdict ✕ Failed → ✓ Verified New digest: sha256:dddddddddddd → sha256:867c6cbf7f44 Critical findings 30 → 25/);
+    assert.match(page, /platform-tools:latest Base ! Stale → ✓ Current/);
+  });
+});
+
+describe('a report from a newer clearcutt-verify', () => {
+  // Fields this contract doesn't have yet, and images that trust left bare:
+  // newer clearcutt-verify reads nothing from evidence no trusted signer
+  // verified.
+  let site: string;
+  before(() => {
+    const bundle = editedBundle(FIXTURE, (r) => {
+      const image = (id: string) => r.images.find((i: any) => i.id === id);
+      Object.assign(image('platform-tools').base, { drift: 'stale', versionsBehind: 1, daysBehind: 0, daysBehindUnknown: true });
+      image('platform-tools').evidence.signature.someLaterField = 'ignored';
+      r.someLaterSection = [{ anything: true }];
+      const bare = image('debian-tools');
+      bare.verdict = { status: 'unverified', reasons: ['sbom is present but not from a trusted signer'] };
+      for (const key of ['vulnerabilities', 'packages', 'packagesSource', 'factory']) delete bare[key];
+      for (const pkg of r.packages) pkg.images = pkg.images.filter((id: string) => id !== 'debian-tools');
+      r.packages = r.packages.filter((pkg: any) => pkg.images.length > 0);
+      image('wolfi-base').packagesSource.status = 'present';
+      image('static').evidence.signature = {
+        status: 'failed',
+        source: 'cosign-signature',
+        signer: { identity: 'https://github.com/someone/else/.github/workflows/sign.yml@refs/heads/main', issuer: 'https://token.actions.githubusercontent.com' },
+        detail: 'Signed by an identity the policy does not trust.',
+      };
+    });
+    site = build(bundle);
+  });
+
+  test('a stale base whose age is unknown says so, never 0 days', () => {
+    const page = shown(read(site, 'images/platform-tools/index.html'));
+    assert.match(page, /! Stale 1 version behind; how many days couldn't be measured/);
+    assert.doesNotMatch(page, /0 days behind/);
+    assert.match(shown(read(site, 'bases/index.html')), /platform-tools:latest ✓ Proven ! behind, age unknown/);
+    assert.match(shown(read(site, 'bases/index.html')), /cgr\.dev\/chainguard\/wolfi-base:latest cgr\.dev\/chainguard\/wolfi-base:latest ✓ Proven 1 unknown/);
+    assert.match(shown(read(site, 'index.html')), /platform-tools:latest cgr\.dev\/chainguard\/wolfi-base:latest ✓ Proven 1 unknown/);
+  });
+
+  test('an image with nothing trusted to read from says what is unknown', () => {
+    const page = shown(read(site, 'images/debian-tools/index.html'));
+    assert.match(page, /\? Unverified sbom is present but not from a trusted signer/);
+    assert.match(page, /This image has no vulnerability data, so how many vulnerabilities it has is unknown\./);
+    assert.match(page, /The report has no package set for this image, so what it ships is unknown\./);
+    assert.doesNotMatch(page, /clearcutt-factory App|Stack go|undefined|NaN/);
+    const pkg = shown(read(site, 'packages/index.html'));
+    assert.match(pkg, /3 images have no package set in the report\. Whether they ship this is unknown: [^.]*debian-tools:latest/);
+  });
+
+  test("a signer is shown as checked only on verified evidence", () => {
+    const page = shown(read(site, 'images/static/index.html'));
+    assert.match(page, /Signature ✕ Failed https:\/\/github\.com\/someone\/else\/\S+ issuer \S+ as its certificate claims; not checked/);
+    assert.equal(page.match(/as its certificate claims/g)?.length, 1);
+  });
+
+  test('a package list read from unverified SBOMs is flagged as possibly incomplete', () => {
+    assert.match(shown(read(site, 'images/wolfi-base/index.html')), /which is ○ Present, unverified; .*No trusted signer verified all of it, so the list may not be complete\./);
+    assert.match(shown(read(site, 'packages/index.html')), /1 image's package list rests on SBOMs no trusted signer verified, so it may not be complete: wolfi-base:latest\./);
+  });
+});
+
+describe('a rebased image with per-image history', () => {
+  test('lists each rebase from the run that first recorded it', () => {
+    const billing = 'ghcr-io-acme-images-billing';
+    const bundle = editedBundle(
+      MINIMAL,
+      () => {},
+      (h) => {
+        const [latest, previous] = h.entries;
+        latest.images = [
+          {
+            id: billing,
+            digest: `sha256:${'5'.repeat(64)}`,
+            verdict: 'failed',
+            rebasedFrom: `ghcr.io/acme/images/billing@sha256:${'0'.repeat(64)}`,
+            rebaseStatus: 'verified',
+          },
+        ];
+        previous.images = [{ id: billing, digest: `sha256:${'0'.repeat(64)}`, verdict: 'failed' }];
+      },
+    );
+    const page = shown(read(build(bundle), `images/${billing}/index.html`));
+    assert.match(page, /First recorded Rebased from Gave Rebase record 2026-10-06 06:00 UTC ghcr\.io\/acme\/images\/billing@sha256:0{64} sha256:555555555555 ✓ Verified/);
+    assert.match(page, /sha256:555555555555 new digest, rebased ✕ Failed/);
   });
 });
 

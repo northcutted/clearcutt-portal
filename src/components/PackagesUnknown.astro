@@ -1,23 +1,34 @@
 ---
-// The caveat every package answer needs: images whose package set couldn't
-// be read might ship anything.
+// The caveats every package answer needs: an image with no package set in
+// the report might ship anything, and a list read from an SBOM no trusted
+// signer verified may not be the whole story.
 import { loadBundle } from '../lib/bundle.ts';
-import { imageLabel, packagesUnknown } from '../lib/estate.ts';
+import { imageLabel, packagesPartial, packagesUnknown } from '../lib/estate.ts';
 import { plural } from '../lib/format.ts';
 import { imageHref } from '../lib/site.ts';
 
 const { report } = loadBundle();
 const unknown = packagesUnknown(report);
+const partial = packagesPartial(report);
 ---
-{unknown.length === 0 ? (
-  <p class="small dim">Every image's package set was read, so an image missing from this page doesn't ship it.</p>
+{unknown.length === 0 && partial.length === 0 ? (
+  <p class="small dim">Every image's package set is in the report, read from verified SBOMs, so an image missing from this page doesn't ship it.</p>
 ) : (
   <div class="callout">
     <h3>Not covered</h3>
-    <p>
-      {plural(unknown.length, "image's package set", "images' package sets")} couldn't be read. Whether they ship this
-      is unknown:{' '}
-      {unknown.map((image, i) => <>{i > 0 && ', '}<a href={imageHref(image.id)}>{imageLabel(image)}</a></>)}.
-    </p>
+    {unknown.length > 0 && (
+      <p>
+        {plural(unknown.length, 'image has', 'images have')} no package set in the report. Whether they ship this is
+        unknown:{' '}
+        {unknown.map((image, i) => <>{i > 0 && ', '}<a href={imageHref(image.id)}>{imageLabel(image)}</a></>)}.
+      </p>
+    )}
+    {partial.length > 0 && (
+      <p>
+        {plural(partial.length, "image's package list rests", "images' package lists rest")} on SBOMs no trusted signer
+        verified, so {partial.length === 1 ? 'it' : 'they'} may not be complete:{' '}
+        {partial.map((image, i) => <>{i > 0 && ', '}<a href={imageHref(image.id)}>{imageLabel(image)}</a></>)}.
+      </p>
+    )}
   </div>
 )}

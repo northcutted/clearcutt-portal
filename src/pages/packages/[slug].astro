@@ -5,7 +5,7 @@ import PackagesUnknown from '../../components/PackagesUnknown.astro';
 import { loadBundle } from '../../lib/bundle.ts';
 import { imageLabel, imagesById, packageGroups, type PackageGroup } from '../../lib/estate.ts';
 import { plural } from '../../lib/format.ts';
-import { evidenceStatus } from '../../lib/present.ts';
+import { evidenceKindLabel, evidenceStatus } from '../../lib/present.ts';
 import { imageHref } from '../../lib/site.ts';
 
 export function getStaticPaths() {
@@ -33,15 +33,25 @@ const byId = imagesById(report);
       {v.purl && <p class="small dim mono">{v.purl}</p>}
       <div class="table-wrap">
         <table>
-          <thead><tr><th>Image</th><th>Repository</th><th>SBOM evidence</th></tr></thead>
+          <thead><tr><th>Image</th><th>Repository</th><th>Package list read from</th></tr></thead>
           <tbody>
             {v.images.map((id) => {
               const image = byId.get(id)!;
+              const source = image.packagesSource;
               return (
                 <tr>
                   <td><a href={imageHref(id)}>{imageLabel(image)}</a></td>
                   <td class="mono small">{image.repository}</td>
-                  <td><Chip term={evidenceStatus(image.evidence.sbom.status)} /></td>
+                  <td>
+                    {source ? (
+                      <>
+                        {evidenceKindLabel(source.evidence)} <Chip term={evidenceStatus(source.status)} />
+                        {source.platforms && source.platforms.length > 0 && <div class="dim small">{source.platforms.join(', ')}</div>}
+                      </>
+                    ) : (
+                      <span class="dim">not recorded</span>
+                    )}
+                  </td>
                 </tr>
               );
             })}
@@ -52,7 +62,8 @@ const byId = imagesById(report);
   ))}
 
   <p class="small dim">
-    SBOM evidence is the image's SBOM status, for context: the report doesn't say which source each image's package
-    list was read from.
+    Each image's package list was read from the evidence named, for the platform images listed (its packages are
+    their union). Verified means a trusted signer vouched for all of it; anything else means some of it wasn't
+    verified, so the list may not be complete. Not recorded means the report doesn't say where it came from.
   </p>
 </Layout>

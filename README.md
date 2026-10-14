@@ -25,10 +25,11 @@ clearcutt-verify estate verify ──▶ bundle ──▶ clearcutt-portal build
 | Page | What it answers |
 |---|---|
 | Overview | How many images are verified, failed, or unverified; the reasons for each one that isn't; stale bases; evidence and vulnerabilities across the estate; the policy they were held to |
-| Image | Its base and how it is known, every piece of evidence with its signer and status, vulnerabilities and the day they describe, tests, whether a rebuild reproduced it, its rebase, platforms, and packages |
+| Image | Its base and how it is known, every piece of evidence with its signer and status, vulnerabilities and the day they describe, tests, whether a rebuild reproduced it, its stack, its rebases, platforms, packages and where they were read from, and the image run by run |
 | Bases | Which images are built on which, how each relationship is known, and how far behind each image is |
+| Stacks | The clearcutt-factory stacks the apps are built on, who signed each version, and which apps are on an older one (shown when the estate has apps on stacks) |
 | Packages | Which images ship a package, and which images that can't be answered for |
-| History | Verdicts and headline numbers from run to run |
+| History | Verdicts and headline numbers from run to run, and what changed for each image since the previous run |
 | About | What every status means, the policy, and where the data came from |
 
 The site never claims more than the report does. **Proven** means checked: a

@@ -1,0 +1,14 @@
+---
+// A status as its glyph and label, inline: for tables of past runs, where a
+// chip per cell would be a button per cell. The glyph carries the tone
+// without color; screen readers get the label alone.
+import { TONE_GLYPH, type Term } from '../lib/present.ts';
+
+interface Props {
+  term: Term;
+  /** Text to show instead of the term's label. */
+  label?: string;
+}
+const { term, label } = Astro.props;
+---
+<span class="nowrap"><span class={`chip-glyph tone-${term.tone}`} aria-hidden="true">{TONE_GLYPH[term.tone]}</span> {label ?? term.label}</span>

@@ -53,8 +53,19 @@ test('a base built on another base nests under it', () => {
   assert.ok(!graph.roots.some((n) => n.repository === 'cgr.dev/chainguard/static'));
 });
 
-test('stale images come most days behind first', () => {
-  assert.deepEqual(staleImages(fixture).map((i) => i.id), ['debian-tools', 'platform-tools']);
+test('stale images come most days behind first, then most versions behind', () => {
+  // Every fixture image is current, so make three of them stale.
+  const behind: Record<string, [number, number]> = { 'platform-tools': [3, 1], 'debian-tools': [17, 1], 'hello-app': [3, 2] };
+  const report = readBundle(
+    editedBundle(FIXTURE, (r) => {
+      for (const image of r.images) {
+        const b = behind[image.id];
+        if (b) Object.assign(image.base, { drift: 'stale', daysBehind: b[0], versionsBehind: b[1] });
+      }
+    }),
+  ).report;
+  assert.deepEqual(staleImages(fixture), []);
+  assert.deepEqual(staleImages(report).map((i) => i.id), ['debian-tools', 'hello-app', 'platform-tools']);
 });
 
 test('verdict order is failed, unverified, verified', () => {

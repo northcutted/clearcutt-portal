@@ -28,4 +28,5 @@ stops the build; fields from a newer v1 are ignored.
 **Publishing.** A reusable workflow (`portal.yml`) deploys a fleet's portal to
 GitHub Pages from a bundle artifact, and the action builds one in any job.
 Releases are the signed `git archive` of their tag, which the action verifies
-before building.
+before building; only a `vX.Y.Z` tag counts as a release, and any other ref
+builds from source.

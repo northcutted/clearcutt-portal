@@ -1,8 +1,10 @@
 // Two runs side by side, image by image, from the history's per-image rows
 // (clearcutt-verify v0.15 and later): what each image was before and after,
 // and how it changed. A row holds an image's digest, verdict, base, rebase,
-// and findings counted by severity; not which findings or which packages, so
-// nothing here says which CVE was fixed or which package moved.
+// and findings counted by severity; from later clearcutt-verify releases, also
+// the IDs of its fixable high and critical findings and a digest of its
+// package set. Other findings are only counted, and the digest says that the
+// package set changed, not how.
 import type { EstateHistory, HistoryEntry, HistoryImage } from './contract.gen.ts';
 import { chronological } from './estate.ts';
 import { SEVERITIES, type Severity } from './present.ts';
@@ -70,10 +72,46 @@ export interface ImageDiff {
   findings: Record<Severity, [number | null, number | null]>;
   /** The severities whose count changed, or became known or unknown. */
   findingsChanged: Severity[];
+  /**
+   * The IDs of its fixable high and critical findings in each run; null
+   * when that run had no vulnerability data for it, or didn't record IDs.
+   */
+  fixable: [string[] | null, string[] | null];
+  /** Fixable high and critical findings gone in the newer run, and new in it; null unless both runs list them. */
+  fixed: string[] | null;
+  introduced: string[] | null;
+  /** Whether its package set changed; null unless both runs recorded a digest of it. */
+  packagesChanged: boolean | null;
 }
 
-/** One image across two runs. */
-export function diffImage(id: string, before: HistoryImage | undefined, after: HistoryImage | undefined): ImageDiff {
+/**
+ * Whether a run's rows go beyond v0.15's: any row lists fixable findings or
+ * a package digest. A row of such a run with vulnerability data and no
+ * fixableFindings has none; in an older run, which never lists them, it says
+ * nothing.
+ */
+export function recordsIds(entry: HistoryEntry): boolean {
+  return entry.images?.some((row) => row.fixableFindings !== undefined || row.packagesDigest !== undefined) ?? false;
+}
+
+function fixableOf(row: HistoryImage | undefined, recorded: boolean): string[] | null {
+  if (!row || !recorded || !row.vulnerabilities) return null;
+  return [...new Set(row.fixableFindings ?? [])].sort();
+}
+
+/**
+ * One image across two runs. `recorded` says whether each run lists finding
+ * IDs (recordsIds); without it, they are taken as not recorded.
+ */
+export function diffImage(
+  id: string,
+  before: HistoryImage | undefined,
+  after: HistoryImage | undefined,
+  recorded: [boolean, boolean] = [false, false],
+): ImageDiff {
+  const fixable: [string[] | null, string[] | null] = [fixableOf(before, recorded[0]), fixableOf(after, recorded[1])];
+  const [x, y] = fixable;
+  const both = before !== undefined && after !== undefined;
   const findings = Object.fromEntries(
     SEVERITIES.map((s) => [s, [before?.vulnerabilities?.[s] ?? null, after?.vulnerabilities?.[s] ?? null]]),
   ) as ImageDiff['findings'];
@@ -84,6 +122,11 @@ export function diffImage(id: string, before: HistoryImage | undefined, after: H
     ...(after ? { after } : {}),
     findings,
     findingsChanged: before && after ? SEVERITIES.filter((s) => findings[s][0] !== findings[s][1]) : [],
+    fixable,
+    fixed: both && x && y ? x.filter((f) => !y.includes(f)) : null,
+    introduced: both && x && y ? y.filter((f) => !x.includes(f)) : null,
+    packagesChanged:
+      both && before.packagesDigest !== undefined && after.packagesDigest !== undefined ? before.packagesDigest !== after.packagesDigest : null,
   };
   if (!before || !after) return { ...out, how: before ? 'removed' : 'added' };
   if (before.verdict !== after.verdict) out.verdict = [before.verdict, after.verdict];
@@ -109,15 +152,23 @@ export function diffRuns(older: HistoryEntry, newer: HistoryEntry): ImageDiff[] 
   if (!older.images || !newer.images) return null;
   const before = new Map(older.images.map((i) => [i.id, i]));
   const after = new Map(newer.images.map((i) => [i.id, i]));
+  const recorded: [boolean, boolean] = [recordsIds(older), recordsIds(newer)];
   const ids = [...new Set([...after.keys(), ...before.keys()])];
   return ids
-    .map((id) => diffImage(id, before.get(id), after.get(id)))
+    .map((id) => diffImage(id, before.get(id), after.get(id), recorded))
     .sort((x, y) => HOW_ORDER.indexOf(x.how) - HOW_ORDER.indexOf(y.how) || x.id.localeCompare(y.id));
 }
 
-/** Whether anything about the image changed: its digest, base, verdict, or findings, or it came or went. */
+/** Whether anything about the image changed: its digest, base, verdict, findings, or packages, or it came or went. */
 export function changed(diff: ImageDiff): boolean {
-  return diff.how !== 'unchanged' || diff.verdict !== undefined || diff.findingsChanged.length > 0;
+  return (
+    diff.how !== 'unchanged' ||
+    diff.verdict !== undefined ||
+    diff.findingsChanged.length > 0 ||
+    (diff.fixed?.length ?? 0) > 0 ||
+    (diff.introduced?.length ?? 0) > 0 ||
+    diff.packagesChanged === true
+  );
 }
 
 /** How many images changed each way. */
@@ -186,6 +237,41 @@ export function findingsDrill(diffs: ImageDiff[]): Drill[] {
     }
     return d;
   }).filter((d) => d.before.length + d.after.length + d.unknown.length > 0);
+}
+
+export interface FindingDrill {
+  /** A fixable high or critical finding, e.g. CVE-2026-1234 or GO-2026-6603. */
+  id: string;
+  /** Images that had it in the older run, and in the newer. */
+  before: string[];
+  after: string[];
+  /** Of the images in both runs: those it is gone from, and those it is new in. */
+  fixed: string[];
+  introduced: string[];
+}
+
+/**
+ * Per fixable high or critical finding, which images had it before and
+ * after, and where it was fixed or introduced: an advisory's drill, by ID.
+ * Null when neither run lists finding IDs.
+ */
+export function fixableDrill(diffs: ImageDiff[]): FindingDrill[] | null {
+  if (!diffs.some((d) => d.fixable[0] !== null || d.fixable[1] !== null)) return null;
+  const drills = new Map<string, FindingDrill>();
+  const get = (id: string) => {
+    let d = drills.get(id);
+    if (!d) drills.set(id, (d = { id, before: [], after: [], fixed: [], introduced: [] }));
+    return d;
+  };
+  for (const diff of diffs) {
+    for (const f of diff.fixable[0] ?? []) get(f).before.push(diff.id);
+    for (const f of diff.fixable[1] ?? []) get(f).after.push(diff.id);
+    for (const f of diff.fixed ?? []) get(f).fixed.push(diff.id);
+    for (const f of diff.introduced ?? []) get(f).introduced.push(diff.id);
+  }
+  return [...drills.values()].sort(
+    (a, b) => b.introduced.length - a.introduced.length || b.after.length - a.after.length || b.fixed.length - a.fixed.length || a.id.localeCompare(b.id),
+  );
 }
 
 export interface Comparison {

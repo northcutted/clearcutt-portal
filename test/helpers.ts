@@ -68,13 +68,14 @@ export function v015Bundle(): string {
       delete image('debian-tools').packagesSource;
     },
     (h) => {
-      // The run before the latest gets rows too: debian-tools was failing on
-      // another digest, platform-tools' base was stale, static wasn't there,
-      // and an image since removed was.
+      // The run before the latest gets rows too, as clearcutt-verify v0.15
+      // wrote them (no finding IDs or package digests): debian-tools was
+      // failing on another digest, platform-tools' base was stale, static
+      // wasn't there, and an image since removed was.
       const [latest, previous] = h.entries;
       previous.images = structuredClone(latest.images)
         .filter((i: any) => i.id !== 'static')
-        .map((i: any) => {
+        .map(({ fixableFindings, packagesDigest, ...i }: any) => {
           if (i.id === 'debian-tools') {
             return { ...i, verdict: 'failed', digest: `sha256:${'d'.repeat(64)}`, vulnerabilities: { ...i.vulnerabilities, critical: 30 } };
           }

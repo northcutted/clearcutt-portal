@@ -50,11 +50,11 @@ export function byVerdict(images: Image[]): Image[] {
  * How many days an image is behind its base's newest version, or null when
  * the base is stale but its age couldn't be measured (a creation time is
  * missing, or zeroed by a reproducible build). clearcutt-verify then sets
- * base.daysBehindUnknown, a field newer than the vendored contract, and
+ * base.daysBehindUnknown, and
  * daysBehind is 0 and means nothing.
  */
 export function daysBehind(base: BaseLink): number | null {
-  return (base as BaseLink & { daysBehindUnknown?: unknown }).daysBehindUnknown === true ? null : base.daysBehind;
+  return base.daysBehindUnknown === true ? null : base.daysBehind;
 }
 
 /** Stale images, most days behind first; those whose age is unknown last. */
@@ -268,55 +268,6 @@ export function rebasesOf(runs: ImageRun[]): Rebase[] {
     out.push({ at: run.at, from: row.rebasedFrom, digest: row.digest, status: row.rebaseStatus });
   }
   return out.reverse();
-}
-
-export interface ImageChange {
-  id: string;
-  /** added: in the newer run only; removed: in the older run only. */
-  kind: 'added' | 'removed' | 'changed';
-  verdict?: [string, string];
-  digest?: [string, string];
-  /** Set when the new digest came from a rebase the older run didn't record. */
-  rebasedFrom?: string;
-  drift?: [string, string];
-  critical?: [number | null, number | null];
-  high?: [number | null, number | null];
-}
-
-/**
- * What changed for each image between two runs, from their per-image rows;
- * null when either run recorded none.
- */
-export function imageChanges(newer: HistoryEntry, older: HistoryEntry): ImageChange[] | null {
-  if (!newer.images || !older.images) return null;
-  const before = new Map(older.images.map((i) => [i.id, i]));
-  const after = new Map(newer.images.map((i) => [i.id, i]));
-  const out: ImageChange[] = [];
-  for (const [id, b] of after) {
-    const a = before.get(id);
-    if (!a) {
-      out.push({ id, kind: 'added' });
-      continue;
-    }
-    const change: ImageChange = { id, kind: 'changed' };
-    if (a.verdict !== b.verdict) change.verdict = [a.verdict, b.verdict];
-    if (a.digest !== b.digest) {
-      change.digest = [a.digest, b.digest];
-      if (b.rebasedFrom && b.rebasedFrom !== a.rebasedFrom) change.rebasedFrom = b.rebasedFrom;
-    }
-    const driftA = a.base?.drift ?? 'none';
-    const driftB = b.base?.drift ?? 'none';
-    if (driftA !== driftB) change.drift = [driftA, driftB];
-    for (const sev of ['critical', 'high'] as const) {
-      const x = a.vulnerabilities?.[sev] ?? null;
-      const y = b.vulnerabilities?.[sev] ?? null;
-      if (x !== y) change[sev] = [x, y];
-    }
-    if (Object.keys(change).length > 2) out.push(change);
-  }
-  for (const id of before.keys()) if (!after.has(id)) out.push({ id, kind: 'removed' });
-  const order = { removed: 0, added: 1, changed: 2 };
-  return out.sort((x, y) => order[x.kind] - order[y.kind] || x.id.localeCompare(y.id));
 }
 
 // ── Stacks ──────────────────────────────────────────────────────────────

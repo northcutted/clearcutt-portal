@@ -5,7 +5,6 @@ import {
   baseGraph,
   byVerdict,
   chronological,
-  imageChanges,
   imageRuns,
   packageGroups,
   packagesUnknown,
@@ -132,29 +131,6 @@ test('rebases are listed once each, newest first, from the run that first record
       ['2026-10-02T00:00:00Z', 'repo@sha256:a', 'sha256:b'],
     ],
   );
-});
-
-test('per-image changes between two runs need rows in both', () => {
-  const { history } = readBundle(v015Bundle());
-  const [latest, previous, oldest] = history!.entries;
-  assert.equal(imageChanges(previous, oldest), null);
-  const changes = imageChanges(latest, previous)!;
-  assert.deepEqual(
-    changes.map((c) => [c.id, c.kind]),
-    [
-      ['retired-image', 'removed'],
-      ['static', 'added'],
-      ['debian-tools', 'changed'],
-      ['platform-tools', 'changed'],
-    ],
-  );
-  const debian = changes.find((c) => c.id === 'debian-tools')!;
-  assert.deepEqual(debian.verdict, ['failed', 'verified']);
-  assert.ok(debian.digest);
-  assert.equal(debian.critical![0], 30);
-  assert.deepEqual(changes.find((c) => c.id === 'platform-tools')!.drift, ['stale', 'current']);
-  // An unchanged run has nothing to say.
-  assert.deepEqual(imageChanges(latest, latest), []);
 });
 
 test("an app's registry stack is found by the version it is pinned to", () => {

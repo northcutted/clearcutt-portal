@@ -10,7 +10,18 @@ import { imageLabel, imagesById } from '../lib/estate.ts';
 import { formatTime, plural } from '../lib/format.ts';
 import { SEVERITIES, drift, verdict } from '../lib/present.ts';
 import { href, imageHref } from '../lib/site.ts';
-import { changed, comparisonSlug, countHows, diffRuns, findingsDrill, howWords, type ImageDiff, type Run } from '../lib/timeline.ts';
+import {
+  changed,
+  comparisonSlug,
+  countHows,
+  diffRuns,
+  findingsDrill,
+  fixableDrill,
+  howWords,
+  recordsIds,
+  type ImageDiff,
+  type Run,
+} from '../lib/timeline.ts';
 
 interface Props {
   older: Run;
@@ -27,6 +38,10 @@ const changes = diffs?.filter(changed) ?? [];
 const same = diffs?.filter((d) => !changed(d)) ?? [];
 const hows = diffs ? countHows(diffs) : null;
 const drill = diffs ? findingsDrill(diffs) : [];
+// Whether both runs list fixable findings by ID and digest package sets;
+// with only one, "had it before" would read as "didn't".
+const detailed = recordsIds(older.entry) && recordsIds(newer.entry);
+const idDrill = diffs && detailed ? fixableDrill(diffs) : null;
 const label = (id: string) => (byId.has(id) ? imageLabel(byId.get(id)!) : id);
 const pageFor = (o: Run, n: Run) => href(`history/changes/${comparisonSlug(o, n)}/`);
 const here = comparisonSlug(older, newer);
@@ -42,7 +57,10 @@ const tiles: { key: keyof NonNullable<typeof hows>; label: string }[] = [
   { key: 'unchanged', label: 'Same image' },
 ];
 const verdictChanges = changes.filter((d) => d.verdict).length;
-const findingChanges = changes.filter((d) => d.before && d.after && d.findingsChanged.length > 0).length;
+const findingChanges = changes.filter((d) => d.before && d.after && (d.findingsChanged.length > 0 || (d.fixed?.length ?? 0) + (d.introduced?.length ?? 0) > 0)).length;
+const packageChanges = changes.filter((d) => d.packagesChanged === true).length;
+const fixedCount = changes.reduce((n, d) => n + (d.fixed?.length ?? 0), 0);
+const introducedCount = changes.reduce((n, d) => n + (d.introduced?.length ?? 0), 0);
 const hasRows = (run: Run) => run.entry.images !== undefined;
 ---
 <header class="page-head">
@@ -82,7 +100,7 @@ const hasRows = (run: Run) => run.entry.images !== undefined;
       </div>
       <p class="small dim">
         {plural(verdictChanges, 'image changed', 'images changed')} verdict and {plural(findingChanges, 'image', 'images')} in both runs
-        changed findings. Rebased: a new digest from a rebase. Rebuilt: a new digest otherwise. Base moved: the same
+        changed findings{detailed && <>; {plural(fixedCount, 'fixable high or critical finding was', 'fixable high or critical findings were')} fixed and {plural(introducedCount, 'was', 'were')} introduced, counted per image; and {plural(packageChanges, 'image', 'images')} changed {packageChanges === 1 ? 'its' : 'their'} package set</>}. Rebased: a new digest from a rebase. Rebuilt: a new digest otherwise. Base moved: the same
         image, its base more or less current than before. A verdict or findings can change while the image stays the
         same, when the policy, the evidence, or the advisories do.
       </p>
@@ -93,8 +111,10 @@ const hasRows = (run: Run) => run.entry.images !== undefined;
         <h2 id="drill">Who had findings, before and after</h2>
         <p class="lede small">
           Per severity, the images that had findings in each run and, of the images in both, which have none now and
-          which have some for the first time, each with how it changed. The history counts findings; it doesn't say
-          which, so the latest run's image pages list them.
+          which have some for the first time, each with how it changed.{' '}
+          {idDrill !== null
+            ? 'The fixable high and critical findings are named below; the history only counts the rest.'
+            : "The history counts findings; it doesn't say which, so the latest run's image pages list them."}
         </p>
         <div class="table-wrap">
           <table class="drill">
@@ -128,6 +148,45 @@ const hasRows = (run: Run) => run.entry.images !== undefined;
       </section>
     )}
 
+    {idDrill !== null && (
+      <section aria-labelledby="by-id">
+        <h2 id="by-id">Fixable findings, by ID</h2>
+        <p class="lede small">
+          Each fixable high or critical finding either run lists: which images had it, which have it, and where it was
+          fixed or introduced, with how each image changed. A finding gone from an image was fixed, or a VEX statement
+          now covers it.
+        </p>
+        {idDrill.length === 0 ? (
+          <p>No image had a fixable high or critical finding in either run.</p>
+        ) : (
+          <div class="table-wrap">
+            <table class="drill">
+              <thead><tr><th>Finding</th><th>Had it before</th><th>Has it after</th><th>Fixed in</th><th>New in</th></tr></thead>
+              <tbody>
+                {idDrill.map((f) => {
+                  const names = (ids: string[]) =>
+                    ids.length === 0 ? <span class="dim">none</span> : (
+                      <ul class="change-list">
+                        {ids.map((id) => <li>{byId.has(id) ? <a href={imageHref(id)}>{label(id)}</a> : <code>{id}</code>} <span class="dim small">({howWords(diffs.find((x) => x.id === id)!).label.toLowerCase()})</span></li>)}
+                      </ul>
+                    );
+                  return (
+                    <tr>
+                      <td class="mono small">{f.id}</td>
+                      <td>{names(f.before)}</td>
+                      <td>{names(f.after)}</td>
+                      <td>{names(f.fixed)}</td>
+                      <td>{names(f.introduced)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+    )}
+
     <section aria-labelledby="images">
       <h2 id="images">Image by image</h2>
       {changes.length === 0 ? (
@@ -136,7 +195,7 @@ const hasRows = (run: Run) => run.entry.images !== undefined;
         <div class="table-wrap">
           <table class="before-after">
             <caption class="sr-only">Each image that changed, before and after</caption>
-            <thead><tr><th>Image</th><th>How</th><th>Digest</th><th>Base</th><th>Verdict</th><th>Findings</th></tr></thead>
+            <thead><tr><th>Image</th><th>How</th><th>Digest</th><th>Base</th><th>Verdict</th><th>Findings</th><th>Packages</th></tr></thead>
             <tbody>
               {changes.map((d: ImageDiff) => {
                 const words = howWords(d);
@@ -197,6 +256,11 @@ const hasRows = (run: Run) => run.entry.images !== undefined;
                           {SEVERITIES.every((s) => !d.findingsChanged.includes(s) && (d.findings[s][0] ?? 0) === 0 && (d.findings[s][1] ?? 0) === 0) && <li class="dim">none</li>}
                         </ul>
                       )}
+                      {(d.fixed?.length ?? 0) > 0 && <div>Fixed: <span class="mono">{d.fixed!.join(', ')}</span></div>}
+                      {(d.introduced?.length ?? 0) > 0 && <div>New: <span class="mono">{d.introduced!.join(', ')}</span></div>}
+                    </td>
+                    <td class="small">
+                      {d.packagesChanged === null ? <span class="dim">unknown</span> : d.packagesChanged ? <strong>changed</strong> : 'same'}
                     </td>
                   </tr>
                 );
@@ -209,15 +273,28 @@ const hasRows = (run: Run) => run.entry.images !== undefined;
         <details>
           <summary>{plural(same.length, 'image', 'images')} unchanged</summary>
           <p class="small">
-            The same digest, base currency, verdict, and findings in both runs:{' '}
+            The same digest, base currency, verdict, and findings in both runs{detailed && ', and the same package set where both runs read it'}:{' '}
             {same.map((d, i) => <>{i > 0 && ', '}{byId.has(d.id) ? <a href={imageHref(d.id)}>{label(d.id)}</a> : <code>{d.id}</code>}</>)}.
           </p>
         </details>
       )}
       <p class="small dim">
-        ? means unknown: the run had no vulnerability data for that image. The history records each image's digest,
-        verdict, base, rebase, and findings counted by severity. It doesn't record which findings or which packages, so
-        which advisories were fixed and which packages changed between these runs isn't known.
+        ? means unknown: the run had no vulnerability data for that image.{' '}
+        {detailed ? (
+          <>
+            The history names an image's fixable high and critical findings and counts the rest, so only those are listed
+            as fixed or new. It identifies the package set by a digest, so "changed" says the set differs, not which
+            packages; the latest run's image pages list them. Packages are unknown for an image whose package set wasn't
+            read in one of the runs.
+          </>
+        ) : (
+          <>
+            {recordsIds(newer.entry) ? 'The older run recorded only' : recordsIds(older.entry) ? 'The newer run recorded only' : 'These runs recorded only'}{' '}
+            each image's digest, verdict, base, rebase, and findings counted by severity, not which findings or which
+            packages, so which advisories were fixed and whether packages changed between them isn't known.
+            clearcutt-verify releases after v0.15 record both.
+          </>
+        )}
       </p>
     </section>
   </>

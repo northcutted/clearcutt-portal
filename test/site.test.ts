@@ -470,7 +470,8 @@ describe('a report using everything clearcutt-verify v0.15 writes', () => {
     );
     assert.match(page, /platform-tools:latest Base moved The same image; its base went from stale to current\. sha256:bf7990acf59e sha256:1c451d46a0d5 ! Stale → ✓ Current/);
     assert.match(page, /5 images unchanged/);
-    assert.match(page, /It doesn't record which findings or which packages/);
+    assert.match(page, /The older run recorded only each image's digest, verdict, base, rebase, and findings counted by severity, not which findings or which packages/);
+    assert.doesNotMatch(page, /Fixable findings, by ID .* Fixed in/);
     // The drill: who had criticals before and after, and how each changed.
     assert.match(page, /critical debian-tools:latest \(rebuilt, same base\) debian-tools:latest \(rebuilt, same base\) none none none/);
     // The same comparison has a page of its own, and the others are a link away.
@@ -548,6 +549,45 @@ describe('a report from a newer clearcutt-verify', () => {
   test('a package list read from unverified SBOMs is flagged as possibly incomplete', () => {
     assert.match(shown(read(site, 'images/wolfi-base/index.html')), /which is ○ Present, unverified; .*No trusted signer verified all of it, so the list may not be complete\./);
     assert.match(shown(read(site, 'packages/index.html')), /1 image's package list rests on SBOMs no trusted signer verified, so it may not be complete: wolfi-base:latest\./);
+  });
+});
+
+describe('runs that list fixable findings and package digests', () => {
+  // The fixture's latest run lists them; give the run before it rows too,
+  // where debian-tools was another build with one finding fixed since, one
+  // not yet there, and other packages, and static's packages weren't read.
+  let site: string;
+  before(() => {
+    site = build(
+      editedBundle(FIXTURE, () => {}, (h) => {
+        const [latest, previous] = h.entries;
+        previous.images = structuredClone(latest.images).map((i: any) => {
+          if (i.id === 'debian-tools') {
+            const ids = [...i.fixableFindings.filter((f: string) => f !== 'GO-2026-6629'), 'CVE-2026-0001'].sort();
+            return { ...i, digest: `sha256:${'d'.repeat(64)}`, fixableFindings: ids, packagesDigest: `sha256:${'0'.repeat(64)}` };
+          }
+          if (i.id === 'static') delete i.packagesDigest;
+          return i;
+        });
+      }),
+    );
+  });
+
+  test('the comparison names the findings fixed and introduced, and whether packages changed', () => {
+    const page = shown(read(site, 'history/changes/index.html'));
+    assert.match(page, /1 fixable high or critical finding was fixed and 1 was introduced, counted per image; and 1 image changed its package set\./);
+    assert.match(page, /debian-tools:latest Rebuilt, same base .* Fixed: CVE-2026-0001 New: GO-2026-6629 changed 7 images unchanged/);
+    assert.match(page, /Fixable findings, by ID .* Finding Had it before Has it after Fixed in New in GO-2026-6629 amazonlinux-tools:latest \(unchanged\) platform-tools:latest \(unchanged\) debian-tools:latest \(rebuilt, same base\) amazonlinux-tools:latest \(unchanged\) platform-tools:latest \(unchanged\) none debian-tools:latest \(rebuilt, same base\)/);
+    assert.match(page, /CVE-2026-0001 debian-tools:latest \(rebuilt, same base\) none debian-tools:latest \(rebuilt, same base\) none/);
+    assert.match(page, /"changed" says the set differs, not which packages/);
+    assert.doesNotMatch(page, /which advisories were fixed and whether packages changed between them isn't known/);
+  });
+
+  test('the history page lists them too', () => {
+    assert.match(
+      shown(read(site, 'history/index.html')),
+      /debian-tools:latest Rebuilt, same base: sha256:dddddddddddd → sha256:867c6cbf7f44 Fixed: CVE-2026-0001 New: GO-2026-6629 Package set changed/,
+    );
   });
 });
 

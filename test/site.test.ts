@@ -446,18 +446,44 @@ describe('a report using everything clearcutt-verify v0.15 writes', () => {
 
   test("an image's page shows it run by run, with trends", () => {
     const page = shown(read(site, 'images/debian-tools/index.html'));
-    assert.match(page, /2026-10-10 16:51 UTC sha256:867c6cbf7f44 new digest ✓ Verified/);
+    assert.match(page, /2026-10-10 16:51 UTC sha256:867c6cbf7f44 rebuilt, same base ✓ Verified/);
     assert.match(page, /2026-10-06 23:30 UTC sha256:dddddddddddd ✕ Failed .* 30 /);
     assert.match(page, /1 earlier run recorded no per-image rows and isn't shown/);
     assert.match(read(site, 'images/debian-tools/index.html'), /aria-label="Critical findings\. 2 runs; latest [^"]*: 25\. lowest 25, highest 30\. Every value is in the table above\."/);
     assert.match(shown(read(site, 'images/static/index.html')), /2026-10-06 23:30 UTC Not in this run\./);
   });
 
+  test('the latest two runs side by side: each image before and after, and how it changed', () => {
+    const page = shown(read(site, 'history/changes/index.html'));
+    assert.match(page, /From 2026-10-06 23:30 UTC to 2026-10-10 16:51 UTC/);
+    assert.match(page, /0 Rebased 1 Rebuilt 1 Base moved 1 New 1 Gone 5 Same image/);
+    assert.match(page, /retired-image Gone In the older run only\. sha256:eeeeeeeeeeee none recorded ✓ Verified unknown: no vulnerability data/);
+    assert.match(page, /static:latest New In the newer run only\./);
+    assert.match(
+      page,
+      /debian-tools:latest Rebuilt, same base A new digest on the same base: its own layers changed\. sha256:dddddddddddd → sha256:867c6cbf7f44 sha256:a29215f6a35e ✓ Current ✕ Failed → ✓ Verified critical 30 → 25 \(5 fewer\) high 116/,
+    );
+    assert.match(page, /platform-tools:latest Base moved The same image; its base went from stale to current\. sha256:bf7990acf59e sha256:1c451d46a0d5 ! Stale → ✓ Current/);
+    assert.match(page, /5 images unchanged/);
+    assert.match(page, /It doesn't record which findings or which packages/);
+    // The drill: who had criticals before and after, and how each changed.
+    assert.match(page, /critical debian-tools:latest \(rebuilt, same base\) debian-tools:latest \(rebuilt, same base\) none none none/);
+    // The same comparison has a page of its own, and the others are a link away.
+    const pair = '20261006T233046Z--20261010T165146Z';
+    assert.equal(shown(read(site, `history/changes/${pair}/index.html`)).replace(/Changes from \S+ \S+ \S+ to \S+ \S+ \S+ · /, ''), page.replace(/Changes between runs · /, ''));
+    const html = read(site, 'history/changes/index.html');
+    assert.match(html, /<a href="\/history\/changes\/20261006T231441Z--20261006T233046Z\/">/);
+    assert.match(html, /<a href="\/history\/changes\/20261006T231441Z--20261010T165146Z\/">/);
+    assert.match(shown(read(site, 'history/changes/20261006T231441Z--20261006T233046Z/index.html')), /The older run recorded no per-image rows/);
+    assert.match(read(site, 'history/index.html'), /<a href="\/history\/changes\/20261006T233046Z--20261010T165146Z\/"[^>]*>What changed<\/a>/);
+    assert.match(shown(read(site, 'history/index.html')), /Compare the two runs image by image ?: each image before and after/);
+  });
+
   test('the history page lists what changed for each image', () => {
     const page = shown(read(site, 'history/index.html'));
     assert.match(page, /retired-image Not in this run/);
     assert.match(page, /static:latest New in this run/);
-    assert.match(page, /debian-tools:latest Verdict ✕ Failed → ✓ Verified New digest: sha256:dddddddddddd → sha256:867c6cbf7f44 Critical findings 30 → 25/);
+    assert.match(page, /debian-tools:latest Verdict ✕ Failed → ✓ Verified Rebuilt, same base: sha256:dddddddddddd → sha256:867c6cbf7f44 Critical findings 30 → 25/);
     assert.match(page, /platform-tools:latest Base ! Stale → ✓ Current/);
   });
 });
@@ -579,7 +605,7 @@ describe('a rebased image with per-image history', () => {
     );
     const page = shown(read(build(bundle), `images/${billing}/index.html`));
     assert.match(page, /First recorded Rebased from Gave Rebase record 2026-10-06 06:00 UTC ghcr\.io\/acme\/images\/billing@sha256:0{64} sha256:555555555555 ✓ Verified/);
-    assert.match(page, /sha256:555555555555 new digest, rebased ✕ Failed/);
+    assert.match(page, /sha256:555555555555 rebased ✕ Failed/);
   });
 });
 

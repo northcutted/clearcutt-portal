@@ -1,0 +1,19 @@
+---
+// A comparison of two runs: each run with the one before it, and each with
+// the latest (timeline.comparisons). Rendered at build time, like every page.
+import Layout from '../../../layouts/Layout.astro';
+import RunComparison from '../../../components/RunComparison.astro';
+import { loadBundle } from '../../../lib/bundle.ts';
+import { formatTime } from '../../../lib/format.ts';
+import { comparisons, historyRuns, type Run } from '../../../lib/timeline.ts';
+
+export function getStaticPaths() {
+  const runs = historyRuns(loadBundle().history);
+  return comparisons(runs).map((c) => ({ params: { pair: c.slug }, props: { older: c.older, newer: c.newer, runs } }));
+}
+
+const { older, newer, runs } = Astro.props as { older: Run; newer: Run; runs: Run[] };
+---
+<Layout title={`Changes from ${formatTime(older.at)} to ${formatTime(newer.at)}`} description="What changed for each image between two runs, and how.">
+  <RunComparison older={older} newer={newer} runs={runs} />
+</Layout>

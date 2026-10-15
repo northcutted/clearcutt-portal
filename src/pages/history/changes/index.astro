@@ -1,0 +1,30 @@
+---
+// The latest run beside the one before it: the comparison most readers want.
+// history/changes/<older>--<newer>/ has the others.
+import Layout from '../../../layouts/Layout.astro';
+import RunComparison from '../../../components/RunComparison.astro';
+import { loadBundle } from '../../../lib/bundle.ts';
+import { historyRuns } from '../../../lib/timeline.ts';
+import { href } from '../../../lib/site.ts';
+
+const { history } = loadBundle();
+const runs = historyRuns(history);
+const newer = runs.at(-1);
+const older = runs.at(-2);
+---
+<Layout title="Changes between runs" description="What changed for each image between two runs, and how.">
+  {older && newer ? (
+    <RunComparison older={older} newer={newer} runs={runs} />
+  ) : (
+    <header class="page-head">
+      <p class="eyebrow">History · changes between runs</p>
+      <h1>Changes between runs</h1>
+      <p class="lede">
+        {history
+          ? 'The history has one run so far, so there is nothing to compare it with yet.'
+          : 'This bundle has no history, so there is only this run: nothing to compare, and nothing here should be read as "no change".'}
+      </p>
+      <p class="small"><a href={href('history/')}>Back to the history</a></p>
+    </header>
+  )}
+</Layout>

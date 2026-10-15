@@ -1,0 +1,211 @@
+// Two runs side by side, image by image, from the history's per-image rows
+// (clearcutt-verify v0.15 and later): what each image was before and after,
+// and how it changed. A row holds an image's digest, verdict, base, rebase,
+// and findings counted by severity; not which findings or which packages, so
+// nothing here says which CVE was fixed or which package moved.
+import type { EstateHistory, HistoryEntry, HistoryImage } from './contract.gen.ts';
+import { chronological } from './estate.ts';
+import { SEVERITIES, type Severity } from './present.ts';
+
+export interface Run {
+  /** A name for the run in URLs: its time, as 20261010T165146Z. */
+  slug: string;
+  at: string;
+  ref?: string;
+  entry: HistoryEntry;
+}
+
+/** 2026-10-10T16:51:46Z → 20261010T165146Z; "run" for a time that doesn't parse. */
+export function runSlug(at: string): string {
+  const d = new Date(at);
+  if (Number.isNaN(d.getTime())) return 'run';
+  return d.toISOString().replace(/\.\d+Z$/, 'Z').replace(/[-:]/g, '');
+}
+
+/** The history's runs, oldest first, each with a slug no other run has. */
+export function historyRuns(history: EstateHistory | null): Run[] {
+  const used = new Set<string>();
+  return chronological(history).map((entry) => {
+    const stem = runSlug(entry.generatedAt);
+    let slug = stem;
+    for (let n = 2; used.has(slug); n++) slug = `${stem}-${n}`;
+    used.add(slug);
+    return { slug, at: entry.generatedAt, ...(entry.ref !== undefined ? { ref: entry.ref } : {}), entry };
+  });
+}
+
+/**
+ * How an image changed between two runs:
+ *
+ *   added       in the newer run only
+ *   removed     in the older run only
+ *   rebased     a new digest, from a rebase the older run didn't record
+ *   rebuilt     a new digest otherwise
+ *   base-moved  the same digest, but its base is more or less current than before
+ *               (usually: the base's tag moved on to a newer version)
+ *   unchanged   the same digest, on a base as current as before
+ *
+ * An unchanged image can still change verdict (the policy or the evidence
+ * changed) or findings (new advisories, a new scan, a VEX statement).
+ */
+export type How = 'added' | 'removed' | 'rebased' | 'rebuilt' | 'base-moved' | 'unchanged';
+
+export const HOW_ORDER: How[] = ['removed', 'added', 'rebased', 'rebuilt', 'base-moved', 'unchanged'];
+
+export interface ImageDiff {
+  id: string;
+  how: How;
+  before?: HistoryImage;
+  after?: HistoryImage;
+  /**
+   * For a new digest: whether the base digest changed (true), didn't
+   * (false), or a run didn't record it (null).
+   */
+  newBase?: boolean | null;
+  /** Set when the verdict changed. */
+  verdict?: [string, string];
+  /** Set when the base's currency changed; "none" when a run recorded no base. */
+  drift?: [string, string];
+  /** Each severity's count before and after; null is unknown (no vulnerability data). */
+  findings: Record<Severity, [number | null, number | null]>;
+  /** The severities whose count changed, or became known or unknown. */
+  findingsChanged: Severity[];
+}
+
+/** One image across two runs. */
+export function diffImage(id: string, before: HistoryImage | undefined, after: HistoryImage | undefined): ImageDiff {
+  const findings = Object.fromEntries(
+    SEVERITIES.map((s) => [s, [before?.vulnerabilities?.[s] ?? null, after?.vulnerabilities?.[s] ?? null]]),
+  ) as ImageDiff['findings'];
+  const out: ImageDiff = {
+    id,
+    how: 'unchanged',
+    ...(before ? { before } : {}),
+    ...(after ? { after } : {}),
+    findings,
+    findingsChanged: before && after ? SEVERITIES.filter((s) => findings[s][0] !== findings[s][1]) : [],
+  };
+  if (!before || !after) return { ...out, how: before ? 'removed' : 'added' };
+  if (before.verdict !== after.verdict) out.verdict = [before.verdict, after.verdict];
+  const driftBefore = before.base?.drift ?? 'none';
+  const driftAfter = after.base?.drift ?? 'none';
+  if (driftBefore !== driftAfter) out.drift = [driftBefore, driftAfter];
+  if (before.digest !== after.digest) {
+    const a = before.base?.digest;
+    const b = after.base?.digest;
+    out.newBase = a === undefined || b === undefined ? null : a !== b;
+    out.how = after.rebasedFrom !== undefined && after.rebasedFrom !== before.rebasedFrom ? 'rebased' : 'rebuilt';
+  } else if (out.drift) {
+    out.how = 'base-moved';
+  }
+  return out;
+}
+
+/**
+ * Every image in either run, and how it changed; null when either run
+ * recorded no per-image rows (clearcutt-verify before v0.15).
+ */
+export function diffRuns(older: HistoryEntry, newer: HistoryEntry): ImageDiff[] | null {
+  if (!older.images || !newer.images) return null;
+  const before = new Map(older.images.map((i) => [i.id, i]));
+  const after = new Map(newer.images.map((i) => [i.id, i]));
+  const ids = [...new Set([...after.keys(), ...before.keys()])];
+  return ids
+    .map((id) => diffImage(id, before.get(id), after.get(id)))
+    .sort((x, y) => HOW_ORDER.indexOf(x.how) - HOW_ORDER.indexOf(y.how) || x.id.localeCompare(y.id));
+}
+
+/** Whether anything about the image changed: its digest, base, verdict, or findings, or it came or went. */
+export function changed(diff: ImageDiff): boolean {
+  return diff.how !== 'unchanged' || diff.verdict !== undefined || diff.findingsChanged.length > 0;
+}
+
+/** How many images changed each way. */
+export function countHows(diffs: ImageDiff[]): Record<How, number> {
+  const out = Object.fromEntries(HOW_ORDER.map((h) => [h, 0])) as Record<How, number>;
+  for (const d of diffs) out[d.how]++;
+  return out;
+}
+
+/** How an image changed, in words: a label and a sentence. */
+export function howWords(diff: ImageDiff): { label: string; meaning: string } {
+  switch (diff.how) {
+    case 'added':
+      return { label: 'New', meaning: 'In the newer run only.' };
+    case 'removed':
+      return { label: 'Gone', meaning: 'In the older run only.' };
+    case 'rebased':
+      return {
+        label: 'Rebased',
+        meaning: `A new digest from a rebase: its layers were moved onto ${diff.newBase === false ? 'the same' : 'a newer'} base without a rebuild.`,
+      };
+    case 'rebuilt':
+      return diff.newBase === true
+        ? { label: 'Rebuilt on a new base', meaning: 'A new digest, built on another version of its base.' }
+        : diff.newBase === false
+          ? { label: 'Rebuilt, same base', meaning: 'A new digest on the same base: its own layers changed.' }
+          : { label: 'Rebuilt', meaning: "A new digest. Whether its base changed isn't recorded." };
+    case 'base-moved':
+      return diff.drift?.[1] === 'stale'
+        ? { label: 'Base moved', meaning: 'The same image, but its base has a newer version now.' }
+        : { label: 'Base moved', meaning: `The same image; its base went from ${diff.drift?.[0]} to ${diff.drift?.[1]}.` };
+    default:
+      return { label: 'Unchanged', meaning: 'The same digest, on a base as current as before.' };
+  }
+}
+
+export interface Drill {
+  severity: Severity;
+  /** Images with findings of this severity in the older run, and in the newer. */
+  before: string[];
+  after: string[];
+  /** In both runs: had some and now have none, or had none and now have some. */
+  cleared: string[];
+  appeared: string[];
+  /** In both runs, with this count unknown in one of them. */
+  unknown: string[];
+}
+
+/**
+ * Per severity, which images had findings before and which after: the
+ * question an advisory raises ("who had criticals, who still does, and
+ * what changed about them"), at the level of counts the history keeps.
+ */
+export function findingsDrill(diffs: ImageDiff[]): Drill[] {
+  return SEVERITIES.map((severity) => {
+    const d: Drill = { severity, before: [], after: [], cleared: [], appeared: [], unknown: [] };
+    for (const diff of diffs) {
+      const [x, y] = diff.findings[severity];
+      if (x !== null && x > 0) d.before.push(diff.id);
+      if (y !== null && y > 0) d.after.push(diff.id);
+      if (!diff.before || !diff.after) continue;
+      if (x === null || y === null) {
+        if (x !== y) d.unknown.push(diff.id);
+      } else if (x > 0 && y === 0) d.cleared.push(diff.id);
+      else if (x === 0 && y > 0) d.appeared.push(diff.id);
+    }
+    return d;
+  }).filter((d) => d.before.length + d.after.length + d.unknown.length > 0);
+}
+
+export interface Comparison {
+  older: Run;
+  newer: Run;
+  /** The comparison's page: history/changes/<slug>/. */
+  slug: string;
+}
+
+export const comparisonSlug = (older: Run, newer: Run) => `${older.slug}--${newer.slug}`;
+
+/**
+ * The comparisons the site pre-renders: each run with the one before it,
+ * and each with the latest. Newest first.
+ */
+export function comparisons(runs: Run[]): Comparison[] {
+  const out = new Map<string, Comparison>();
+  const add = (older: Run, newer: Run) => out.set(comparisonSlug(older, newer), { older, newer, slug: comparisonSlug(older, newer) });
+  for (let i = runs.length - 1; i > 0; i--) add(runs[i - 1], runs[i]);
+  const latest = runs.at(-1);
+  if (latest) for (let i = runs.length - 3; i >= 0; i--) add(runs[i], latest);
+  return [...out.values()];
+}

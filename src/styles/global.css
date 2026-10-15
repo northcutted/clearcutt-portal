@@ -636,7 +636,7 @@ details[open] > summary {
   border-color: rgb(var(--accent) / 0.6);
 }
 
-/* ── Search ───────────────────────────────────────────────────────────── */
+/* ── Search and comparisons ─────────────────────────────────────────── */
 
 .syntax {
   margin: 0.5rem 0 0;
@@ -650,6 +650,16 @@ details[open] > summary {
 }
 [data-search-results] > * + * {
   margin-top: 1.25rem;
+}
+.change-list {
+  margin: 0;
+  padding-left: 1rem;
+}
+.before-after td {
+  min-width: 7rem;
+}
+.before-after td:first-child {
+  min-width: 10rem;
 }
 
 @media (prefers-reduced-motion: reduce) {

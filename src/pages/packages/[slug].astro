@@ -5,8 +5,9 @@ import PackagesUnknown from '../../components/PackagesUnknown.astro';
 import { loadBundle } from '../../lib/bundle.ts';
 import { imageLabel, imagesById, packageGroups, type PackageGroup } from '../../lib/estate.ts';
 import { plural } from '../../lib/format.ts';
+import { answerFor, inheritedWords } from '../../lib/package-search.ts';
 import { evidenceKindLabel, evidenceStatus } from '../../lib/present.ts';
-import { imageHref } from '../../lib/site.ts';
+import { href, imageHref, indexedPackage, searchIndex } from '../../lib/site.ts';
 
 export function getStaticPaths() {
   return packageGroups(loadBundle().report).map((group) => ({ params: { slug: group.slug }, props: { group } }));
@@ -15,13 +16,24 @@ export function getStaticPaths() {
 const { group } = Astro.props as { group: PackageGroup };
 const { report } = loadBundle();
 const byId = imagesById(report);
+const label = (id: string) => (byId.get(id) ? imageLabel(byId.get(id)!) : id);
+
+// The images built on one that ships each version: the same answer the
+// search gives, for readers without script.
+const index = searchIndex();
+const indexed = indexedPackage(group.slug)!;
+const inheritedBy = new Map(group.versions.map((v) => [v.version, answerFor(index, indexed, new Set([v.version])).inherited]));
+const inheriting = new Set([...inheritedBy.values()].flatMap((list) => list.filter((i) => i.own === 'unknown').map((i) => i.id)));
+for (const id of group.images) inheriting.delete(id);
+const searchFor = href(`packages/?q=${encodeURIComponent(`${group.type}:${group.name}`)}#search`);
 ---
 <Layout title={group.name} description={`Which images ship ${group.name}.`}>
   <header class="page-head">
     <p class="eyebrow">Package · {group.type}</p>
     <h1>{group.name}</h1>
     <p class="lede">
-      {plural(group.images.length, 'image ships', 'images ship')} it, in {plural(group.versions.length, 'version')}.
+      {plural(group.images.length, 'image ships', 'images ship')} it, in {plural(group.versions.length, 'version')}{inheriting.size > 0 && <>, and {plural(inheriting.size, 'more image inherits', 'more images inherit')} it from a base</>}.
+      Oldest version first. <a href={searchFor}>Search its versions</a>.
     </p>
   </header>
 
@@ -58,6 +70,25 @@ const byId = imagesById(report);
           </tbody>
         </table>
       </div>
+      {(inheritedBy.get(v.version)?.length ?? 0) > 0 && (
+        <div class="table-wrap">
+          <table>
+            <caption class="sr-only">Images built on one that ships {v.version}</caption>
+            <thead><tr><th>Built on one that ships it</th><th>How</th></tr></thead>
+            <tbody>
+              {inheritedBy.get(v.version)!.map((entry) => {
+                const words = inheritedWords(entry, label);
+                return (
+                  <tr>
+                    <td><a href={imageHref(entry.id)}>{label(entry.id)}</a></td>
+                    <td><strong>{words.label}</strong><div class="small dim">{words.detail}</div></td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
     </section>
   ))}
 

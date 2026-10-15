@@ -593,6 +593,22 @@ details[open] > summary {
   width: 13rem;
 }
 
+/* ── Search ───────────────────────────────────────────────────────────── */
+
+.syntax {
+  margin: 0.5rem 0 0;
+  padding-left: 1.1rem;
+}
+.syntax li + li {
+  margin-top: 0.3rem;
+}
+.search-answer > * + * {
+  margin-top: 0.5rem;
+}
+[data-search-results] > * + * {
+  margin-top: 1.25rem;
+}
+
 @media (prefers-reduced-motion: reduce) {
   * {
     transition: none !important;

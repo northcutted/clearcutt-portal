@@ -2,6 +2,7 @@
 // the title, and what generated the site.
 import pkg from '../../package.json' with { type: 'json' };
 import { loadBundle } from './bundle.ts';
+import { buildSearchIndex, type SearchIndex } from './package-search.ts';
 import { TITLE_ENV, VERSION_ENV } from './site-env.ts';
 
 /** A link to a page of this site, under the base path it is deployed at. */
@@ -31,4 +32,19 @@ export function siteTitle(): string {
 /** This portal's version: the release it was built from, or "source". */
 export function portalVersion(): string {
   return process.env[VERSION_ENV] || (pkg.version === '0.0.0' ? 'source' : `v${pkg.version}`);
+}
+
+let index: SearchIndex | null = null;
+let indexed: Map<string, SearchIndex['packages'][number]> | null = null;
+
+/** The package search's index, as packages/search-index.json serves it. */
+export function searchIndex(): SearchIndex {
+  index ??= buildSearchIndex(loadBundle().report, { image: imageHref, package: packageHref });
+  return index;
+}
+
+/** The index's entry for the package group with this slug. */
+export function indexedPackage(slug: string): SearchIndex['packages'][number] | undefined {
+  indexed ??= new Map(searchIndex().packages.map((p) => [p.href, p]));
+  return indexed.get(packageHref(slug));
 }

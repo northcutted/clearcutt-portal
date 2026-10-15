@@ -4,7 +4,8 @@ import PackagesUnknown from '../../components/PackagesUnknown.astro';
 import { loadBundle } from '../../lib/bundle.ts';
 import { packageGroups } from '../../lib/estate.ts';
 import { plural } from '../../lib/format.ts';
-import { packageHref } from '../../lib/site.ts';
+import { QUERY_EXAMPLES } from '../../lib/package-search.ts';
+import { href, packageHref } from '../../lib/site.ts';
 
 const { report } = loadBundle();
 const groups = packageGroups(report);
@@ -21,6 +22,40 @@ const { known, unknown } = report.summary.packages;
   </header>
 
   <PackagesUnknown />
+
+  <section aria-labelledby="search">
+    <h2 id="search">Who ships a version</h2>
+    <p class="lede small">
+      A package name, and the versions you're after. The answer lists the images that ship a matching version, and
+      the images built on one of those, which inherit it from their base.
+    </p>
+    <div data-package-search data-index={href('packages/search-index.json')} hidden>
+      <p>
+        <input class="filter" type="search" placeholder={QUERY_EXAMPLES[0]} aria-label="Package and versions, e.g. libxml2 <2.14" aria-describedby="search-syntax" autocomplete="off" spellcheck="false" data-search-input />
+      </p>
+      <details id="search-syntax" class="small">
+        <summary>How to write a search</summary>
+        <ul class="syntax">
+          <li>A package name, in any case. <code>*</code> matches anything: <code>libxml2*</code>.</li>
+          <li>Then versions: <code>&lt;</code>, <code>&lt;=</code>, <code>&gt;</code>, <code>&gt;=</code>, <code>=</code>, or <code>!=</code> and a version. A comma or space means "and", <code>||</code> means "or": {QUERY_EXAMPLES.slice(1).map((q, i) => <>{i > 0 && ', '}<code>{q}</code></>)}. No versions means any version.</li>
+          <li>A type before the name, like <code>deb:</code>, <code>rpm:</code>, or <code>apk:</code>, keeps to that kind of package.</li>
+          <li>
+            Versions are ordered the way their ecosystem orders them: apk for Alpine and Wolfi, dpkg for Debian (where <code>~</code> comes
+            before a release), rpm, semver for Go, npm, and Cargo, and PEP 440 for Python. A version without an epoch or a
+            revision ignores the package's: <code>&lt;2.14.0</code> holds for <code>2.13.9-r5</code> and not for <code>2.14.0-r1</code>.
+          </li>
+        </ul>
+      </details>
+      <p class="small" data-search-status aria-live="polite"></p>
+      <div data-search-results></div>
+    </div>
+    <noscript>
+      <p class="small">
+        Searching by version needs JavaScript. Without it, open a package below: its page lists every version, the images
+        that ship each, and the images built on them.
+      </p>
+    </noscript>
+  </section>
 
   <section aria-labelledby="list">
     <h2 id="list">All packages</h2>
@@ -44,6 +79,8 @@ const { known, unknown } = report.summary.packages;
   </section>
 </Layout>
 
+<script src="../../scripts/package-search.ts"></script>
+
 <script>
   const input = document.querySelector<HTMLInputElement>('[data-filter]');
   const count = document.querySelector<HTMLElement>('[data-count]');
@@ -58,11 +95,4 @@ const { known, unknown } = report.summary.packages;
     count!.textContent = q === '' ? '' : `${shown} of ${rows.length} packages match.`;
   };
   input?.addEventListener('input', apply);
-  if (input) {
-    const q = new URLSearchParams(location.search).get('q');
-    if (q) {
-      input.value = q;
-      apply();
-    }
-  }
 </script>

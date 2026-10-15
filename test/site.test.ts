@@ -159,6 +159,8 @@ describe('the example site', () => {
       assert.deepEqual(csp.get('default-src'), ["'none'"], file);
       assert.deepEqual(csp.get('base-uri'), ["'none'"], file);
       assert.deepEqual(csp.get('form-action'), ["'none'"], file);
+      // Scripts may fetch the site's own files (the package search's index), nothing else.
+      assert.deepEqual(csp.get('connect-src'), ["'self'"], file);
       const scripts = csp.get('script-src') ?? [];
       const styles = csp.get('style-src') ?? [];
       for (const sources of [scripts, styles]) {
@@ -185,6 +187,27 @@ describe('the example site', () => {
       assert.doesNotMatch(html, /<[^>]+\son[a-z]+="/, `${file}: event handler attribute`);
       assert.match(html, /<head>[\s\S]*content-security-policy[\s\S]*<\/head>/, file);
     }
+  });
+
+  test('every script is a file of the site, never inline', () => {
+    for (const file of htmlFiles(site)) {
+      for (const m of readFileSync(file, 'utf8').matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/g)) {
+        assert.match(m[1], /\bsrc="\/portal\//, `${file}: inline script`);
+        assert.equal(m[2], '', file);
+      }
+    }
+  });
+
+  test('the package search loads its index from the site, and says what to do without script', () => {
+    const index = JSON.parse(read(site, 'packages/search-index.json'));
+    const report = readBundle(MINIMAL).report;
+    assert.deepEqual(index.images.map((i: any) => i.id).sort(), report.images.map((i) => i.id).sort());
+    assert.ok(index.images.every((i: any) => i.href.startsWith('/portal/images/')));
+    assert.ok(index.packages.every((p: any) => p.href.startsWith('/portal/packages/')));
+    const html = read(site, 'packages/index.html');
+    assert.match(html, /<div data-package-search data-index="\/portal\/packages\/search-index\.json" hidden>/);
+    assert.match(text(html), /Searching by version needs JavaScript\. Without it, open a package below/);
+    assert.match(shown(html), /A version without an epoch or a revision ignores the package's: <2\.14\.0 holds for 2\.13\.9-r5 and not for 2\.14\.0-r1\./);
   });
 
   test('the skip link is the first thing on the page, and shows when focused', () => {
@@ -246,7 +269,6 @@ describe('a report written by someone hostile', () => {
     });
     site = build(bundle);
   });
-
   test('a source URL that is not http(s) is shown as text, never as a link', () => {
     const page = read(site, 'images/cgr-dev-chainguard-static/index.html');
     assert.doesNotMatch(page, /href="javascript:/i);
@@ -457,6 +479,43 @@ describe('a report from a newer clearcutt-verify', () => {
   test('a package list read from unverified SBOMs is flagged as possibly incomplete', () => {
     assert.match(shown(read(site, 'images/wolfi-base/index.html')), /which is ○ Present, unverified; .*No trusted signer verified all of it, so the list may not be complete\./);
     assert.match(shown(read(site, 'packages/index.html')), /1 image's package list rests on SBOMs no trusted signer verified, so it may not be complete: wolfi-base:latest\./);
+  });
+});
+
+describe('an image whose own packages are unknown', () => {
+  // platform-tools without its SBOM: it still has wolfi-base's packages,
+  // because the report proves it is built on wolfi-base's exact layers.
+  let site: string;
+  before(() => {
+    site = build(
+      editedBundle(FIXTURE, (r) => {
+        const tools = r.images.find((i: any) => i.id === 'platform-tools');
+        delete tools.packages;
+        delete tools.packagesSource;
+        for (const pkg of r.packages) pkg.images = pkg.images.filter((id: string) => id !== 'platform-tools');
+        r.packages = r.packages.filter((pkg: any) => pkg.images.length > 0);
+      }),
+    );
+  });
+
+  test("is listed on its base's package pages as inheriting them, without script", () => {
+    const page = shown(read(site, 'packages/apk-busybox/index.html'));
+    assert.match(page, /1 image ships it, in 1 version, and 1 more image inherits it from a base\./);
+    assert.match(
+      page,
+      /Built on one that ships it How platform-tools:latest Inherits it Built on wolfi-base:latest, which ships it\. The base link is proven by layer digests\. Its own package list is not in the report\./,
+    );
+  });
+
+  test('is in the search index with its base link', () => {
+    const index = JSON.parse(read(site, 'packages/search-index.json'));
+    assert.deepEqual(index.images.find((i: any) => i.id === 'platform-tools'), {
+      id: 'platform-tools',
+      label: 'platform-tools:latest',
+      href: '/images/platform-tools/',
+      packages: 'unknown',
+      base: { id: 'wolfi-base', strength: 'proof', exact: true },
+    });
   });
 });
 

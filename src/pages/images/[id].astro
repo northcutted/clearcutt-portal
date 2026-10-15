@@ -6,6 +6,7 @@ import ExternalLink from '../../components/ExternalLink.astro';
 import Findings from '../../components/Findings.astro';
 import LineChart from '../../components/LineChart.astro';
 import StatusText from '../../components/StatusText.astro';
+import VerifyCommands from '../../components/VerifyCommands.astro';
 import type { Point } from '../../lib/charts.ts';
 import type { Image } from '../../lib/contract.gen.ts';
 import { loadBundle } from '../../lib/bundle.ts';
@@ -258,6 +259,8 @@ const showTrend = recorded.filter((run) => run.row?.vulnerabilities).length >= 2
       </table>
     </div>
   </section>
+
+  <VerifyCommands report={report} image={image} />
 
   <section aria-labelledby="vulns">
     <h2 id="vulns">Vulnerabilities</h2>

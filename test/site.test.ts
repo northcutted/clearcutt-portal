@@ -18,6 +18,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { before, describe, test } from 'node:test';
 import { readBundle } from '../src/lib/bundle.ts';
+import { verifyCommands } from '../src/lib/commands.ts';
 import { FIXTURE, MINIMAL, editedBundle, root, v015Bundle } from './helpers.ts';
 
 function cli(...args: string[]) {
@@ -86,6 +87,12 @@ const shown = (html: string) =>
   text(html.replace(/<span id="[^"]+" class="chip-tip" popover>[\s\S]*?<\/span><\/span>/g, ''))
     .replace(/\s+([,.;)])/g, '$1')
     .replace(/\(\s+/g, '(');
+
+/** The commands an image page shows, as text, in order. */
+const shownCommands = (html: string) =>
+  [...html.matchAll(/<pre><code>([\s\S]*?)<\/code><\/pre>/g)].map((m) =>
+    m[1].replace(/&#39;/g, "'").replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&'),
+  );
 
 describe('the example site', () => {
   let site: string;
@@ -210,6 +217,21 @@ describe('the example site', () => {
     assert.match(shown(html), /A version without an epoch or a revision ignores the package's: <2\.14\.0 holds for 2\.13\.9-r5 and not for 2\.14\.0-r1\./);
   });
 
+  test('an image page shows commands to check it, naming the image by digest', () => {
+    const html = read(site, 'images/ghcr-io-acme-images-hello-app/index.html');
+    const commands = shownCommands(html);
+    const report = readBundle(MINIMAL).report;
+    const image = report.images.find((i) => i.id === 'ghcr-io-acme-images-hello-app')!;
+    assert.deepEqual(commands, verifyCommands(report, image).commands.map((c) => c.text));
+    assert.ok(commands.some((c) => c.startsWith('cosign verify \\')));
+    assert.ok(commands.some((c) => c.startsWith(`gh attestation verify \\\n  oci://ghcr.io/acme/images/hello-app@${image.digest}`)));
+    assert.ok(commands.some((c) => c.startsWith('clearcutt-factory verify')));
+    for (const c of commands) assert.doesNotMatch(c, /hello-app:latest/);
+    // Copy buttons wait for the script, which unhides them where the clipboard works.
+    assert.match(html, /<button type="button" class="copy" data-copy aria-label="Copy the Signature command" hidden>Copy<\/button>/);
+    assert.match(shown(read(site, 'images/docker-io-library-redis/index.html')), /No command for SBOM: it isn't verified, so there is no trusted signer to check it against\./);
+  });
+
   test('the skip link is the first thing on the page, and shows when focused', () => {
     const html = read(site, 'index.html');
     assert.match(html, /<body>\s*<a class="skip-link" href="#main">Skip to content<\/a>/);
@@ -266,9 +288,25 @@ describe('a report written by someone hostile', () => {
       r.images[2].source = { url: 'https://github.com@evil.example/acme', basis: 'annotation' };
       r.images[3].source = { url: 'https://example.test/acme/redis', basis: 'label' };
       r.images[3].description = '<script>alert(1)</script><img src=x onerror=alert(1)>';
+      r.policy.trustedSigners[0].identityRegexp = "^https://github\\.com/acme/(images|'$(touch pwned)'</code><script>alert(1)</script>)/";
+      // Not the policy's: the command would name it, and it can't be shown as it is.
+      r.images[1].evidence.sbom.signer.identity = 'https://github.com/other/images/x\n$(touch pwned)';
     });
     site = build(bundle);
+    report = readBundle(bundle).report;
   });
+  let report: ReturnType<typeof readBundle>['report'];
+
+  test('a hostile signer is quoted in the command, or the command is not shown', () => {
+    const html = read(site, 'images/ghcr-io-acme-images-hello-app/index.html');
+    assert.doesNotMatch(html, /<script>alert/);
+    const image = report.images.find((i) => i.id === 'ghcr-io-acme-images-hello-app')!;
+    const built = verifyCommands(report, image);
+    assert.deepEqual(shownCommands(html), built.commands.map((c) => c.text));
+    assert.ok(built.commands[0].text.includes("--certificate-identity-regexp='^https://github\\.com/acme/(images|'\\''$(touch pwned)'\\''</code><script>alert(1)</script>)/'"));
+    assert.match(shown(html), /Not shown A value from the report can't be written into a shell command safely, so this page shows none for: SBOM ?: The signer's certificate-identity has characters other than printable ASCII\./);
+  });
+
   test('a source URL that is not http(s) is shown as text, never as a link', () => {
     const page = read(site, 'images/cgr-dev-chainguard-static/index.html');
     assert.doesNotMatch(page, /href="javascript:/i);

@@ -13,8 +13,8 @@ built from the report (`src/lib/commands.ts`):
 |---|---|---|
 | `cosign verify` | The signature verified | The signature over the image, against the trusted signer |
 | `cosign verify-attestation --type=<predicate type>` | An SBOM, vulnerability report, provenance, recipe, rebase record, or test attestation verified | That attestation, against the trusted signer. Evidence attached per platform (SBOMs, vulnerability reports) gets one command per platform image, as clearcutt-verify checks it |
-| `gh attestation verify oci://…` | Provenance verified and the report calls it a GitHub attestation | GitHub's build provenance, with `--repo` (the repository whose run made it), `--signer-workflow` for a reusable workflow in another repository, and `--source-ref` when the policy requires one |
-| `clearcutt-factory verify --image=…` | A clearcutt-factory image whose recipe or rebase record verified | Rebuilds it from the signed recipe (or repeats the signed rebase) and compares digests. It needs Docker or Podman, and takes no source-ref flag |
+| `gh attestation verify oci://… --bundle-from-oci` | Evidence verified and the report calls it a GitHub attestation (GitHub's artifact attestations, such as `actions/attest-build-provenance` provenance, which clearcutt-verify recognizes by their content) | The attestation, with GitHub's verifier, read from the registry: `--repo` is the repository whose run made it (`signer.sourceRepository`), `--signer-workflow` the workflow that signed it (`signerWorkflow`), and `--source-ref` is added when the policy requires a ref. From a clearcutt-verify that doesn't record `signerWorkflow`, the workflow is read from the identity, for a reusable one in another repository |
+| `clearcutt-factory verify --image=…` | A clearcutt-factory image whose recipe or rebase record verified | Rebuilds it from the signed recipe (or repeats the signed rebase) and compares digests. It needs Docker or Podman, and takes no source-ref flag. Not shown for a key signer without a transparency log, which it can't verify |
 | `clearcutt-verify estate verify` | Always | Runs verify over this image alone, in a new directory, with the report's policy written to `policy.json`, so its verdict can be compared with the page's |
 
 The signer flags are the ones clearcutt-verify passed to cosign: the policy's
@@ -24,7 +24,10 @@ trusted signer that accepts the evidence's certificate
 when the policy requires the calling repository (`sourceRepository`,
 `sourceMatchesImage`, `sourceRepositoryOwner`) or the signing workflow is a
 reusable one in another repository, and `--certificate-github-workflow-ref` for
-`sourceRef`. When no trusted signer can be matched in the browser's regular
+`sourceRef`. A key signer the policy accepts without a transparency log entry
+(`tlog: false`), or whose verified evidence was checked without one, gets
+`--key=…` and `--insecure-ignore-tlog=true`; the verdict command's policy keeps
+`tlog` too. When no trusted signer can be matched in the browser's regular
 expression dialect, the command names the certificate's exact identity
 instead, and says so.
 
@@ -156,8 +159,10 @@ the images that inherit it.
 
 From clearcutt-verify v0.15, each history entry has a row per image: its
 digest, verdict, base (digest, currency, how it is known), rebase, and findings
-counted by severity. The history pages compare two runs image by image
-(`src/lib/timeline.ts`).
+counted by severity. Later releases add `fixableFindings`, the IDs of its
+fixable high and critical findings (VEX-suppressed ones aside) from verified
+scans, and `packagesDigest`, a digest of its package set from verified SBOMs.
+The history pages compare two runs image by image (`src/lib/timeline.ts`).
 
 How an image changed:
 
@@ -175,13 +180,29 @@ now and which have some for the first time; and a table of every image that
 changed, before and after. An image with no vulnerability data in a run is
 unknown there, never zero.
 
+When both runs list finding IDs, the page also names, per image, the fixable
+high and critical findings **fixed** (gone in the newer run: fixed, or now
+covered by VEX) and **introduced**, and has a table by finding ID: which images
+had it, which have it, and where it was fixed or introduced, each with how the
+image changed. That is the advisory drill: for `CVE-2026-1234`, who had it, who
+still does, and whether they were rebuilt, rebased, or left while their base
+moved. Other findings are only counted, so only these are named. The
+**Packages** column says whether the package set changed, from the digests; it
+can say that the set differs, not which packages. The latest run's image pages
+list both.
+
+A run lists IDs when any of its rows has `fixableFindings` or
+`packagesDigest`. In such a run, a row with vulnerability data and no
+`fixableFindings` has none. A run from v0.15 lists neither, so compared with it
+nothing is called fixed or introduced and packages are unknown, rather than
+everything reading as fixed.
+
 `history/changes/` compares the latest run with the one before it. The site
 also renders a page for each run with the one before it and each run with the
 latest (`history/changes/<older>--<newer>/`, runs named by their time, such as
 `20261010T165146Z`), which is twice the number of runs at most; the history
 page and every comparison link to them. Other pairs aren't rendered.
 
-The history records counts, not which findings or which packages, so a
-comparison can't say which advisory was fixed or which package moved between
-two runs. That needs the contract to carry them; the latest run's image pages
-list its findings and packages.
+A package-set digest says that something changed, not what; and findings other
+than fixable high and critical ones are only counted. The latest run's image
+pages list all of its findings and packages.

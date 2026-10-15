@@ -26,11 +26,11 @@ clearcutt-verify estate verify ──▶ bundle ──▶ clearcutt-portal build
 | Page | What it answers |
 |---|---|
 | Overview | How many images are verified, failed, or unverified; the reasons for each one that isn't; stale bases; evidence and vulnerabilities across the estate; the policy they were held to |
-| Image | Its base and how it is known, every piece of evidence with its signer and status, vulnerabilities and the day they describe, tests, whether a rebuild reproduced it, its stack, its rebases, platforms, packages and where they were read from, the image run by run, and copy-paste commands (cosign, gh, clearcutt-factory, clearcutt-verify) that check what the page says without trusting it |
+| Image | Its base and how it is known, every piece of evidence with its signer and status, vulnerabilities and the day they describe, tests, whether a rebuild reproduced it and what checked that (this run, or an attested reproduction and where it ran), its stack, its rebases, platforms, packages and where they were read from, the image run by run, and copy-paste commands (cosign, gh, clearcutt-factory, clearcutt-verify) that check what the page says without trusting it |
 | Bases | Which images are built on which, how each relationship is known, and how far behind each image is |
 | Stacks | The clearcutt-factory stacks the apps are built on, who signed each version, and which apps are on an older one (shown when the estate has apps on stacks) |
 | Packages | Who ships a version: a search like `libxml2 <2.14` or `openssl >=3.0,<3.0.15`, in each ecosystem's version order, answered with the images that ship it and the images that inherit it from their base; and which images can't be answered for |
-| History | Verdicts and headline numbers from run to run; two runs side by side, image by image: digest, base, verdict, and findings before and after, and whether each image was rebased, rebuilt, or left while its base moved |
+| History | Verdicts and headline numbers from run to run; two runs side by side, image by image: digest, base, verdict, findings, and packages before and after, the fixable high and critical findings fixed and introduced by ID, and whether each image was rebased, rebuilt, or left while its base moved |
 | About | What every status means, the policy, and where the data came from |
 
 The site never claims more than the report does. **Proven** means checked: a

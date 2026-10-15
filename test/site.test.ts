@@ -232,6 +232,19 @@ describe('the example site', () => {
     assert.match(shown(read(site, 'images/docker-io-library-redis/index.html')), /No command for SBOM: it isn't verified, so there is no trusted signer to check it against\./);
   });
 
+  test('a reproduction says what checked it: this run, or an attestation and where it ran', () => {
+    assert.match(shown(read(site, 'images/ghcr-io-acme-images-hello-app/index.html')), /Checked by this run, which rebuilt it\./);
+    const html = read(site, 'images/ghcr-io-acme-images-billing/index.html');
+    const page = shown(html);
+    assert.match(page, /Checked by a clearcutt-factory reproduction attestation, verified against a trusted signer; this run didn't rebuild it\./);
+    assert.match(page, /Attestation signed by https:\/\/github\.com\/acme\/images\/\.github\/workflows\/fleet\.yml@refs\/heads\/main \(issuer https:\/\/token\.actions\.githubusercontent\.com\) ghcr\.io\/acme\/images\/billing@sha256:a?(ba)+b?/);
+    assert.match(
+      page,
+      /Where it was reproduced, as the attestation says: Run: https:\/\/github\.com\/acme\/images\/actions\/runs\/123\/attempts\/1 Workflow acme\/images\/\.github\/workflows\/fleet\.yml@refs\/heads\/main, job rebase Machine: github-hosted, linux\/amd64 clearcutt-factory v0\.2\.0/,
+    );
+    assert.match(html, /<a href="https:\/\/github\.com\/acme\/images\/actions\/runs\/123\/attempts\/1" rel="noreferrer">/);
+  });
+
   test("GitHub's provenance is checked with gh, from the registry, against the workflow that signed it", () => {
     const commands = shownCommands(read(site, 'images/ghcr-io-acme-images-hello-app/index.html'));
     assert.ok(commands.some((c) => c.includes('--bundle-from-oci \\\n  --repo=acme/images \\\n  --signer-workflow=github.com/acme/images/.github/workflows/images.yml')));
@@ -294,6 +307,7 @@ describe('a report written by someone hostile', () => {
       r.images[3].source = { url: 'https://example.test/acme/redis', basis: 'label' };
       r.images[3].description = '<script>alert(1)</script><img src=x onerror=alert(1)>';
       r.policy.trustedSigners[0].identityRegexp = "^https://github\\.com/acme/(images|'$(touch pwned)'</code><script>alert(1)</script>)/";
+      r.images[2].reproducibility.builder.id = 'javascript:alert(document.domain)';
       // Not the policy's: the command would name it, and it can't be shown as it is.
       r.images[1].evidence.sbom.signer.identity = 'https://github.com/other/images/x\n$(touch pwned)';
     });
@@ -317,6 +331,11 @@ describe('a report written by someone hostile', () => {
     assert.doesNotMatch(page, /href="javascript:/i);
     assert.match(page, /<code>javascript:alert\(document\.domain\)<\/code> <span class="dim small">\(not linked/);
     assert.match(read(site, 'images/ghcr-io-acme-images-billing/index.html'), /<code>https:\/\/github\.com@evil\.example\/acme<\/code>/);
+  });
+
+  test("a reproduction's run that is not http(s) is shown as text", () => {
+    const page = read(site, 'images/ghcr-io-acme-images-billing/index.html');
+    assert.match(page, /Run: <code>javascript:alert\(document\.domain\)<\/code> <span class="dim small">\(not linked/);
   });
 
   test('an http(s) source URL is a link', () => {

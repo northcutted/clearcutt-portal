@@ -235,6 +235,17 @@ const REPRO_METHOD: Record<NonNullable<Reproducibility['method']>, string> = {
   'rebase-repeat': 'repeated the recorded rebase',
 };
 
+const REPRO_SOURCE: Record<NonNullable<Reproducibility['source']>, string> = {
+  rebuild: 'this run, which rebuilt it',
+  attestation: "a clearcutt-factory reproduction attestation, verified against a trusted signer; this run didn't rebuild it",
+};
+
+/** Where a reproducibility result comes from, in words; unknown values as they are. */
+export function reproSource(value: string | undefined): string | undefined {
+  if (value === undefined) return undefined;
+  return REPRO_SOURCE[value as NonNullable<Reproducibility['source']>] ?? value;
+}
+
 export function reproMethod(value: string | undefined): string | undefined {
   if (value === undefined) return undefined;
   return REPRO_METHOD[value as NonNullable<Reproducibility['method']>] ?? value;

@@ -661,6 +661,10 @@ details[open] > summary {
 .before-after td:first-child {
   min-width: 10rem;
 }
+.builder {
+  margin: 0.2rem 0 0;
+  padding-left: 1.1rem;
+}
 
 @media (prefers-reduced-motion: reduce) {
   * {

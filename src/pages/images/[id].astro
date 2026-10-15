@@ -32,6 +32,7 @@ import {
   evidenceTerm,
   method,
   reproMethod,
+  reproSource,
   reproducibility,
   sourceBasis,
   stackVersionTerm,
@@ -317,6 +318,27 @@ const showTrend = recorded.filter((run) => run.row?.vulnerabilities).length >= 2
         )}
         {repro.detail && <div class="small">{repro.detail}</div>}
         {!repro.digest && !repro.detail && <span class="dim small"> {reproducibility(repro.status).meaning}</span>}
+        {repro.source && <div class="small">Checked by {reproSource(repro.source)}.</div>}
+        {repro.signer && (
+          <div class="small">
+            Attestation signed by <code>{signerText(repro.signer)}</code>{repro.signer.issuer && <span class="dim"> (issuer {repro.signer.issuer})</span>}
+            {repro.ref && <div class="dim mono">{repro.ref}</div>}
+          </div>
+        )}
+        {repro.builder && (
+          <div class="small">
+            Where it was reproduced, as the attestation says:
+            <ul class="builder">
+              {repro.builder.id && <li>Run: <ExternalLink url={repro.builder.id} /></li>}
+              {repro.builder.workflow && <li>Workflow <code>{repro.builder.workflow}</code>{repro.builder.job && <>, job <code>{repro.builder.job}</code></>}</li>}
+              {(repro.builder.runner || repro.builder.os || repro.builder.arch) && (
+                <li>Machine: {[repro.builder.runner, [repro.builder.os, repro.builder.arch].filter(Boolean).join('/')].filter(Boolean).join(', ')}</li>
+              )}
+              {repro.builder.factoryVersion && <li>clearcutt-factory <code>{repro.builder.factoryVersion}</code></li>}
+              {repro.builder.buildkit && <li>BuildKit <code>{repro.builder.buildkit}</code></li>}
+            </ul>
+          </div>
+        )}
       </dd>
     </dl>
   </section>

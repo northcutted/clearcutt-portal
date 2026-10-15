@@ -13,6 +13,7 @@ import type {
   StackVersion,
 } from './contract.gen.ts';
 import { repoName, shortDigest } from './format.ts';
+import { compareVersions, schemeOf } from './versions.ts';
 
 /** billing:latest, or billing@sha256:0123… when untagged. */
 export function imageLabel(image: Image): string {
@@ -173,7 +174,9 @@ export function packageGroups(report: EstateReport): PackageGroup[] {
   );
   const used = new Set<string>();
   for (const group of sorted) {
-    group.versions.sort((a, b) => a.version.localeCompare(b.version, undefined, { numeric: true }));
+    // Oldest first, in the package ecosystem's own order.
+    const scheme = schemeOf(group.type);
+    group.versions.sort((a, b) => compareVersions(a.version, b.version, scheme) || a.version.localeCompare(b.version));
     group.images = [...new Set(group.versions.flatMap((v) => v.images))].sort();
     const stem = `${group.type}-${group.name}`.toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '');
     let slug = stem || 'package';

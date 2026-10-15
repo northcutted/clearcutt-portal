@@ -4,8 +4,9 @@
 found and proved about an image estate into a static website: which images are
 verified and why the rest aren't, what each one is built on and how that is
 known, every piece of evidence and whether it checked out, vulnerabilities,
-reproducibility, which images ship a package, and how all of it changed from
-run to run.
+reproducibility, which images ship a package (at which versions, and which
+inherit it from their base), how all of it changed from run to run, and the
+commands to check any of it yourself.
 
 **Demo:** [northcutted.github.io/clearcutt-portal](https://northcutted.github.io/clearcutt-portal/),
 built from a real run over the [clearcutt-factory](https://github.com/northcutted/clearcutt-factory)
@@ -25,11 +26,11 @@ clearcutt-verify estate verify ──▶ bundle ──▶ clearcutt-portal build
 | Page | What it answers |
 |---|---|
 | Overview | How many images are verified, failed, or unverified; the reasons for each one that isn't; stale bases; evidence and vulnerabilities across the estate; the policy they were held to |
-| Image | Its base and how it is known, every piece of evidence with its signer and status, vulnerabilities and the day they describe, tests, whether a rebuild reproduced it, its stack, its rebases, platforms, packages and where they were read from, and the image run by run |
+| Image | Its base and how it is known, every piece of evidence with its signer and status, vulnerabilities and the day they describe, tests, whether a rebuild reproduced it, its stack, its rebases, platforms, packages and where they were read from, the image run by run, and copy-paste commands (cosign, gh, clearcutt-factory, clearcutt-verify) that check what the page says without trusting it |
 | Bases | Which images are built on which, how each relationship is known, and how far behind each image is |
 | Stacks | The clearcutt-factory stacks the apps are built on, who signed each version, and which apps are on an older one (shown when the estate has apps on stacks) |
-| Packages | Which images ship a package, and which images that can't be answered for |
-| History | Verdicts and headline numbers from run to run, and what changed for each image since the previous run |
+| Packages | Who ships a version: a search like `libxml2 <2.14` or `openssl >=3.0,<3.0.15`, in each ecosystem's version order, answered with the images that ship it and the images that inherit it from their base; and which images can't be answered for |
+| History | Verdicts and headline numbers from run to run; two runs side by side, image by image: digest, base, verdict, and findings before and after, and whether each image was rebased, rebuilt, or left while its base moved |
 | About | What every status means, the policy, and where the data came from |
 
 The site never claims more than the report does. **Proven** means checked: a
@@ -86,9 +87,15 @@ bundle, inside it, or around it.
 
 Much of a report is written by whoever built an image, so the site treats it
 as untrusted: every page carries a Content-Security-Policy that runs only the
-site's own scripts and styles, report text is always escaped, and a value from
+site's own scripts and styles (every script is a file of the site, and may
+fetch only the site's own files), report text is always escaped, a value from
 the report (an image's source URL) becomes a link only when it is an http or
-https URL.
+https URL, and a value in a copy-paste command is shell-quoted, or the command
+isn't shown.
+
+[docs/checking-searching-comparing.md](docs/checking-searching-comparing.md)
+describes the commands, the package search's syntax and version ordering, and
+how runs are compared.
 
 ## The data contract
 

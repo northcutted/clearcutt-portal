@@ -46,6 +46,39 @@ A base whose age couldn't be measured (`daysBehindUnknown`, from a newer
 clearcutt-verify) shows as unknown, and a signer on evidence that isn't
 verified is shown as what its certificate claims.
 
+**Check it yourself.** Each image page lists copy-paste commands that check
+what it says without trusting the site: `cosign verify` and `cosign
+verify-attestation` for every signature and attestation that verified, with
+the policy's trusted signer (and, for a reusable GitHub workflow, the calling
+repository and ref); `gh attestation verify` for GitHub's provenance;
+`clearcutt-factory verify` to rebuild a factory image or repeat its rebase;
+and `clearcutt-verify estate verify` with the report's policy to reach the
+verdict again. Images are named by digest, never by tag. Every value from the
+report is one shell word, single-quoted when it needs to be, and a value that
+isn't printable ASCII drops its command, with the reason on the page. A copy
+button appears where the clipboard works.
+
+**Search by version.** The packages page answers queries like `libxml2 <2.14`,
+`openssl >=3.0,<3.0.15`, or `deb:openssl <1.1.1w || >=3.0,<3.0.15`, comparing
+versions the way each ecosystem does (apk, dpkg, rpm, semver, PEP 440). The
+answer lists the images that ship a matching version and the images built on
+one of them, through the report's base links, saying how each link is known and
+what the image's own package list says. The index is a JSON file the build
+writes and a script of the site filters; without script, each package's page
+lists the images that inherit each version. Package versions are listed oldest
+first in that order too.
+
+**Compare runs.** History has a page per pair of runs (each run with the one
+before it, and each with the latest): every image's digest, base, verdict, and
+findings by severity before and after; whether it was rebased, rebuilt on a new
+base or the same one, or left as it was while its base moved; and, per
+severity, which images had findings before and after. Image pages say how the
+image changed from run to run.
+
+The Content-Security-Policy now lets the site's scripts fetch the site's own
+files (`connect-src 'self'`), and every script is a file of the site, never
+inlined into a page.
+
 **Accessible.** A skip link that shows on focus; every status chip opens what
 it means, for keyboard, touch, and screen readers; and every charted value is
 also in a table.

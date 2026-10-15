@@ -232,6 +232,11 @@ describe('the example site', () => {
     assert.match(shown(read(site, 'images/docker-io-library-redis/index.html')), /No command for SBOM: it isn't verified, so there is no trusted signer to check it against\./);
   });
 
+  test("GitHub's provenance is checked with gh, from the registry, against the workflow that signed it", () => {
+    const commands = shownCommands(read(site, 'images/ghcr-io-acme-images-hello-app/index.html'));
+    assert.ok(commands.some((c) => c.includes('--bundle-from-oci \\\n  --repo=acme/images \\\n  --signer-workflow=github.com/acme/images/.github/workflows/images.yml')));
+  });
+
   test('the skip link is the first thing on the page, and shows when focused', () => {
     const html = read(site, 'index.html');
     assert.match(html, /<body>\s*<a class="skip-link" href="#main">Skip to content<\/a>/);
@@ -304,7 +309,7 @@ describe('a report written by someone hostile', () => {
     const built = verifyCommands(report, image);
     assert.deepEqual(shownCommands(html), built.commands.map((c) => c.text));
     assert.ok(built.commands[0].text.includes("--certificate-identity-regexp='^https://github\\.com/acme/(images|'\\''$(touch pwned)'\\''</code><script>alert(1)</script>)/'"));
-    assert.match(shown(html), /Not shown A value from the report can't be written into a shell command safely, so this page shows none for: SBOM ?: The signer's certificate-identity has characters other than printable ASCII\./);
+    assert.match(shown(html), /Not shown This page shows no command for these, for the reason given\. .* SBOM ?: The signer's certificate-identity has characters other than printable ASCII\./);
   });
 
   test('a source URL that is not http(s) is shown as text, never as a link', () => {

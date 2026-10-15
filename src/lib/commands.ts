@@ -20,8 +20,13 @@
 import type { EstateReport, EvidenceItem, Image, Policy, Signer } from './contract.gen.ts';
 import { EVIDENCE_KINDS, type EvidenceKind } from './present.ts';
 
+/** Why a command isn't shown. */
+export class NoCommand extends Error {
+  override name = 'NoCommand';
+}
+
 /** A report value that can't be written into a command safely. */
-export class UnsafeValue extends Error {
+export class UnsafeValue extends NoCommand {
   override name = 'UnsafeValue';
 }
 
@@ -110,6 +115,18 @@ export interface Identity {
   repository?: string;
   /** Whether the flags are the policy's trusted signer (true) or the certificate's own identity (false). */
   fromPolicy: boolean;
+  /** A key signer that signs without a transparency log (tlog: false), so cosign is told not to look for an entry. */
+  noTlog?: boolean;
+}
+
+/** --insecure-ignore-tlog for a key signer the policy accepts without a log entry, or whose verified evidence was checked without one. */
+function keyIdentity(key: string, trusted: Signer | undefined, cert: Signer): Identity {
+  const noTlog = trusted?.tlog === false || cert.tlog === false;
+  return {
+    flags: [['--key', key], ...(noTlog ? ([['--insecure-ignore-tlog', 'true']] as [string, string][]) : [])],
+    fromPolicy: trusted !== undefined,
+    ...(noTlog ? { noTlog } : {}),
+  };
 }
 
 /**
@@ -122,8 +139,8 @@ export interface Identity {
 export function identityFor(policy: Policy, cert: Signer | undefined): Identity {
   if (!cert) throw new UnsafeValue("the report doesn't say who signed it");
   const trusted = policy.trustedSigners.find((t) => accepts(t, cert));
-  if (trusted?.key !== undefined) return { flags: [['--key', trusted.key]], fromPolicy: true };
-  if (!trusted && cert.key !== undefined) return { flags: [['--key', cert.key]], fromPolicy: false };
+  if (trusted?.key !== undefined) return keyIdentity(trusted.key, trusted, cert);
+  if (!trusted && cert.key !== undefined) return keyIdentity(cert.key, undefined, cert);
 
   const signer = trusted ?? cert;
   const issuer = trusted?.issuer ?? cert.issuer;
@@ -225,7 +242,7 @@ function signerNote(identity: Identity): string {
     : " It names the exact identity on the certificate: no signer in the policy could be matched to it here.";
 }
 
-const SIGNER_FIELDS = ['identity', 'identityRegexp', 'issuer', 'key', 'sourceRepository', 'sourceRepositoryOwner', 'sourceRef', 'sourceMatchesImage'] as const;
+const SIGNER_FIELDS = ['identity', 'identityRegexp', 'issuer', 'key', 'sourceRepository', 'sourceRepositoryOwner', 'sourceRef', 'sourceMatchesImage', 'tlog'] as const;
 
 /** The report's policy as a VerificationPolicy file (JSON, which is YAML too), with only the fields clearcutt-verify reads. */
 export function policyFile(policy: Policy): string {
@@ -261,7 +278,7 @@ export function verifyCommands(report: EstateReport, image: Image): Commands {
     try {
       commands.push(...build());
     } catch (err) {
-      if (!(err instanceof UnsafeValue)) throw err;
+      if (!(err instanceof NoCommand)) throw err;
       skipped.push({ title, reason: `${err.message[0].toUpperCase()}${err.message.slice(1)}.` });
     }
   };
@@ -298,31 +315,37 @@ export function verifyCommands(report: EstateReport, image: Image): Commands {
     });
   }
 
-  // GitHub's own provenance, with GitHub's verifier.
-  const provenance = image.evidence.provenance;
-  if (provenance.status === 'verified' && provenance.source === 'github-attestation') {
-    attempt('SLSA provenance (GitHub)', () => {
-      const identity = identityFor(policy, provenance.signer);
-      const workflow = provenance.signer?.identity !== undefined ? GITHUB_WORKFLOW.exec(provenance.signer.identity) : null;
-      // The repository whose run made it; a certificate that doesn't record
-      // one was made by a workflow in its own repository.
-      const repository = identity.repository ?? workflow?.[1];
-      if (!repository) throw new UnsafeValue('the run that made it is not in a GitHub repository');
-      const args = [flag('--repo', repository, 'the repository')];
-      // A reusable workflow signs as itself, from another repository.
-      if (workflow && workflow[1] !== repository) args.push(flag('--signer-workflow', `${workflow[1]}/${workflow[2]}`, 'the signing workflow'));
+  // GitHub's artifact attestations, with GitHub's own verifier too.
+  for (const kind of ATTESTATION_KINDS) {
+    const item = image.evidence[kind];
+    if (item.status !== 'verified' || item.source !== 'github-attestation') continue;
+    const title = `${label(kind)} (GitHub)`;
+    attempt(title, () => {
+      const identity = identityFor(policy, item.signer);
+      const workflow = item.signer?.identity !== undefined ? GITHUB_WORKFLOW.exec(item.signer.identity) : null;
+      // The repository whose run made it: the certificate's, or for one that
+      // doesn't record it, the signing workflow's own.
+      const certRepo = item.signer?.sourceRepository !== undefined ? GITHUB_REPO.exec(item.signer.sourceRepository)?.[1] : undefined;
+      const repository = certRepo ?? identity.repository ?? workflow?.[1];
+      if (!repository) throw new NoCommand('the run that made it is not in a GitHub repository');
+      const args = ['--bundle-from-oci', flag('--repo', repository, 'the repository')];
+      // The workflow that signed, as clearcutt-verify recorded it; from an
+      // older clearcutt-verify, read from the identity when it is a reusable
+      // workflow in another repository, which gh otherwise rejects.
+      const signerWorkflow = item.signerWorkflow ?? (workflow && workflow[1] !== repository ? `${workflow[1]}/${workflow[2]}` : undefined);
+      if (signerWorkflow !== undefined) args.push(flag('--signer-workflow', signerWorkflow, 'the signing workflow'));
       const sourceRef = identity.flags.find(([name]) => name === '--certificate-github-workflow-ref')?.[1];
       if (sourceRef !== undefined) args.push(flag('--source-ref', sourceRef, 'the source ref'));
-      if (provenance.predicateType && provenance.predicateType !== 'https://slsa.dev/provenance/v1') {
-        args.push(flag('--predicate-type', provenance.predicateType, 'the predicate type'));
+      if (item.predicateType && item.predicateType !== 'https://slsa.dev/provenance/v1') {
+        args.push(flag('--predicate-type', item.predicateType, 'the predicate type'));
       }
-      return [
-        {
-          title: 'SLSA provenance (GitHub)',
-          purpose: "Checks GitHub's build provenance with GitHub's own verifier: built by a workflow run in that repository.",
-          text: shellLine(['gh', 'attestation', 'verify'], [`oci://${ref}`, ...args]),
-        },
-      ];
+      return targets(image, item).map((t) => ({
+        title: t.platform ? `${title} (${t.platform})` : title,
+        purpose:
+          "Checks GitHub's artifact attestation with GitHub's own verifier, reading it from the registry: made by a workflow run in that repository" +
+          (signerWorkflow !== undefined ? ', signed by that workflow.' : '.'),
+        text: shellLine(['gh', 'attestation', 'verify'], [`oci://${t.ref}`, ...args]),
+      }));
     });
   }
 
@@ -331,6 +354,9 @@ export function verifyCommands(report: EstateReport, image: Image): Commands {
   if (image.factory && factoryEvidence) {
     attempt('Rebuild', () => {
       const identity = identityFor(policy, factoryEvidence.signer);
+      if (identity.noTlog) {
+        throw new NoCommand("this key signer signs without a transparency log, which clearcutt-factory verify can't skip");
+      }
       const rebased = factoryEvidence === image.evidence.rebase;
       const unchecked = identity.flags.some(([name]) => name === '--certificate-github-workflow-ref');
       return [

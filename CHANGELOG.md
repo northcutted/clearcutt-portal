@@ -4,7 +4,7 @@ ClearCutt Portal is pre-1.0. The bundle format it reads is clearcutt-verify's
 `clearcutt.dev/v1` contract; the portal's own inputs and pages may change
 between minor releases, with notes here.
 
-## Unreleased
+## v0.1.0
 
 The first version of ClearCutt Portal: a static website generated from
 clearcutt-verify's estate report (`clearcutt.dev/v1`).

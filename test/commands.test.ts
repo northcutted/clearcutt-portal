@@ -365,7 +365,7 @@ describe("an image's commands", () => {
     assert.deepEqual(result.skipped, [{ title: 'SLSA provenance (GitHub)', reason: 'The signing workflow has characters other than printable ASCII.' }]);
   });
 
-  test('a key signer without a transparency log is checked without one, and clearcutt-factory says it cannot', () => {
+  test('a key signer without a transparency log is checked without one, by cosign and clearcutt-factory', () => {
     const report = structuredClone(minimal);
     report.policy.trustedSigners = [{ key: 'keys/cosign.pub', tlog: false }];
     const hello = image(report, 'ghcr-io-acme-images-hello-app');
@@ -374,12 +374,27 @@ describe("an image's commands", () => {
     }
     hello.evidence.provenance.status = 'missing';
     const { commands, skipped } = verifyCommands(report, hello);
+    assert.deepEqual(skipped, []);
     const signature = commands.find((c) => c.title === 'Signature')!;
     assert.equal(signature.text, `cosign verify \\\n  --key=keys/cosign.pub \\\n  --insecure-ignore-tlog=true \\\n  ghcr.io/acme/images/hello-app@${hello.digest}`);
     assert.ok(commands.find((c) => c.title === 'Recipe')!.text.includes('--insecure-ignore-tlog=true'));
-    assert.deepEqual(skipped, [
-      { title: 'Rebuild', reason: "This key signer signs without a transparency log, which clearcutt-factory verify can't skip." },
-    ]);
+    const rebuild = commands.find((c) => c.title === 'Rebuild')!;
+    assert.equal(
+      rebuild.text,
+      `clearcutt-factory verify \\\n  --image=ghcr.io/acme/images/hello-app@${hello.digest} \\\n  --key=keys/cosign.pub \\\n  --insecure-ignore-tlog`,
+    );
+    assert.match(rebuild.purpose, /needs a clearcutt-factory release after v0\.1\.1\./);
+    // A key path from the report is one argument, however it is written.
+    const evil = "keys/it's $(touch pwned).pub";
+    report.policy.trustedSigners = [{ key: evil, tlog: false }];
+    hello.evidence.recipe.signer = { key: evil, tlog: false };
+    for (const shell of SHELLS) {
+      const { calls, cwd } = runCommand(shell, verifyCommands(report, hello).commands.find((c) => c.title === 'Rebuild')!);
+      assert.deepEqual(calls, [['clearcutt-factory', 'verify', `--image=ghcr.io/acme/images/hello-app@${hello.digest}`, `--key=${evil}`, '--insecure-ignore-tlog']]);
+      assert.ok(!existsSync(path.join(cwd, 'pwned')));
+    }
+    report.policy.trustedSigners = [{ key: 'keys/cosign.pub', tlog: false }];
+    hello.evidence.recipe.signer = { key: 'keys/cosign.pub', tlog: false };
     // The verdict command's policy keeps tlog, so clearcutt-verify accepts the same evidence.
     assert.deepEqual(JSON.parse(policyFile(report.policy)).trustedSigners, [{ key: 'keys/cosign.pub', tlog: false }]);
     // A key signer that logs gets no such flag.

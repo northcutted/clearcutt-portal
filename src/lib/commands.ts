@@ -354,9 +354,6 @@ export function verifyCommands(report: EstateReport, image: Image): Commands {
   if (image.factory && factoryEvidence) {
     attempt('Rebuild', () => {
       const identity = identityFor(policy, factoryEvidence.signer);
-      if (identity.noTlog) {
-        throw new NoCommand("this key signer signs without a transparency log, which clearcutt-factory verify can't skip");
-      }
       const rebased = factoryEvidence === image.evidence.rebase;
       const unchecked = identity.flags.some(([name]) => name === '--certificate-github-workflow-ref');
       return [
@@ -366,8 +363,17 @@ export function verifyCommands(report: EstateReport, image: Image): Commands {
             (rebased
               ? 'Repeats the rebase its signed rebase record describes, and checks that it gives this digest again.'
               : 'Rebuilds the image from its signed recipe, without a cache, and checks that the rebuild has this digest. It needs Docker or Podman.') +
-            (unchecked ? ' clearcutt-factory takes no source-ref flag; the cosign commands above check the ref.' : ''),
-          text: shellLine(['clearcutt-factory', 'verify'], [flag('--image', ref), ...identityArgs(identity, ['--certificate-github-workflow-ref'])]),
+            (unchecked ? ' clearcutt-factory takes no source-ref flag; the cosign commands above check the ref.' : '') +
+            (identity.noTlog ? ' --insecure-ignore-tlog, for a key that signs without a transparency log, needs a clearcutt-factory release after v0.1.1.' : ''),
+          text: shellLine(
+            ['clearcutt-factory', 'verify'],
+            [
+              flag('--image', ref),
+              ...identityArgs(identity, ['--certificate-github-workflow-ref', '--insecure-ignore-tlog']),
+              // A boolean flag of clearcutt-factory's own, which takes --key.
+              ...(identity.noTlog ? ['--insecure-ignore-tlog'] : []),
+            ],
+          ),
         },
       ];
     });

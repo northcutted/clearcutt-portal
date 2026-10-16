@@ -43,7 +43,8 @@ const vocab = [
   },
   {
     title: 'Rebuilds',
-    intro: 'Whether rebuilding the image from its recipe, or repeating its rebase, gives the same digest.',
+    intro:
+      "Whether rebuilding the image from its recipe, or repeating its rebase, gives the same digest: checked by this run's rebuild, or by a clearcutt-factory reproduction attestation verified against a trusted signer.",
     terms: ['reproduced', 'not-reproduced', 'not-checked', 'no-recipe'].map(reproducibility),
   },
 ];

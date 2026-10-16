@@ -75,6 +75,18 @@ base or the same one, or left as it was while its base moved; and, per
 severity, which images had findings before and after. Image pages say how the
 image changed from run to run.
 
+**clearcutt-verify #71's contract** (pinned to its branch until it merges).
+Comparisons name the fixable high and critical findings fixed and introduced
+for each image, with a table by finding ID, and say whether its package set
+changed, when both runs list them (`fixableFindings`, `packagesDigest`).
+Evidence clearcutt-verify verified as a GitHub artifact attestation gets
+`gh attestation verify --bundle-from-oci --repo … --signer-workflow …` from
+its `signerWorkflow`; a key signer without a transparency log (`tlog: false`)
+gets `--insecure-ignore-tlog=true` with cosign, and `--insecure-ignore-tlog`
+with `clearcutt-factory verify` (a clearcutt-factory release after v0.1.1). Image pages say what checked a reproduction (this
+run's rebuild, or a verified reproduction attestation, its signer, and where
+it ran, the run's URL linked only when it is http or https).
+
 The Content-Security-Policy now lets the site's scripts fetch the site's own
 files (`connect-src 'self'`), and every script is a file of the site, never
 inlined into a page.

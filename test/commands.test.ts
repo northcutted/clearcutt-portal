@@ -324,11 +324,83 @@ describe("an image's commands", () => {
     assert.equal(file.kind, 'VerificationPolicy');
   });
 
-  test("GitHub's provenance also gets gh's verifier", () => {
+  test("GitHub's provenance also gets gh's verifier, reading the bundle from the registry", () => {
     const hello = image(minimal, 'ghcr-io-acme-images-hello-app');
     const gh = verifyCommands(minimal, hello).commands.find((c) => c.title === 'SLSA provenance (GitHub)');
-    // The certificate records no repository, so it is the workflow's own.
-    assert.equal(gh?.text, `gh attestation verify \\\n  oci://ghcr.io/acme/images/hello-app@${hello.digest} \\\n  --repo=acme/images`);
+    assert.equal(
+      gh?.text,
+      [
+        'gh attestation verify \\',
+        `  oci://ghcr.io/acme/images/hello-app@${hello.digest} \\`,
+        '  --bundle-from-oci \\',
+        '  --repo=acme/images \\',
+        '  --signer-workflow=github.com/acme/images/.github/workflows/images.yml',
+      ].join('\n'),
+    );
+  });
+
+  test('from a clearcutt-verify that records no signer workflow, the repository comes from the identity', () => {
+    const hello = image(minimal, 'ghcr-io-acme-images-hello-app');
+    delete hello.evidence.provenance.signerWorkflow;
+    delete hello.evidence.provenance.signer!.sourceRepository;
+    const gh = verifyCommands(minimal, hello).commands.find((c) => c.title === 'SLSA provenance (GitHub)');
+    assert.equal(gh?.text, `gh attestation verify \\\n  oci://ghcr.io/acme/images/hello-app@${hello.digest} \\\n  --bundle-from-oci \\\n  --repo=acme/images`);
+  });
+
+  test('a hostile signer workflow reaches gh as one argument', () => {
+    const hello = image(minimal, 'ghcr-io-acme-images-hello-app');
+    const evil = "github.com/acme/images/.github/workflows/x.yml' --repo=evil/evil '$(touch pwned)";
+    hello.evidence.provenance.signerWorkflow = evil;
+    const gh = verifyCommands(minimal, hello).commands.find((c) => c.title === 'SLSA provenance (GitHub)')!;
+    for (const shell of SHELLS) {
+      const { calls, cwd } = runCommand(shell, gh);
+      assert.deepEqual(calls, [
+        ['gh', 'attestation', 'verify', `oci://ghcr.io/acme/images/hello-app@${hello.digest}`, '--bundle-from-oci', '--repo=acme/images', `--signer-workflow=${evil}`],
+      ]);
+      assert.ok(!existsSync(path.join(cwd, 'pwned')));
+    }
+    hello.evidence.provenance.signerWorkflow = 'github.com/acme/images/.github/workflows/\u202ex.yml';
+    const result = verifyCommands(minimal, hello);
+    assert.ok(!result.commands.some((c) => c.title === 'SLSA provenance (GitHub)'));
+    assert.deepEqual(result.skipped, [{ title: 'SLSA provenance (GitHub)', reason: 'The signing workflow has characters other than printable ASCII.' }]);
+  });
+
+  test('a key signer without a transparency log is checked without one, by cosign and clearcutt-factory', () => {
+    const report = structuredClone(minimal);
+    report.policy.trustedSigners = [{ key: 'keys/cosign.pub', tlog: false }];
+    const hello = image(report, 'ghcr-io-acme-images-hello-app');
+    for (const kind of ['signature', 'sbom', 'vulnerabilityScan', 'recipe'] as const) {
+      hello.evidence[kind].signer = { key: 'keys/cosign.pub', tlog: false };
+    }
+    hello.evidence.provenance.status = 'missing';
+    const { commands, skipped } = verifyCommands(report, hello);
+    assert.deepEqual(skipped, []);
+    const signature = commands.find((c) => c.title === 'Signature')!;
+    assert.equal(signature.text, `cosign verify \\\n  --key=keys/cosign.pub \\\n  --insecure-ignore-tlog=true \\\n  ghcr.io/acme/images/hello-app@${hello.digest}`);
+    assert.ok(commands.find((c) => c.title === 'Recipe')!.text.includes('--insecure-ignore-tlog=true'));
+    const rebuild = commands.find((c) => c.title === 'Rebuild')!;
+    assert.equal(
+      rebuild.text,
+      `clearcutt-factory verify \\\n  --image=ghcr.io/acme/images/hello-app@${hello.digest} \\\n  --key=keys/cosign.pub \\\n  --insecure-ignore-tlog`,
+    );
+    assert.match(rebuild.purpose, /needs a clearcutt-factory release after v0\.1\.1\./);
+    // A key path from the report is one argument, however it is written.
+    const evil = "keys/it's $(touch pwned).pub";
+    report.policy.trustedSigners = [{ key: evil, tlog: false }];
+    hello.evidence.recipe.signer = { key: evil, tlog: false };
+    for (const shell of SHELLS) {
+      const { calls, cwd } = runCommand(shell, verifyCommands(report, hello).commands.find((c) => c.title === 'Rebuild')!);
+      assert.deepEqual(calls, [['clearcutt-factory', 'verify', `--image=ghcr.io/acme/images/hello-app@${hello.digest}`, `--key=${evil}`, '--insecure-ignore-tlog']]);
+      assert.ok(!existsSync(path.join(cwd, 'pwned')));
+    }
+    report.policy.trustedSigners = [{ key: 'keys/cosign.pub', tlog: false }];
+    hello.evidence.recipe.signer = { key: 'keys/cosign.pub', tlog: false };
+    // The verdict command's policy keeps tlog, so clearcutt-verify accepts the same evidence.
+    assert.deepEqual(JSON.parse(policyFile(report.policy)).trustedSigners, [{ key: 'keys/cosign.pub', tlog: false }]);
+    // A key signer that logs gets no such flag.
+    report.policy.trustedSigners = [{ key: 'keys/cosign.pub' }];
+    hello.evidence.signature.signer = { key: 'keys/cosign.pub' };
+    assert.doesNotMatch(verifyCommands(report, hello).commands.find((c) => c.title === 'Signature')!.text, /tlog/);
   });
 
   test("gh's command names the repository and, for a reusable workflow, the workflow", () => {
@@ -343,17 +415,21 @@ describe("an image's commands", () => {
     report.policy.trustedSigners = [
       { identityRegexp: '^https://github\\.com/northcutted/clearcutt-factory/', issuer: 'https://token.actions.githubusercontent.com', sourceRepository: 'https://github.com/acme/images', sourceRef: 'refs/heads/main' },
     ];
-    const gh = verifyCommands(report, hello).commands.find((c) => c.title === 'SLSA provenance (GitHub)')!;
-    assert.equal(
-      gh.text,
+    // As clearcutt-verify records it, and as an older one didn't.
+    hello.evidence.provenance.signerWorkflow = 'github.com/northcutted/clearcutt-factory/.github/workflows/images.yml';
+    const expected = (workflow: string) =>
       [
         'gh attestation verify \\',
         `  oci://ghcr.io/acme/images/hello-app@${hello.digest} \\`,
+        '  --bundle-from-oci \\',
         '  --repo=acme/images \\',
-        '  --signer-workflow=northcutted/clearcutt-factory/.github/workflows/images.yml \\',
+        `  --signer-workflow=${workflow} \\`,
         '  --source-ref=refs/heads/main',
-      ].join('\n'),
-    );
+      ].join('\n');
+    const gh = (report: EstateReport, i: Image) => verifyCommands(report, i).commands.find((c) => c.title === 'SLSA provenance (GitHub)')!.text;
+    assert.equal(gh(report, hello), expected('github.com/northcutted/clearcutt-factory/.github/workflows/images.yml'));
+    delete hello.evidence.provenance.signerWorkflow;
+    assert.equal(gh(report, hello), expected('northcutted/clearcutt-factory/.github/workflows/images.yml'));
   });
 
   test('a hostile signer runs nothing, and a value that cannot be shown drops only its command', () => {

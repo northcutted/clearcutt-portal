@@ -6,11 +6,11 @@ import VerdictBars from '../components/VerdictBars.astro';
 import type { HistoryEntry, Summary } from '../lib/contract.gen.ts';
 import type { Point } from '../lib/charts.ts';
 import { loadBundle } from '../lib/bundle.ts';
-import { chronological, imageChanges, imageLabel, imagesById } from '../lib/estate.ts';
+import { chronological, imageLabel, imagesById } from '../lib/estate.ts';
 import { formatTime, plural, shortDigest } from '../lib/format.ts';
-import { TONE_GLYPH, drift, verdict, type Tone } from '../lib/present.ts';
+import { SEVERITIES, TONE_GLYPH, drift, verdict, type Tone } from '../lib/present.ts';
 import { href, imageHref } from '../lib/site.ts';
-import { comparisonSlug, diffRuns, historyRuns, howWords } from '../lib/timeline.ts';
+import { changed, comparisonSlug, diffRuns, historyRuns, howWords } from '../lib/timeline.ts';
 
 const { report, history } = loadBundle();
 const byId = imagesById(report);
@@ -51,9 +51,10 @@ function delta(m: (typeof measures)[number]): { text: string; tone: Tone } | nul
   return { text: `${d > 0 ? '+' : ''}${d} since the previous run`, tone: better ? 'good' : 'warn' };
 }
 const headline = measures.slice(0, 8);
-const changes = latest && previous ? imageChanges(latest, previous) : null;
-// How each image's digest changed (rebased, rebuilt on a new base, ...).
-const how = new Map((latest && previous ? (diffRuns(previous, latest) ?? []) : []).map((d) => [d.id, howWords(d).label]));
+const changes = latest && previous ? (diffRuns(previous, latest)?.filter(changed) ?? null) : null;
+// A few finding IDs inline; the comparison page has all of them.
+const ids = (list: string[]) => (list.length <= 5 ? list.join(', ') : `${list.slice(0, 5).join(', ')}, and ${list.length - 5} more`);
+const capital = (s: string) => `${s[0].toUpperCase()}${s.slice(1)}`;
 const runs = historyRuns(history);
 const runsNewestFirst = [...runs].reverse();
 const count = (n: number | null) => (n === null ? '?' : String(n));
@@ -113,7 +114,7 @@ const count = (n: number | null) => (n === null ? '?' : String(n));
               have them.
             </p>
           ) : changes.length === 0 ? (
-            <p>No image was added or removed, and none changed its verdict, digest, base currency, or critical or high findings.</p>
+            <p>No image was added or removed, and none changed its digest, base currency, verdict, findings, or packages.</p>
           ) : (
             <div class="table-wrap">
               <table>
@@ -122,19 +123,20 @@ const count = (n: number | null) => (n === null ? '?' : String(n));
                 <tbody>
                   {changes.map((c) => {
                     const image = byId.get(c.id);
+                    const [b, a] = [c.before, c.after];
                     return (
                       <tr>
                         <td>{image ? <a href={imageHref(c.id)}>{imageLabel(image)}</a> : <code>{c.id}</code>}</td>
                         <td>
                           <ul class="change-list">
-                            {c.kind === 'added' && <li>New in this run</li>}
-                            {c.kind === 'removed' && <li>Not in this run</li>}
+                            {c.how === 'added' && <li>New in this run</li>}
+                            {c.how === 'removed' && <li>Not in this run</li>}
                             {c.verdict && (
                               <li>Verdict <StatusText term={verdict(c.verdict[0])} /> → <StatusText term={verdict(c.verdict[1])} /></li>
                             )}
-                            {c.digest && (
+                            {b && a && b.digest !== a.digest && (
                               <li>
-                                {how.get(c.id) ?? (c.rebasedFrom ? 'Rebased' : 'New digest')}: <code>{shortDigest(c.digest[0])}</code> → <code>{shortDigest(c.digest[1])}</code>
+                                {howWords(c).label}: <code>{shortDigest(b.digest)}</code> → <code>{shortDigest(a.digest)}</code>
                               </li>
                             )}
                             {c.drift && (
@@ -143,8 +145,12 @@ const count = (n: number | null) => (n === null ? '?' : String(n));
                                 {c.drift[1] === 'none' ? 'none' : <StatusText term={drift(c.drift[1])} />}
                               </li>
                             )}
-                            {c.critical && <li>Critical findings {count(c.critical[0])} → {count(c.critical[1])}</li>}
-                            {c.high && <li>High findings {count(c.high[0])} → {count(c.high[1])}</li>}
+                            {SEVERITIES.filter((sev) => c.findingsChanged.includes(sev)).map((sev) => (
+                              <li>{capital(sev)} findings {count(c.findings[sev][0])} → {count(c.findings[sev][1])}</li>
+                            ))}
+                            {(c.fixed?.length ?? 0) > 0 && <li>Fixed: <span class="mono small">{ids(c.fixed!)}</span></li>}
+                            {(c.introduced?.length ?? 0) > 0 && <li>New: <span class="mono small">{ids(c.introduced!)}</span></li>}
+                            {c.packagesChanged && <li>Package set changed</li>}
                           </ul>
                         </td>
                       </tr>
@@ -157,7 +163,8 @@ const count = (n: number | null) => (n === null ? '?' : String(n));
           {changes !== null && (
             <p>
               <a href={href('history/changes/')}>Compare the two runs image by image</a>: each image before and after,
-              how it changed, and who had findings in each run.
+              how it changed, and who had findings in each run. Fixed and new findings are the fixable high and critical
+              ones the runs list by ID.
             </p>
           )}
         </section>

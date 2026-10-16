@@ -31,7 +31,7 @@ export interface EstateReport {
    */
   policy: Policy;
   /**
-   * Stacks are the clearcutt-factory registry stacks the estate's apps are built on: each version in use, who signed it, and which apps are pinned to an older version than the stack's tag names now.
+   * Stacks are the clearcutt-factory registry stacks the estate's apps are built on, rebased apps included: each version in use, who signed it, and which apps are pinned to an older version than the stack's tag names now.
    */
   stacks?: Stack[];
   summary: Summary;
@@ -91,7 +91,7 @@ export interface Image {
   digest: string;
   evidence: Evidence;
   /**
-   * Factory is present for images built or rebased by clearcutt-factory.
+   * Factory is present for images built or rebased by clearcutt-factory, read from a verified recipe or rebase record.
    */
   factory?: Factory;
   /**
@@ -130,7 +130,7 @@ export interface Image {
   unresolved?: string[];
   verdict: Verdict;
   /**
-   * Vulnerabilities is absent when the image has no vulnerability data; that means unknown, not clean.
+   * Vulnerabilities is absent when the image has no vulnerability data; that means unknown, not clean. Findings come only from verified vulnerability attestations.
    */
   vulnerabilities?: Vulnerabilities;
   warnings: string[];
@@ -148,6 +148,10 @@ export interface BaseLink {
    */
   currentRef?: string;
   daysBehind: number;
+  /**
+   * DaysBehindUnknown is true when the base is stale but how many days behind couldn't be measured (a creation time is missing, or zeroed by a reproducible build); daysBehind is then 0 and means nothing.
+   */
+  daysBehindUnknown?: boolean;
   digest?: string;
   /**
    * Drift is current, stale, or unknown.
@@ -258,11 +262,15 @@ export interface EvidenceItem {
    */
   ref?: string;
   /**
-   * Signer is who signed it, as read from the signing certificate or key.
+   * Signer is who signed it. On verified evidence it is what cosign checked: the certificate's identity and issuer and, for GitHub Actions, the repository and ref of the run that signed (or the trusted key). Otherwise it is what the evidence's certificate claims, unverified.
    */
   signer?: Signer;
   /**
-   * Source is where it was found: cosign-signature, cosign-attestation, github-attestation, or oci-referrer (an unsigned document). Open: new sources may appear.
+   * SignerWorkflow, on verified evidence a GitHub Actions workflow signed, is that workflow without its ref (github.com/OWNER/REPO/.github/ workflows/FILE): what gh attestation verify --signer-workflow takes, with signer.sourceRepository as its --repo. For a reusable workflow it is the called workflow, and sourceRepository the caller.
+   */
+  signerWorkflow?: string;
+  /**
+   * Source is where it was found: cosign-signature, cosign-attestation, github-attestation, or oci-referrer (an unsigned document). Open: new sources may appear. github-attestation is a GitHub artifact attestation (actions/attest-build-provenance) stored in the registry, which gh attestation verify --bundle-from-oci can check too; it is told apart from cosign's by its content, so only verified evidence is labeled so, and an unverified one shows as cosign-attestation.
    */
   source?: string;
   /**
@@ -304,6 +312,10 @@ export interface Signer {
    * SourceRepositoryOwner, in the policy, accepts runs in any of the owner's repositories, e.g. https://github.com/acme.
    */
   sourceRepositoryOwner?: string;
+  /**
+   * Tlog false, in the policy, accepts a key signer's signatures and attestations without a transparency log entry (cosign --insecure-ignore-tlog), for a key that signs without one (a private or offline Sigstore setup). Nothing then shows when evidence was signed, so set it only for keys that never log. Keyless signers can't set it. Absent or true, log inclusion is checked. On verified evidence, false says it wasn't.
+   */
+  tlog?: boolean;
 }
 /**
  * Factory describes an image built or rebased by clearcutt-factory, from its verified recipe or rebase record.
@@ -333,7 +345,7 @@ export interface Factory {
    */
   sourceDateEpoch?: number;
   /**
-   * Stack is the stack an app was built on.
+   * Stack is the stack an app was built on. A rebased app's, like its stackRef and stackDigest, comes from the recipe of the image it was rebased from: a rebase keeps the layers its stack built.
    */
   stack?: string;
   /**
@@ -372,11 +384,11 @@ export interface PackagesSource {
    */
   evidence: string;
   /**
-   * Platforms are the platform images whose SBOMs were read; the image's packages are their union.
+   * Platforms are the platform images whose verified SBOMs were read; the image's packages are their union.
    */
   platforms?: string[];
   /**
-   * Status is that evidence's status: verified (a trusted signer vouched for it) or present (unsigned, or signed by no trusted signer).
+   * Status is that evidence's status. Packages are read only from SBOMs a trusted signer verified, so anything but verified means some platform image's SBOM wasn't verified and its packages aren't included.
    */
   status: string;
 }
@@ -406,7 +418,11 @@ export interface Platform {
  */
 export interface Reproducibility {
   /**
-   * CheckedAt is when it was checked (RFC 3339).
+   * Builder is where an attested reproduction ran, as its verified attestation says.
+   */
+  builder?: ReproductionBuilder;
+  /**
+   * CheckedAt is when it was checked (RFC 3339): when this run rebuilt it, or when the attested reproduction ran.
    */
   checkedAt?: string;
   detail?: string;
@@ -419,9 +435,55 @@ export interface Reproducibility {
    */
   method?: 'recipe-rebuild' | 'rebase-repeat';
   /**
-   * Status is reproduced, not-reproduced (the rebuild gave a different digest), not-checked (a recipe exists but this run didn't rebuild, or the rebuild couldn't finish; see detail), or no-recipe (nothing to rebuild from).
+   * Ref is where the reproduction attestation is stored (source attestation).
+   */
+  ref?: string;
+  /**
+   * Signer is who signed the reproduction attestation, as cosign checked it (source attestation).
+   */
+  signer?: Signer;
+  /**
+   * Source is where the result comes from: attestation (a clearcutt-factory reproduction attestation on the image, verified against a trusted signer and made from a recipe or rebase record verified on the same image; this run didn't rebuild it) or rebuild (this run rebuilt it, --reproduce). Absent when nothing checked it.
+   */
+  source?: 'attestation' | 'rebuild';
+  /**
+   * Status is reproduced, not-reproduced (the rebuild gave a different digest), not-checked (a recipe exists but nothing checked it: no verified reproduction attestation, and this run didn't rebuild, or the rebuild couldn't finish; see detail), or no-recipe (nothing to rebuild from).
    */
   status: 'reproduced' | 'not-reproduced' | 'not-checked' | 'no-recipe';
+}
+/**
+ * ReproductionBuilder is the machine, and the CI run if any, that reproduced an image, as its reproduction attestation says. It shows the image rebuilt on a fresh machine, not who else could rebuild it.
+ *
+ * This interface was referenced by `EstateReport`'s JSON-Schema
+ * via the `definition` "ReproductionBuilder".
+ */
+export interface ReproductionBuilder {
+  arch?: string;
+  /**
+   * BuildKit is the BuildKit it rebuilt with (recipe-rebuild).
+   */
+  buildkit?: string;
+  /**
+   * FactoryVersion is the clearcutt-factory that reproduced it.
+   */
+  factoryVersion?: string;
+  /**
+   * ID is the CI run: on GitHub Actions, the run attempt's URL.
+   */
+  id?: string;
+  job?: string;
+  /**
+   * OS and Arch are the machine's, e.g. linux and amd64.
+   */
+  os?: string;
+  /**
+   * Runner is github-hosted or self-hosted, on GitHub Actions.
+   */
+  runner?: string;
+  /**
+   * Workflow is the workflow the run belongs to (on GitHub Actions, the calling workflow's ref), and Job the job in it.
+   */
+  workflow?: string;
 }
 /**
  * SourceRef is the code an image was built from.
@@ -455,7 +517,7 @@ export interface Verdict {
    */
   reasons: string[];
   /**
-   * Status is verified (meets every requirement), failed (violates one), or unverified (some requirement couldn't be decided).
+   * Status is verified (meets every requirement), failed (violates one), or unverified (some requirement couldn't be decided, or none of the image's evidence verified against a trusted signer, so nothing about it was).
    */
   status: 'verified' | 'failed' | 'unverified';
 }
@@ -617,7 +679,7 @@ export interface Policy {
    */
   onlyFixed?: boolean;
   /**
-   * Reproduce reports whether this run rebuilt images to check them.
+   * Reproduce reports whether this run checked that images reproduce: those without a verified reproduction attestation were rebuilt, and one that doesn't reproduce, or couldn't be checked, falls short.
    */
   reproduce: boolean;
   /**
@@ -629,12 +691,12 @@ export interface Policy {
    */
   stackSigners?: Signer[];
   /**
-   * TrustedSigners are the identities whose signatures and attestations count as verified. Empty means nothing can be verified, only present.
+   * TrustedSigners are the identities whose signatures and attestations count as verified. Empty means nothing can be verified, only present, and every image's verdict is unverified.
    */
   trustedSigners: Signer[];
 }
 /**
- * Stack is a clearcutt-factory stack published to a registry (stack push), as the estate's apps use it.
+ * Stack is a clearcutt-factory stack published to a registry (stack push), as the estate's apps use it: one per repository and tag, so apps on ghcr.io/acme/stacks/go:1 and :2 are on two stacks.
  *
  * This interface was referenced by `EstateReport`'s JSON-Schema
  * via the `definition` "Stack".
@@ -852,7 +914,15 @@ export interface HistoryImage {
    */
   base?: HistoryBase;
   digest: string;
+  /**
+   * FixableFindings are the IDs of the image's fixable high and critical findings (VEX-suppressed ones aside), from its verified vulnerability scans, sorted: what a reader compares between runs to show which were fixed or introduced. Listed only with vulnerabilities (absent there, there are none); other findings are only counted, to keep the history small.
+   */
+  fixableFindings?: string[];
   id: string;
+  /**
+   * PackagesDigest identifies the image's package set, read from verified SBOMs: sha256:<hex> of its package versions as "type name version" lines, sorted, each ending in a newline. It changes when any package does. Absent when the package set is unknown.
+   */
+  packagesDigest?: string;
   /**
    * RebaseStatus is the status of its rebase record.
    */

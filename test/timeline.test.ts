@@ -9,8 +9,10 @@ import {
   diffImage,
   diffRuns,
   findingsDrill,
+  fixableDrill,
   historyRuns,
   howWords,
+  recordsIds,
   runSlug,
 } from '../src/lib/timeline.ts';
 import { FIXTURE, MINIMAL, v015Bundle } from './helpers.ts';
@@ -95,6 +97,55 @@ test('two runs compare only when both recorded rows', () => {
   const hows = countHows(diffs);
   assert.deepEqual([hows.removed, hows.added, hows.rebuilt, hows['base-moved'], hows.rebased], [1, 1, 1, 1, 0]);
   assert.equal(hows.unchanged, diffs.length - 4);
+});
+
+test('an unchanged run has nothing to say', () => {
+  const history = readBundle(v015Bundle()).history!;
+  assert.deepEqual(diffRuns(history.entries[0], history.entries[0])!.filter(changed), []);
+});
+
+test('fixable findings by ID: fixed and introduced only when both runs list them', () => {
+  const before = row({ id: 'x', vulnerabilities: counts(1, 2), fixableFindings: ['CVE-1', 'GO-2'], packagesDigest: D('1') });
+  const after = row({ id: 'x', digest: D('c'), vulnerabilities: counts(1, 2), fixableFindings: ['GO-2', 'GO-3'], packagesDigest: D('2') });
+  const d = diffImage('x', before, after, [true, true]);
+  assert.deepEqual([d.fixed, d.introduced, d.packagesChanged], [['CVE-1'], ['GO-3'], true]);
+  // The same counts, different findings: still a change.
+  assert.deepEqual(d.findingsChanged, []);
+  assert.ok(changed(diffImage('x', before, { ...after, digest: before.digest }, [true, true])));
+  // With vulnerability data and no list, a run that lists IDs has none.
+  const none = diffImage('x', before, { ...before, fixableFindings: undefined }, [true, true]);
+  assert.deepEqual([none.fixed, none.introduced], [['CVE-1', 'GO-2'], []]);
+  // A run that never lists IDs (v0.15) says nothing about them.
+  const old = diffImage('x', { ...before, fixableFindings: undefined, packagesDigest: undefined }, after, [false, true]);
+  assert.deepEqual([old.fixable, old.fixed, old.introduced, old.packagesChanged], [[null, ['GO-2', 'GO-3']], null, null, null]);
+  // No vulnerability data is unknown, whatever the run lists.
+  assert.equal(diffImage('x', before, { ...after, vulnerabilities: undefined }, [true, true]).fixed, null);
+  // The same package digest is the same package set; a missing one is unknown.
+  assert.equal(diffImage('x', before, { ...after, packagesDigest: D('1') }, [true, true]).packagesChanged, false);
+  assert.equal(diffImage('x', before, { ...after, packagesDigest: undefined }, [true, true]).packagesChanged, null);
+  assert.deepEqual(diffImage('x', undefined, after, [true, true]).fixed, null);
+});
+
+test('a run lists IDs when any of its rows has fixable findings or a package digest', () => {
+  const history = readBundle(FIXTURE).history!;
+  assert.ok(recordsIds(history.entries[0]));
+  assert.ok(!recordsIds(history.entries[1]));
+  assert.ok(!recordsIds(readBundle(MINIMAL).history!.entries[0]));
+});
+
+test('the fixable findings drill: who had each finding, who has it, where it was fixed or introduced', () => {
+  const r = (id: string, ids: string[]) => row({ id, vulnerabilities: counts(0, ids.length), fixableFindings: ids });
+  const diffs = [
+    diffImage('a', r('a', ['CVE-1', 'CVE-2']), r('a', ['CVE-2']), [true, true]),
+    diffImage('b', r('b', []), r('b', ['CVE-2', 'CVE-3']), [true, true]),
+    diffImage('c', undefined, r('c', ['CVE-3']), [true, true]),
+  ];
+  assert.deepEqual(fixableDrill(diffs), [
+    { id: 'CVE-2', before: ['a'], after: ['a', 'b'], fixed: [], introduced: ['b'] },
+    { id: 'CVE-3', before: [], after: ['b', 'c'], fixed: [], introduced: ['b'] },
+    { id: 'CVE-1', before: ['a'], after: [], fixed: ['a'], introduced: [] },
+  ]);
+  assert.equal(fixableDrill([diffImage('a', r('a', ['CVE-1']), r('a', []))]), null);
 });
 
 test('the findings drill says who had findings before, who after, and who cleared them', () => {

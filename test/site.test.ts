@@ -232,6 +232,24 @@ describe('the example site', () => {
     assert.match(shown(read(site, 'images/docker-io-library-redis/index.html')), /No command for SBOM: it isn't verified, so there is no trusted signer to check it against\./);
   });
 
+  test('a reproduction says what checked it: this run, or an attestation and where it ran', () => {
+    assert.match(shown(read(site, 'images/ghcr-io-acme-images-hello-app/index.html')), /Checked by this run, which rebuilt it\./);
+    const html = read(site, 'images/ghcr-io-acme-images-billing/index.html');
+    const page = shown(html);
+    assert.match(page, /Checked by a clearcutt-factory reproduction attestation, verified against a trusted signer; this run didn't rebuild it\./);
+    assert.match(page, /Attestation signed by https:\/\/github\.com\/acme\/images\/\.github\/workflows\/fleet\.yml@refs\/heads\/main \(issuer https:\/\/token\.actions\.githubusercontent\.com\) ghcr\.io\/acme\/images\/billing@sha256:a?(ba)+b?/);
+    assert.match(
+      page,
+      /Where it was reproduced, as the attestation says: Run: https:\/\/github\.com\/acme\/images\/actions\/runs\/123\/attempts\/1 Workflow acme\/images\/\.github\/workflows\/fleet\.yml@refs\/heads\/main, job rebase Machine: github-hosted, linux\/amd64 clearcutt-factory v0\.2\.0/,
+    );
+    assert.match(html, /<a href="https:\/\/github\.com\/acme\/images\/actions\/runs\/123\/attempts\/1" rel="noreferrer">/);
+  });
+
+  test("GitHub's provenance is checked with gh, from the registry, against the workflow that signed it", () => {
+    const commands = shownCommands(read(site, 'images/ghcr-io-acme-images-hello-app/index.html'));
+    assert.ok(commands.some((c) => c.includes('--bundle-from-oci \\\n  --repo=acme/images \\\n  --signer-workflow=github.com/acme/images/.github/workflows/images.yml')));
+  });
+
   test('the skip link is the first thing on the page, and shows when focused', () => {
     const html = read(site, 'index.html');
     assert.match(html, /<body>\s*<a class="skip-link" href="#main">Skip to content<\/a>/);
@@ -289,6 +307,7 @@ describe('a report written by someone hostile', () => {
       r.images[3].source = { url: 'https://example.test/acme/redis', basis: 'label' };
       r.images[3].description = '<script>alert(1)</script><img src=x onerror=alert(1)>';
       r.policy.trustedSigners[0].identityRegexp = "^https://github\\.com/acme/(images|'$(touch pwned)'</code><script>alert(1)</script>)/";
+      r.images[2].reproducibility.builder.id = 'javascript:alert(document.domain)';
       // Not the policy's: the command would name it, and it can't be shown as it is.
       r.images[1].evidence.sbom.signer.identity = 'https://github.com/other/images/x\n$(touch pwned)';
     });
@@ -304,7 +323,7 @@ describe('a report written by someone hostile', () => {
     const built = verifyCommands(report, image);
     assert.deepEqual(shownCommands(html), built.commands.map((c) => c.text));
     assert.ok(built.commands[0].text.includes("--certificate-identity-regexp='^https://github\\.com/acme/(images|'\\''$(touch pwned)'\\''</code><script>alert(1)</script>)/'"));
-    assert.match(shown(html), /Not shown A value from the report can't be written into a shell command safely, so this page shows none for: SBOM ?: The signer's certificate-identity has characters other than printable ASCII\./);
+    assert.match(shown(html), /Not shown This page shows no command for these, for the reason given\. .* SBOM ?: The signer's certificate-identity has characters other than printable ASCII\./);
   });
 
   test('a source URL that is not http(s) is shown as text, never as a link', () => {
@@ -312,6 +331,11 @@ describe('a report written by someone hostile', () => {
     assert.doesNotMatch(page, /href="javascript:/i);
     assert.match(page, /<code>javascript:alert\(document\.domain\)<\/code> <span class="dim small">\(not linked/);
     assert.match(read(site, 'images/ghcr-io-acme-images-billing/index.html'), /<code>https:\/\/github\.com@evil\.example\/acme<\/code>/);
+  });
+
+  test("a reproduction's run that is not http(s) is shown as text", () => {
+    const page = read(site, 'images/ghcr-io-acme-images-billing/index.html');
+    assert.match(page, /Run: <code>javascript:alert\(document\.domain\)<\/code> <span class="dim small">\(not linked/);
   });
 
   test('an http(s) source URL is a link', () => {
@@ -465,7 +489,8 @@ describe('a report using everything clearcutt-verify v0.15 writes', () => {
     );
     assert.match(page, /platform-tools:latest Base moved The same image; its base went from stale to current\. sha256:bf7990acf59e sha256:1c451d46a0d5 ! Stale → ✓ Current/);
     assert.match(page, /5 images unchanged/);
-    assert.match(page, /It doesn't record which findings or which packages/);
+    assert.match(page, /The older run recorded only each image's digest, verdict, base, rebase, and findings counted by severity, not which findings or which packages/);
+    assert.doesNotMatch(page, /Fixable findings, by ID .* Fixed in/);
     // The drill: who had criticals before and after, and how each changed.
     assert.match(page, /critical debian-tools:latest \(rebuilt, same base\) debian-tools:latest \(rebuilt, same base\) none none none/);
     // The same comparison has a page of its own, and the others are a link away.
@@ -543,6 +568,45 @@ describe('a report from a newer clearcutt-verify', () => {
   test('a package list read from unverified SBOMs is flagged as possibly incomplete', () => {
     assert.match(shown(read(site, 'images/wolfi-base/index.html')), /which is ○ Present, unverified; .*No trusted signer verified all of it, so the list may not be complete\./);
     assert.match(shown(read(site, 'packages/index.html')), /1 image's package list rests on SBOMs no trusted signer verified, so it may not be complete: wolfi-base:latest\./);
+  });
+});
+
+describe('runs that list fixable findings and package digests', () => {
+  // The fixture's latest run lists them; give the run before it rows too,
+  // where debian-tools was another build with one finding fixed since, one
+  // not yet there, and other packages, and static's packages weren't read.
+  let site: string;
+  before(() => {
+    site = build(
+      editedBundle(FIXTURE, () => {}, (h) => {
+        const [latest, previous] = h.entries;
+        previous.images = structuredClone(latest.images).map((i: any) => {
+          if (i.id === 'debian-tools') {
+            const ids = [...i.fixableFindings.filter((f: string) => f !== 'GO-2026-6629'), 'CVE-2026-0001'].sort();
+            return { ...i, digest: `sha256:${'d'.repeat(64)}`, fixableFindings: ids, packagesDigest: `sha256:${'0'.repeat(64)}` };
+          }
+          if (i.id === 'static') delete i.packagesDigest;
+          return i;
+        });
+      }),
+    );
+  });
+
+  test('the comparison names the findings fixed and introduced, and whether packages changed', () => {
+    const page = shown(read(site, 'history/changes/index.html'));
+    assert.match(page, /1 fixable high or critical finding was fixed and 1 was introduced, counted per image; and 1 image changed its package set\./);
+    assert.match(page, /debian-tools:latest Rebuilt, same base .* Fixed: CVE-2026-0001 New: GO-2026-6629 changed 7 images unchanged/);
+    assert.match(page, /Fixable findings, by ID .* Finding Had it before Has it after Fixed in New in GO-2026-6629 amazonlinux-tools:latest \(unchanged\) platform-tools:latest \(unchanged\) debian-tools:latest \(rebuilt, same base\) amazonlinux-tools:latest \(unchanged\) platform-tools:latest \(unchanged\) none debian-tools:latest \(rebuilt, same base\)/);
+    assert.match(page, /CVE-2026-0001 debian-tools:latest \(rebuilt, same base\) none debian-tools:latest \(rebuilt, same base\) none/);
+    assert.match(page, /"changed" says the set differs, not which packages/);
+    assert.doesNotMatch(page, /which advisories were fixed and whether packages changed between them isn't known/);
+  });
+
+  test('the history page lists them too', () => {
+    assert.match(
+      shown(read(site, 'history/index.html')),
+      /debian-tools:latest Rebuilt, same base: sha256:dddddddddddd → sha256:867c6cbf7f44 Fixed: CVE-2026-0001 New: GO-2026-6629 Package set changed/,
+    );
   });
 });
 

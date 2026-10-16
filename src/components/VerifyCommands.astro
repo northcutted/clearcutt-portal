@@ -45,7 +45,7 @@ const tools = [
   {skipped.length > 0 && (
     <div class="callout">
       <h3>Not shown</h3>
-      <p>A value from the report can't be written into a shell command safely, so this page shows none for:</p>
+      <p>This page shows no command for these, for the reason given. A value from the report that can't be written into a shell command exactly as it would run is never shown in one.</p>
       <ul>{skipped.map((s) => <li><strong>{s.title}</strong>: {s.reason}</li>)}</ul>
     </div>
   )}

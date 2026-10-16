@@ -25,7 +25,19 @@ the estate.
 JSON Schemas, with types generated from them. A bundle that doesn't match
 stops the build; fields from a newer v1 are ignored.
 
+**Safe with an untrusted report.** Much of a report is written by whoever
+built an image. Every page carries a Content-Security-Policy that runs only
+the site's own scripts and styles; a report value becomes a link only when it
+is an http(s) URL; and an image ID that can't be a page name is a bundle
+error. The build replaces `--out` only when it is empty or a site an earlier
+build wrote, and never when it overlaps the bundle.
+
+**Accessible.** A skip link that shows on focus; every status chip opens what
+it means, for keyboard, touch, and screen readers; and every charted value is
+also in a table.
+
 **Publishing.** A reusable workflow (`portal.yml`) deploys a fleet's portal to
 GitHub Pages from a bundle artifact, and the action builds one in any job.
 Releases are the signed `git archive` of their tag, which the action verifies
-before building.
+before building; only a `vX.Y.Z` tag counts as a release, and any other ref
+builds from source.

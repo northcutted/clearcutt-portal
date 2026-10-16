@@ -10,6 +10,20 @@ export function href(path: string): string {
   return `${base}/${path.replace(/^\/+/, '')}`;
 }
 
+/**
+ * The page of the image with this ID. readBundle only accepts IDs that are a
+ * single plain path segment (IMAGE_ID); encoding them as well keeps a link
+ * from ever leaving images/.
+ */
+export function imageHref(id: string): string {
+  return href(`images/${encodeURIComponent(id)}/`);
+}
+
+/** The page of the package group with this slug. */
+export function packageHref(slug: string): string {
+  return href(`packages/${encodeURIComponent(slug)}/`);
+}
+
 export function siteTitle(): string {
   return process.env[TITLE_ENV] || loadBundle().report.metadata.name;
 }

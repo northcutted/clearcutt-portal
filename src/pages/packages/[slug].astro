@@ -6,7 +6,7 @@ import { loadBundle } from '../../lib/bundle.ts';
 import { imageLabel, imagesById, packageGroups, type PackageGroup } from '../../lib/estate.ts';
 import { plural } from '../../lib/format.ts';
 import { evidenceStatus } from '../../lib/present.ts';
-import { href } from '../../lib/site.ts';
+import { imageHref } from '../../lib/site.ts';
 
 export function getStaticPaths() {
   return packageGroups(loadBundle().report).map((group) => ({ params: { slug: group.slug }, props: { group } }));
@@ -39,7 +39,7 @@ const byId = imagesById(report);
               const image = byId.get(id)!;
               return (
                 <tr>
-                  <td><a href={href(`images/${id}/`)}>{imageLabel(image)}</a></td>
+                  <td><a href={imageHref(id)}>{imageLabel(image)}</a></td>
                   <td class="mono small">{image.repository}</td>
                   <td><Chip term={evidenceStatus(image.evidence.sbom.status)} /></td>
                 </tr>

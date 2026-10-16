@@ -107,7 +107,9 @@ const headline = measures.slice(0, 8);
               data in that run; a change in how many were scanned moves them too.
             </p>
             <div class="multiples">
-              {measures.map((m) => <LineChart title={m.title} note={m.note} points={points(m.value)} />)}
+              {measures.map((m) => (
+                <LineChart title={m.title} note={m.note} points={points(m.value)} valuesIn="the table of every run below" />
+              ))}
             </div>
           </section>
         </>
@@ -116,12 +118,13 @@ const headline = measures.slice(0, 8);
       <section aria-labelledby="runs">
         <h2 id="runs">Every run</h2>
         <div class="table-wrap">
-          <table>
+          <table class="runs">
             <thead>
               <tr>
                 <th>Run</th><th class="num">Images</th><th class="num">Verified</th><th class="num">Failed</th><th class="num">Unverified</th>
                 <th class="num">Stale</th><th class="num">Proven</th><th class="num">Claimed</th><th class="num">Unresolved</th>
-                <th class="num">Critical</th><th class="num">High</th><th class="num">Not scanned</th><th class="num">Reproduced</th>
+                <th class="num">Critical</th><th class="num">High</th><th class="num">Not scanned</th>
+                <th class="num">Signatures verified</th><th class="num">Reproduced</th>
               </tr>
             </thead>
             <tbody>
@@ -130,7 +133,7 @@ const headline = measures.slice(0, 8);
                 const scanned = s.vulnerabilities.scanned > 0;
                 return (
                   <tr>
-                    <td>{formatTime(e.generatedAt)}{e.ref && <div class="dim small mono">{e.ref}</div>}</td>
+                    <td class="nowrap">{formatTime(e.generatedAt)}{e.ref && <div class="dim small mono">{e.ref}</div>}</td>
                     <td class="num">{s.images}</td>
                     <td class="num">{s.verdicts.verified}</td>
                     <td class="num">{s.verdicts.failed}</td>
@@ -142,6 +145,7 @@ const headline = measures.slice(0, 8);
                     <td class="num">{scanned ? s.vulnerabilities.counts.critical : '?'}</td>
                     <td class="num">{scanned ? s.vulnerabilities.counts.high : '?'}</td>
                     <td class="num">{s.vulnerabilities.notScanned}</td>
+                    <td class="num">{verified(s, 'signature') ?? '?'}</td>
                     <td class="num">{s.reproducibility.reproduced}</td>
                   </tr>
                 );
@@ -149,7 +153,7 @@ const headline = measures.slice(0, 8);
             </tbody>
           </table>
         </div>
-        <p class="small dim">? means unknown: no image had vulnerability data in that run.</p>
+        <p class="small dim">? means unknown: no image had vulnerability data in that run, or the run didn't count signatures.</p>
       </section>
 
       <aside class="callout" aria-labelledby="limits">
@@ -163,3 +167,16 @@ const headline = measures.slice(0, 8);
     </>
   )}
 </Layout>
+
+<style>
+  /* Thirteen numeric columns: tighter, with headings that may wrap, so the
+     table fits beside the run's time instead of squeezing it. */
+  .runs th,
+  .runs td {
+    padding-left: 0.45rem;
+    padding-right: 0.45rem;
+  }
+  .runs th.num {
+    white-space: normal;
+  }
+</style>

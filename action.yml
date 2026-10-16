@@ -39,7 +39,7 @@ inputs:
     required: false
     default: ""
   version:
-    description: Release to use, e.g. v0.1.0. Default is the tag this action was used at; "source" (or a non-tag ref) builds from the action's source.
+    description: Release to use, e.g. v0.1.0. Default is the release tag this action was used at; "source" (or any ref that isn't a vX.Y.Z tag) builds from the action's source.
     required: false
     default: ""
 outputs:
@@ -59,9 +59,12 @@ runs:
         INPUT: ${{ inputs.version }}
         ACTION_REF: ${{ github.action_ref }}
       run: |
+        # A release is a tag scripts/release.sh cut (vX.Y.Z); anything else,
+        # even a ref starting with v, builds from the action's own source.
+        release='^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$'
         v=$INPUT
-        if [ -z "$v" ] && [[ "$ACTION_REF" =~ ^v[0-9] ]]; then v=$ACTION_REF; fi
-        if [ -z "$v" ] || ! [[ "$v" =~ ^v[0-9] ]]; then v=source; fi
+        if [ -z "$v" ] && [[ "$ACTION_REF" =~ $release ]]; then v=$ACTION_REF; fi
+        if [ -z "$v" ] || ! [[ "$v" =~ $release ]]; then v=source; fi
         echo "version=$v" >> "$GITHUB_OUTPUT"
 
     - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0

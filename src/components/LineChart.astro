@@ -1,6 +1,9 @@
 ---
 // One measure over the estate's runs: a 2px line, a dot per run, the latest
 // value labelled. Runs where the measure is unknown leave a gap marked "?".
+// The chart is one image to assistive technology, summarized in its label;
+// each run's value is in a table the page shows alongside (`valuesIn` says
+// where), so no value is only reachable by hovering over a dot.
 import { lineGeometry, type Point } from '../lib/charts.ts';
 import { formatDay, formatTime } from '../lib/format.ts';
 
@@ -8,8 +11,10 @@ interface Props {
   title: string;
   note?: string;
   points: Point[];
+  /** Where the page lists every value, e.g. "the table of runs below". */
+  valuesIn?: string;
 }
-const { title, note, points } = Astro.props;
+const { title, note, points, valuesIn } = Astro.props;
 const W = 240;
 const H = 120;
 const box = { x0: 26, x1: W - 26, y0: 12, y1: H - 22 };
@@ -20,9 +25,17 @@ const last = sorted[sorted.length - 1];
 const latest = g.dots[g.dots.length - 1];
 const sameDay = first && last && formatDay(first.at) === formatDay(last.at);
 const tickLabel = (at: string) => (sameDay ? formatTime(at)!.slice(11) : formatDay(at));
-const describe = last
-  ? `${title}. Latest run ${formatTime(last.at)}: ${last.value === null ? 'unknown' : last.value}.`
-  : `${title}. No runs.`;
+const known = points.flatMap((p) => (p.value === null ? [] : [p.value]));
+const describe = [
+  title,
+  last
+    ? `${points.length === 1 ? '1 run' : `${points.length} runs`}; latest ${formatTime(last.at)}: ${last.value === null ? 'unknown' : last.value}`
+    : 'No runs',
+  known.length > 1 ? `lowest ${Math.min(...known)}, highest ${Math.max(...known)}` : undefined,
+  valuesIn && `Every value is in ${valuesIn}`,
+]
+  .filter(Boolean)
+  .join('. ') + '.';
 ---
 <figure class="chart">
   <figcaption>{title}{note && <span class="dim"> · {note}</span>}</figcaption>
@@ -39,7 +52,7 @@ const describe = last
     ))}
     {g.dots.map((dot) => (
       <>
-        <circle class="hit" cx={dot.x} cy={dot.y} r="12" tabindex="0"><title>{formatTime(dot.at)}: {dot.value}</title></circle>
+        <circle class="hit" cx={dot.x} cy={dot.y} r="12"><title>{formatTime(dot.at)}: {dot.value}</title></circle>
         <circle class="dot" cx={dot.x} cy={dot.y} r="4" />
       </>
     ))}

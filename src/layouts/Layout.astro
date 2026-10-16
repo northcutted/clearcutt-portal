@@ -35,13 +35,7 @@ const generator = report.metadata.generator;
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <script is:inline>
-      try {
-        var stored = localStorage.getItem('theme');
-        var dark = stored === 'dark' || (stored !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches);
-        if (dark) document.documentElement.classList.add('dark');
-      } catch (e) {}
-    </script>
+    <script is:inline src={href('theme.js')}></script>
     <title>{fullTitle}</title>
     <meta name="description" content={desc} />
     <meta name="generator" content={`clearcutt-portal ${portalVersion()}`} />
@@ -50,7 +44,7 @@ const generator = report.metadata.generator;
     <link rel="icon" type="image/svg+xml" href={href('favicon.svg')} />
   </head>
   <body>
-    <a class="sr-only" href="#main">Skip to content</a>
+    <a class="skip-link" href="#main">Skip to content</a>
     <header class="site-header">
       <div class="wrap">
         <a class="brand" href={href('')}>
@@ -70,7 +64,7 @@ const generator = report.metadata.generator;
         </nav>
       </div>
     </header>
-    <main id="main">
+    <main id="main" tabindex="-1">
       <div class="wrap">
         <slot />
       </div>

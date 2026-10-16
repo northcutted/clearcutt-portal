@@ -79,6 +79,16 @@ The build reads the bundle and nothing else: it contacts no registry, and the
 site it writes loads nothing from another origin. A bundle that doesn't match
 the contract stops the build (exit 1) with the fields that are wrong.
 
+The site replaces `--out`, so `--out` must be new, empty, or a site an earlier
+build wrote (each has a `.clearcutt-portal-site` file), and can't be the
+bundle, inside it, or around it.
+
+Much of a report is written by whoever built an image, so the site treats it
+as untrusted: every page carries a Content-Security-Policy that runs only the
+site's own scripts and styles, report text is always escaped, and a value from
+the report (an image's source URL) becomes a link only when it is an http or
+https URL.
+
 ## The data contract
 
 The bundle format belongs to clearcutt-verify: `apiVersion: clearcutt.dev/v1`,
@@ -92,8 +102,9 @@ When reading a bundle, the portal:
 - refuses any `apiVersion` other than `clearcutt.dev/v1`;
 - validates both files against the schemas, ignoring fields it doesn't know,
   since v1 only grows by adding optional fields;
-- refuses a report whose image IDs repeat, or whose bases and packages name
-  images that aren't in it;
+- refuses a report whose image IDs repeat or can't name a page (each must be
+  one path segment of letters, digits, `.`, `_`, and `-`), or whose bases and
+  packages name images that aren't in it;
 - shows enum values it doesn't know as they are, marked unknown.
 
 Changes to the contract are proposed as issues on

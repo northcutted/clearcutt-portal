@@ -6,7 +6,7 @@ import { loadBundle } from '../lib/bundle.ts';
 import { baseGraph, imageLabel, staleImages } from '../lib/estate.ts';
 import { plural } from '../lib/format.ts';
 import { TONE_GLYPH, method, strength, type Tone } from '../lib/present.ts';
-import { href } from '../lib/site.ts';
+import { imageHref } from '../lib/site.ts';
 
 const { report } = loadBundle();
 const { bases } = report.summary;
@@ -68,7 +68,7 @@ const strengths = ['proof', 'declared', 'assisted', 'weak'];
           <tbody>
             {stale.map((image) => (
               <tr>
-                <td><a href={href(`images/${image.id}/`)}>{imageLabel(image)}</a></td>
+                <td><a href={imageHref(image.id)}>{imageLabel(image)}</a></td>
                 <td class="mono small">{image.base.ref}</td>
                 <td class="mono small">{image.base.currentRef ?? '—'}</td>
                 <td><Chip term={strength(image.base.strength)} /></td>
@@ -89,7 +89,7 @@ const strengths = ['proof', 'declared', 'assisted', 'weak'];
       <div class="grid">
         {graph.unresolved.map((image) => (
           <article class="card">
-            <p><a href={href(`images/${image.id}/`)}>{imageLabel(image)}</a></p>
+            <p><a href={imageHref(image.id)}>{imageLabel(image)}</a></p>
             <ul class="reasons">{(image.unresolved ?? []).map((r) => <li>{r}</li>)}</ul>
           </article>
         ))}
@@ -102,7 +102,7 @@ const strengths = ['proof', 'declared', 'assisted', 'weak'];
       <h2 id="standalone">Roots nothing here is built on</h2>
       <ul>
         {graph.standalone.map((image) => (
-          <li><a href={href(`images/${image.id}/`)}>{imageLabel(image)}</a>{image.root && <span class="dim small"> · {image.root}</span>}</li>
+          <li><a href={imageHref(image.id)}>{imageLabel(image)}</a>{image.root && <span class="dim small"> · {image.root}</span>}</li>
         ))}
       </ul>
     </section>

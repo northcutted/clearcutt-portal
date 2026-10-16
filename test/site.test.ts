@@ -1,7 +1,19 @@
 // Builds real sites from the vendored bundles and checks what they say.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import {
+  cpSync,
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  realpathSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { before, describe, test } from 'node:test';
@@ -30,6 +42,31 @@ function htmlFiles(dir: string): string[] {
 }
 
 const read = (dir: string, page: string) => readFileSync(path.join(dir, page), 'utf8');
+
+/** Every file under dir, with its contents, to show nothing was touched. */
+function snapshot(dir: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const f of readdirSync(dir, { recursive: true, encoding: 'utf8' }).sort()) {
+    const file = path.join(dir, f);
+    if (statSync(file).isFile()) out[f] = readFileSync(file, 'utf8');
+  }
+  return out;
+}
+
+/** The site's Content-Security-Policy, as directive name → sources. */
+function policy(html: string): Map<string, string[]> {
+  const metas = [...html.matchAll(/<meta http-equiv="content-security-policy" content="([^"]*)"/g)];
+  assert.equal(metas.length, 1, 'one CSP <meta> per page');
+  return new Map(
+    metas[0][1]
+      .split(';')
+      .map((d) => d.trim().split(/\s+/))
+      .filter((d) => d[0])
+      .map(([name, ...sources]) => [name, sources]),
+  );
+}
+
+const sha256 = (text: string) => `'sha256-${createHash('sha256').update(text).digest('base64')}'`;
 const text = (html: string) =>
   html
     .replace(/<script[\s\S]*?<\/script>/g, '')
@@ -106,9 +143,127 @@ describe('the example site', () => {
     assert.match(text(read(site, 'packages/index.html')), /Whether they ship this is unknown/);
   });
 
+  test('every page carries a CSP that allows only its own scripts and styles', () => {
+    for (const file of htmlFiles(site)) {
+      const html = readFileSync(file, 'utf8');
+      const csp = policy(html);
+      assert.deepEqual(csp.get('default-src'), ["'none'"], file);
+      assert.deepEqual(csp.get('base-uri'), ["'none'"], file);
+      assert.deepEqual(csp.get('form-action'), ["'none'"], file);
+      const scripts = csp.get('script-src') ?? [];
+      const styles = csp.get('style-src') ?? [];
+      for (const sources of [scripts, styles]) {
+        assert.ok(sources.includes("'self'"), file);
+        for (const unsafe of ["'unsafe-inline'", "'unsafe-eval'", "'unsafe-hashes'", '*', 'data:', 'https:']) {
+          assert.ok(!sources.includes(unsafe), `${file}: ${unsafe}`);
+        }
+      }
+      // Every inline script and style is allowed by its hash; every file is
+      // the site's own.
+      for (const m of html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/g)) {
+        const src = m[1].match(/\bsrc="([^"]*)"/)?.[1];
+        if (src) assert.ok(src.startsWith('/portal/'), `${file}: script ${src}`);
+        else assert.ok(scripts.includes(sha256(m[2])), `${file}: an inline script has no hash in the CSP`);
+      }
+      for (const m of html.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/g)) {
+        assert.ok(styles.includes(sha256(m[1])), `${file}: an inline style has no hash in the CSP`);
+      }
+      for (const m of html.matchAll(/<link\b[^>]*rel="stylesheet"[^>]*>/g)) {
+        assert.match(m[0], /href="\/portal\//, file);
+      }
+      // Attributes a hash can't cover.
+      assert.doesNotMatch(html, /<[^>]+\sstyle="/, `${file}: style attribute`);
+      assert.doesNotMatch(html, /<[^>]+\son[a-z]+="/, `${file}: event handler attribute`);
+      assert.match(html, /<head>[\s\S]*content-security-policy[\s\S]*<\/head>/, file);
+    }
+  });
+
+  test('the skip link is the first thing on the page, and shows when focused', () => {
+    const html = read(site, 'index.html');
+    assert.match(html, /<body>\s*<a class="skip-link" href="#main">Skip to content<\/a>/);
+    assert.match(html, /<main id="main"/);
+    const css = readdirSync(path.join(site, '_assets'))
+      .filter((f) => f.endsWith('.css'))
+      .map((f) => read(site, `_assets/${f}`))
+      .join('');
+    assert.match(css, /\.skip-link:focus\{transform:none\}/);
+  });
+
+  test('every chip opens its meaning, for keyboard, touch, and screen readers alike', () => {
+    for (const file of htmlFiles(site)) {
+      const html = readFileSync(file, 'utf8');
+      const ids = [...html.matchAll(/\sid="([^"]+)"/g)].map((m) => m[1]);
+      assert.equal(new Set(ids).size, ids.length, `${file}: duplicate ids`);
+      const chips = [...html.matchAll(/<(\w+) [^>]*class="chip [^"]*"[^>]*>/g)];
+      for (const [tag, name] of chips.map((m) => [m[0], m[1]])) {
+        assert.equal(name, 'button', `${file}: ${tag}`);
+        const target = tag.match(/popovertarget="([^"]+)"/)?.[1];
+        const described = tag.match(/aria-describedby="([^"]+)"/)?.[1];
+        assert.ok(target && ids.includes(target), `${file}: ${tag} opens nothing`);
+        assert.ok(described && ids.includes(described), `${file}: ${tag} describes nothing`);
+        assert.match(html, new RegExp(`id="${target}" class="chip-tip" popover>`), file);
+      }
+    }
+    const page = read(site, 'images/cgr-dev-chainguard-static/index.html');
+    assert.match(text(page), /Present, unverified\. Found, but not checked/);
+  });
+
+  test('charts hold nothing focusable, and every charted value is in the table of runs', () => {
+    const html = read(site, 'history/index.html');
+    const charts = [...html.matchAll(/<svg\b[^>]*role="img"[^>]*>[\s\S]*?<\/svg>/g)].map((m) => m[0]);
+    assert.ok(charts.length > 5);
+    for (const svg of charts) {
+      assert.doesNotMatch(svg, /tabindex|<a\b|<button/);
+      assert.match(svg, /aria-label="[^"]+"/);
+    }
+    assert.match(html, /aria-label="Signatures verified\. 2 runs; latest [^"]+\. Every value is in the table of every run below\."/);
+    assert.match(text(html), /Not scanned Signatures verified Reproduced/);
+  });
+
   test('a rebased image names what it was rebased from', () => {
     const page = text(read(site, 'images/ghcr-io-acme-images-billing/index.html'));
     assert.match(page, /Rebased from ghcr\.io\/acme\/images\/billing@sha256:0{64} onto/);
+  });
+});
+
+describe('a report written by someone hostile', () => {
+  let site: string;
+  before(() => {
+    const bundle = editedBundle(MINIMAL, (r) => {
+      r.images[0].source = { url: 'javascript:alert(document.domain)', basis: 'label' };
+      r.images[2].source = { url: 'https://github.com@evil.example/acme', basis: 'annotation' };
+      r.images[3].source = { url: 'https://example.test/acme/redis', basis: 'label' };
+      r.images[3].description = '<script>alert(1)</script><img src=x onerror=alert(1)>';
+    });
+    site = build(bundle);
+  });
+
+  test('a source URL that is not http(s) is shown as text, never as a link', () => {
+    const page = read(site, 'images/cgr-dev-chainguard-static/index.html');
+    assert.doesNotMatch(page, /href="javascript:/i);
+    assert.match(page, /<code>javascript:alert\(document\.domain\)<\/code> <span class="dim small">\(not linked/);
+    assert.match(read(site, 'images/ghcr-io-acme-images-billing/index.html'), /<code>https:\/\/github\.com@evil\.example\/acme<\/code>/);
+  });
+
+  test('an http(s) source URL is a link', () => {
+    assert.match(
+      read(site, 'images/docker-io-library-redis/index.html'),
+      /<a href="https:\/\/example\.test\/acme\/redis" rel="noreferrer">https:\/\/example\.test\/acme\/redis<\/a>/,
+    );
+  });
+
+  test('no page links anywhere but this site and http(s)', () => {
+    for (const file of htmlFiles(site)) {
+      for (const [, h] of readFileSync(file, 'utf8').matchAll(/\shref="([^"]*)"/g)) {
+        assert.match(h, /^(\/|#|https?:\/\/)/, `${file}: href="${h}"`);
+      }
+    }
+  });
+
+  test('markup in report text is escaped', () => {
+    const page = read(site, 'images/docker-io-library-redis/index.html');
+    assert.doesNotMatch(page, /<script>alert|<img src=x/);
+    assert.match(page, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
   });
 });
 
@@ -172,8 +327,69 @@ describe('the CLI', () => {
     writeFileSync(path.join(other, 'keep.txt'), 'mine');
     const run = cli('build', '--bundle', MINIMAL, '--out', other);
     assert.equal(run.status, 2);
-    assert.match(run.stderr, /not empty, and not a site this command built/);
+    assert.match(run.stderr, /not empty, and not a site clearcutt-portal built/);
     assert.equal(readFileSync(path.join(other, 'keep.txt'), 'utf8'), 'mine');
+  });
+
+  test('marks each site it writes, and replaces only a marked one', () => {
+    const out = build(MINIMAL);
+    assert.ok(existsSync(path.join(out, '.clearcutt-portal-site')));
+    // A directory that merely holds a report, like a bundle, isn't a site.
+    const lookalike = editedBundle(MINIMAL, () => {});
+    writeFileSync(path.join(lookalike, 'policy.yaml'), 'mine');
+    const before = snapshot(lookalike);
+    const run = cli('build', '--bundle', MINIMAL, '--out', lookalike);
+    assert.equal(run.status, 2);
+    assert.match(run.stderr, /not a site clearcutt-portal built/);
+    assert.deepEqual(snapshot(lookalike), before);
+  });
+
+  test('never writes the site into, around, or over the bundle', () => {
+    // In a directory of its own, so "around it" is a directory this test owns.
+    const bundle = path.join(mkdtempSync(path.join(tmpdir(), 'portal-around-')), 'bundle');
+    cpSync(MINIMAL, bundle, { recursive: true });
+    writeFileSync(path.join(bundle, 'policy.yaml'), 'mine');
+    writeFileSync(path.join(bundle, 'refs.txt'), 'ghcr.io/acme/images/billing:latest\n');
+    const before = snapshot(bundle);
+    const link = path.join(mkdtempSync(path.join(tmpdir(), 'portal-link-')), 'site');
+    symlinkSync(bundle, link);
+    for (const out of [
+      bundle, // the bundle itself
+      `${bundle}${path.sep}`,
+      path.join(bundle, 'site'), // inside it
+      path.join(bundle, 'site', '..'),
+      path.dirname(bundle), // around it
+      link, // a symlink to it
+      path.join(link, 'nested'),
+    ]) {
+      const run = cli('build', '--bundle', bundle, '--out', out);
+      assert.equal(run.status, 2, `--out ${out}: ${run.stdout}\n${run.stderr}`);
+      assert.match(run.stderr, /overlaps the bundle/, out);
+      assert.deepEqual(snapshot(bundle), before, `--out ${out} touched the bundle`);
+    }
+    // Through a symlink, from the other side: --out is the real directory.
+    const viaLink = cli('build', '--bundle', link, '--out', bundle);
+    assert.equal(viaLink.status, 2);
+    assert.deepEqual(snapshot(bundle), before);
+  });
+
+  test('refuses a file as --out', () => {
+    const file = path.join(mkdtempSync(path.join(tmpdir(), 'portal-file-')), 'site');
+    writeFileSync(file, 'mine');
+    const run = cli('build', '--bundle', MINIMAL, '--out', file);
+    assert.equal(run.status, 2);
+    assert.match(run.stderr, /not a directory/);
+    assert.equal(readFileSync(file, 'utf8'), 'mine');
+  });
+
+  test('an image id that is not a plain page name is a bundle error, not a crash', () => {
+    const bad = editedBundle(MINIMAL, (r) => (r.images[3].id = '../../escape'));
+    const out = mkdtempSync(path.join(tmpdir(), 'portal-site-'));
+    const run = cli('build', '--bundle', bad, '--out', out);
+    assert.equal(run.status, 1);
+    assert.match(run.stderr, /image id "\.\.\/\.\.\/escape" can't name a page/);
+    assert.doesNotMatch(run.stderr, /\n\s+at /, 'no stack trace');
+    assert.deepEqual(readdirSync(out), []);
   });
 
   test('usage errors exit 2', () => {

@@ -61,7 +61,7 @@ jobs:
 | `bundle-path` | `.` | Directory of the bundle inside the artifact |
 | `title` | the estate's name | Site title |
 | `deploy` | `true` | Deploy to Pages; `false` uploads the site as the artifact `clearcutt-portal-site` instead (the caller still grants `pages: write` and `id-token: write`, which GitHub checks for every job; to avoid that, use the action) |
-| `portal-version` | the workflow's own release | A release tag (signature-verified), or a commit to build from source |
+| `portal-version` | the workflow's own release | A release tag `vX.Y.Z` (signature-verified), or any other ref or commit to build from source |
 
 The workflow's output `page-url` is the deployed site's address. The site is
 served under the repository's Pages path (`/<repo>/` for a project site),
@@ -86,11 +86,11 @@ The action installs a release, verifies its signature, and builds:
 | Input | Default | What it does |
 |---|---|---|
 | `bundle` | (required) | The bundle directory |
-| `output` | `_site` | Where to write the site |
+| `output` | `_site` | Where to write the site: a new or empty directory, or a site an earlier build wrote, which it replaces |
 | `base-path` | `/` | Path the site is served under |
 | `site-url` | none | Origin the site is served from, for absolute URLs |
 | `title` | the estate's name | Site title |
-| `version` | the tag the action was used at | A release, or `source` to build from the action's own source |
+| `version` | the release tag the action was used at | A release (`vX.Y.Z`), or `source` to build from the action's own source; any other value builds from source too |
 
 At a release tag the action downloads `clearcutt-portal-<tag>.tar.gz` and its
 Sigstore bundle from the release, and checks that the archive was signed by

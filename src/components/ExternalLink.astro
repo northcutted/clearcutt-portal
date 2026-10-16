@@ -1,0 +1,17 @@
+---
+// A link to an address the report names, such as an image's source
+// repository. The report's values are untrusted (an image's author writes its
+// labels), so anything but an absolute http(s) URL is shown as text instead.
+import { safeHttpUrl } from '../lib/url.ts';
+
+interface Props {
+  url: string;
+}
+const { url } = Astro.props;
+const safe = safeHttpUrl(url);
+---
+{safe ? (
+  <a href={safe} rel="noreferrer">{url}</a>
+) : (
+  <><code>{url}</code> <span class="dim small">(not linked: not an http or https address)</span></>
+)}

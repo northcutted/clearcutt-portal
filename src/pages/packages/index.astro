@@ -4,7 +4,7 @@ import PackagesUnknown from '../../components/PackagesUnknown.astro';
 import { loadBundle } from '../../lib/bundle.ts';
 import { packageGroups } from '../../lib/estate.ts';
 import { plural } from '../../lib/format.ts';
-import { href } from '../../lib/site.ts';
+import { packageHref } from '../../lib/site.ts';
 
 const { report } = loadBundle();
 const groups = packageGroups(report);
@@ -32,7 +32,7 @@ const { known, unknown } = report.summary.packages;
         <tbody>
           {groups.map((g) => (
             <tr data-text={`${g.name} ${g.type}`.toLowerCase()}>
-              <td><a href={href(`packages/${g.slug}/`)}>{g.name}</a></td>
+              <td><a href={packageHref(g.slug)}>{g.name}</a></td>
               <td>{g.type}</td>
               <td class="mono small">{g.versions.map((v) => v.version).join(', ')}</td>
               <td class="num">{g.images.length}</td>

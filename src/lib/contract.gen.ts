@@ -30,6 +30,10 @@ export interface EstateReport {
    * Policy is what images were held to in this run.
    */
   policy: Policy;
+  /**
+   * Stacks are the clearcutt-factory registry stacks the estate's apps are built on: each version in use, who signed it, and which apps are pinned to an older version than the stack's tag names now.
+   */
+  stacks?: Stack[];
   summary: Summary;
   /**
    * Warnings are estate-wide problems the run hit.
@@ -49,6 +53,10 @@ export interface Base {
   consumers: number;
   currentCreated?: string;
   currentDigest?: string;
+  /**
+   * CurrentPlatform says which platform image CurrentDigest names; absent, it names what the tag points at.
+   */
+  currentPlatform?: string;
   currentRef: string;
   repository: string;
   staleConsumers: number;
@@ -94,6 +102,10 @@ export interface Image {
    * Packages is how many package versions the image ships, when known.
    */
   packages?: number;
+  /**
+   * PackagesSource says where the package set came from; absent when it is unknown.
+   */
+  packagesSource?: PackagesSource;
   platforms: Platform[];
   /**
    * Repository is registry/path without tag or digest.
@@ -149,6 +161,14 @@ export interface BaseLink {
    * Method is how the relationship was established: layer-prefix (the image starts with the base's exact layers), oci-base-digest, buildpacks-metadata, oci-base-name, or history.
    */
   method: 'layer-prefix' | 'oci-base-digest' | 'buildpacks-metadata' | 'oci-base-name' | 'history';
+  /**
+   * Platform says which platform image Digest and CurrentDigest name, e.g. linux/amd64. Absent, they name what the tag points at (the index of a multi-platform base), as Image.digest does.
+   */
+  platform?: string;
+  /**
+   * ProvenOn is the platform whose layers were compared to prove the relationship (for strength proof).
+   */
+  provenOn?: string;
   /**
    * Ref is the base as the image is built on it (repository:tag or repository@digest).
    */
@@ -317,6 +337,14 @@ export interface Factory {
    */
   stack?: string;
   /**
+   * StackDigest is the stack version the app's lock pins: the registry artifact's digest, or the digest of a local stack's definition.
+   */
+  stackDigest?: string;
+  /**
+   * StackRef is the registry stack an app was built on, as its lock names it (absent for a stack defined beside the app).
+   */
+  stackRef?: string;
+  /**
    * Version is the clearcutt-factory version that built or rebased it.
    */
   version?: string;
@@ -331,6 +359,26 @@ export interface FactoryInputs {
   images: number;
   packages: number;
   tools: number;
+}
+/**
+ * PackagesSource is where an image's package set was read from.
+ *
+ * This interface was referenced by `EstateReport`'s JSON-Schema
+ * via the `definition` "PackagesSource".
+ */
+export interface PackagesSource {
+  /**
+   * Evidence is the evidence kind it was read from (sbom).
+   */
+  evidence: string;
+  /**
+   * Platforms are the platform images whose SBOMs were read; the image's packages are their union.
+   */
+  platforms?: string[];
+  /**
+   * Status is that evidence's status: verified (a trusted signer vouched for it) or present (unsigned, or signed by no trusted signer).
+   */
+  status: string;
 }
 /**
  * Platform is one platform image of a multi-platform image.
@@ -561,6 +609,10 @@ export interface Policy {
    */
   maxDaysBehind?: number;
   /**
+   * MaxScanAgeDays leaves images unverified whose vulnerability scan is older than this many days at the time of the report (what was found since is unknown); 0 accepts any age.
+   */
+  maxScanAgeDays?: number;
+  /**
    * OnlyFixed counts only vulnerabilities that have a fix toward FailOn.
    */
   onlyFixed?: boolean;
@@ -573,9 +625,63 @@ export interface Policy {
    */
   required: ('signature' | 'sbom' | 'vulnerabilityScan' | 'provenance' | 'recipe' | 'tests')[];
   /**
+   * StackSigners are who may sign clearcutt-factory stacks: a trust policy's stack signers. Registry stacks the estate's apps are built on are verified against them.
+   */
+  stackSigners?: Signer[];
+  /**
    * TrustedSigners are the identities whose signatures and attestations count as verified. Empty means nothing can be verified, only present.
    */
   trustedSigners: Signer[];
+}
+/**
+ * Stack is a clearcutt-factory stack published to a registry (stack push), as the estate's apps use it.
+ *
+ * This interface was referenced by `EstateReport`'s JSON-Schema
+ * via the `definition` "Stack".
+ */
+export interface Stack {
+  /**
+   * Consumers counts the apps built on the stack; StaleConsumers, those pinned to a version other than the current one.
+   */
+  consumers: number;
+  /**
+   * CurrentDigest is what Ref points at now; absent when it couldn't be read.
+   */
+  currentDigest?: string;
+  /**
+   * Ref is the tag apps name, e.g. ghcr.io/acme/stacks/go:1.
+   */
+  ref: string;
+  /**
+   * Repository is the stack's registry repository.
+   */
+  repository: string;
+  staleConsumers: number;
+  /**
+   * Versions are the stack versions apps are pinned to.
+   */
+  versions: StackVersion[];
+}
+/**
+ * StackVersion is one version of a stack, and the apps pinned to it.
+ *
+ * This interface was referenced by `EstateReport`'s JSON-Schema
+ * via the `definition` "StackVersion".
+ */
+export interface StackVersion {
+  /**
+   * Current is whether the stack's tag points at this version now.
+   */
+  current: boolean;
+  digest: string;
+  /**
+   * Images are the IDs of the apps pinned to this version.
+   */
+  images: string[];
+  /**
+   * Signature is the stack artifact's signature, verified against the policy's stack signers.
+   */
+  signature: EvidenceItem;
 }
 /**
  * Summary holds the estate's headline numbers.
@@ -725,8 +831,51 @@ export interface EstateHistory {
 export interface HistoryEntry {
   generatedAt: string;
   /**
+   * Images are one row per image in that run, so readers can show an image's own history (its verdicts, rebases, and findings over time).
+   */
+  images?: HistoryImage[];
+  /**
    * Ref is where that report is stored (a registry reference or a path).
    */
   ref?: string;
   summary: Summary;
+}
+/**
+ * HistoryImage is one image as one run saw it.
+ *
+ * This interface was referenced by `EstateHistory`'s JSON-Schema
+ * via the `definition` "HistoryImage".
+ */
+export interface HistoryImage {
+  /**
+   * Base is the base it was built on, when known.
+   */
+  base?: HistoryBase;
+  digest: string;
+  id: string;
+  /**
+   * RebaseStatus is the status of its rebase record.
+   */
+  rebaseStatus?: string;
+  /**
+   * RebasedFrom is the image whose layers were rebased into this one.
+   */
+  rebasedFrom?: string;
+  verdict: string;
+  /**
+   * Vulnerabilities are the counted findings; absent when unknown.
+   */
+  vulnerabilities?: SeverityCounts;
+}
+/**
+ * HistoryBase is an image's base in a history row.
+ *
+ * This interface was referenced by `EstateHistory`'s JSON-Schema
+ * via the `definition` "HistoryBase".
+ */
+export interface HistoryBase {
+  digest?: string;
+  drift: string;
+  platform?: string;
+  strength: string;
 }

@@ -4,7 +4,7 @@ import Chip from '../components/Chip.astro';
 import PolicySummary from '../components/PolicySummary.astro';
 import { API_VERSION, loadBundle } from '../lib/bundle.ts';
 import { formatTime } from '../lib/format.ts';
-import { drift, evidenceStatus, reproducibility, strength, verdict } from '../lib/present.ts';
+import { DECLARED_TEST, drift, evidenceStatus, reproducibility, stackVersionTerm, strength, verdict } from '../lib/present.ts';
 import { href, portalVersion } from '../lib/site.ts';
 
 const { report, history } = loadBundle();
@@ -14,6 +14,12 @@ const vocab = [
     title: 'Evidence',
     intro: 'Every piece of supply-chain evidence for every image has one of these statuses.',
     terms: ['verified', 'present', 'failed', 'missing', 'unknown', 'not-applicable'].map(evidenceStatus),
+  },
+  {
+    title: 'Tests',
+    intro:
+      "Test evidence is an attestation, or a smoke test the image's recipe declares. The second is present evidence of a particular kind, so it is labelled for what it is.",
+    terms: [DECLARED_TEST],
   },
   {
     title: 'Verdicts',
@@ -29,6 +35,11 @@ const vocab = [
     title: 'Base currency',
     intro: 'Measured against the newest version of the same base observed in the run, not against upstream.',
     terms: ['current', 'stale', 'unknown'].map(drift),
+  },
+  {
+    title: 'Stack versions',
+    intro: "Whether an app's lock pins the version of its clearcutt-factory stack that the stack's tag names now.",
+    terms: [stackVersionTerm({ current: true }, true), stackVersionTerm({ current: false }, true), stackVersionTerm({ current: false }, false)],
   },
   {
     title: 'Rebuilds',
@@ -83,13 +94,13 @@ const sources = metadata.sources.map((s) =>
         data is unknown, not clean, and estate totals cover only the images that had data.
       </p>
       <p>
-        "Which images ship this package" is answered only for images whose package set could be read. The packages
+        "Which images ship this package" is answered only for images whose package set is in the report. The packages
         pages name the images that weren't covered, because a package's absence says nothing about them.
       </p>
     </div>
   </section>
 
-  <PolicySummary policy={report.policy} />
+  <PolicySummary policy={report.policy} stacks={report.stacks?.length ?? 0} />
 
   <section>
     <h2>This report</h2>

@@ -14,6 +14,10 @@
         "currentDigest": {
           "type": "string"
         },
+        "currentPlatform": {
+          "description": "CurrentPlatform says which platform image CurrentDigest names; absent, it names what the tag points at.",
+          "type": "string"
+        },
         "currentRef": {
           "type": "string"
         },
@@ -75,6 +79,14 @@
             "oci-base-name",
             "history"
           ]
+        },
+        "platform": {
+          "description": "Platform says which platform image Digest and CurrentDigest name, e.g. linux/amd64. Absent, they name what the tag points at (the index of a multi-platform base), as Image.digest does.",
+          "type": "string"
+        },
+        "provenOn": {
+          "description": "ProvenOn is the platform whose layers were compared to prove the relationship (for strength proof).",
+          "type": "string"
         },
         "ref": {
           "description": "Ref is the base as the image is built on it (repository:tag or repository@digest).",
@@ -326,6 +338,14 @@
           "description": "Stack is the stack an app was built on.",
           "type": "string"
         },
+        "stackDigest": {
+          "description": "StackDigest is the stack version the app's lock pins: the registry artifact's digest, or the digest of a local stack's definition.",
+          "type": "string"
+        },
+        "stackRef": {
+          "description": "StackRef is the registry stack an app was built on, as its lock names it (absent for a stack defined beside the app).",
+          "type": "string"
+        },
         "version": {
           "description": "Version is the clearcutt-factory version that built or rebased it.",
           "type": "string"
@@ -467,6 +487,14 @@
         "packages": {
           "description": "Packages is how many package versions the image ships, when known.",
           "type": "integer"
+        },
+        "packagesSource": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/PackagesSource"
+            }
+          ],
+          "description": "PackagesSource says where the package set came from; absent when it is unknown."
         },
         "platforms": {
           "items": {
@@ -620,6 +648,32 @@
       ],
       "type": "object"
     },
+    "PackagesSource": {
+      "additionalProperties": false,
+      "description": "PackagesSource is where an image's package set was read from.",
+      "properties": {
+        "evidence": {
+          "description": "Evidence is the evidence kind it was read from (sbom).",
+          "type": "string"
+        },
+        "platforms": {
+          "description": "Platforms are the platform images whose SBOMs were read; the image's packages are their union.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "status": {
+          "description": "Status is that evidence's status: verified (a trusted signer vouched for it) or present (unsigned, or signed by no trusted signer).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "evidence",
+        "status"
+      ],
+      "type": "object"
+    },
     "Platform": {
       "additionalProperties": false,
       "description": "Platform is one platform image of a multi-platform image.",
@@ -665,6 +719,10 @@
           "description": "MaxDaysBehind fails images whose base is more than this many days behind its newest version; 0 never fails.",
           "type": "integer"
         },
+        "maxScanAgeDays": {
+          "description": "MaxScanAgeDays leaves images unverified whose vulnerability scan is older than this many days at the time of the report (what was found since is unknown); 0 accepts any age.",
+          "type": "integer"
+        },
         "onlyFixed": {
           "description": "OnlyFixed counts only vulnerabilities that have a fix toward FailOn.",
           "type": "boolean"
@@ -684,6 +742,13 @@
               "recipe",
               "tests"
             ]
+          },
+          "type": "array"
+        },
+        "stackSigners": {
+          "description": "StackSigners are who may sign clearcutt-factory stacks: a trust policy's stack signers. Registry stacks the estate's apps are built on are verified against them.",
+          "items": {
+            "$ref": "#/$defs/Signer"
           },
           "type": "array"
         },
@@ -882,6 +947,81 @@
       "required": [
         "basis",
         "url"
+      ],
+      "type": "object"
+    },
+    "Stack": {
+      "additionalProperties": false,
+      "description": "Stack is a clearcutt-factory stack published to a registry (stack push), as the estate's apps use it.",
+      "properties": {
+        "consumers": {
+          "description": "Consumers counts the apps built on the stack; StaleConsumers, those pinned to a version other than the current one.",
+          "type": "integer"
+        },
+        "currentDigest": {
+          "description": "CurrentDigest is what Ref points at now; absent when it couldn't be read.",
+          "type": "string"
+        },
+        "ref": {
+          "description": "Ref is the tag apps name, e.g. ghcr.io/acme/stacks/go:1.",
+          "type": "string"
+        },
+        "repository": {
+          "description": "Repository is the stack's registry repository.",
+          "type": "string"
+        },
+        "staleConsumers": {
+          "type": "integer"
+        },
+        "versions": {
+          "description": "Versions are the stack versions apps are pinned to.",
+          "items": {
+            "$ref": "#/$defs/StackVersion"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "consumers",
+        "ref",
+        "repository",
+        "staleConsumers",
+        "versions"
+      ],
+      "type": "object"
+    },
+    "StackVersion": {
+      "additionalProperties": false,
+      "description": "StackVersion is one version of a stack, and the apps pinned to it.",
+      "properties": {
+        "current": {
+          "description": "Current is whether the stack's tag points at this version now.",
+          "type": "boolean"
+        },
+        "digest": {
+          "type": "string"
+        },
+        "images": {
+          "description": "Images are the IDs of the apps pinned to this version.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "signature": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/EvidenceItem"
+            }
+          ],
+          "description": "Signature is the stack artifact's signature, verified against the policy's stack signers."
+        }
+      },
+      "required": [
+        "current",
+        "digest",
+        "images",
+        "signature"
       ],
       "type": "object"
     },
@@ -1139,6 +1279,13 @@
         }
       ],
       "description": "Policy is what images were held to in this run."
+    },
+    "stacks": {
+      "description": "Stacks are the clearcutt-factory registry stacks the estate's apps are built on: each version in use, who signed it, and which apps are pinned to an older version than the stack's tag names now.",
+      "items": {
+        "$ref": "#/$defs/Stack"
+      },
+      "type": "array"
     },
     "summary": {
       "$ref": "#/$defs/Summary"

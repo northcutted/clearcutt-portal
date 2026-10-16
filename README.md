@@ -25,10 +25,11 @@ clearcutt-verify estate verify ──▶ bundle ──▶ clearcutt-portal build
 | Page | What it answers |
 |---|---|
 | Overview | How many images are verified, failed, or unverified; the reasons for each one that isn't; stale bases; evidence and vulnerabilities across the estate; the policy they were held to |
-| Image | Its base and how it is known, every piece of evidence with its signer and status, vulnerabilities and the day they describe, tests, whether a rebuild reproduced it, its rebase, platforms, and packages |
+| Image | Its base and how it is known, every piece of evidence with its signer and status, vulnerabilities and the day they describe, tests, whether a rebuild reproduced it, its stack, its rebases, platforms, packages and where they were read from, and the image run by run |
 | Bases | Which images are built on which, how each relationship is known, and how far behind each image is |
+| Stacks | The clearcutt-factory stacks the apps are built on, who signed each version, and which apps are on an older one (shown when the estate has apps on stacks) |
 | Packages | Which images ship a package, and which images that can't be answered for |
-| History | Verdicts and headline numbers from run to run |
+| History | Verdicts and headline numbers from run to run, and what changed for each image since the previous run |
 | About | What every status means, the policy, and where the data came from |
 
 The site never claims more than the report does. **Proven** means checked: a
@@ -96,6 +97,9 @@ described by JSON Schemas in its [`contract/`](https://github.com/northcutted/cl
 This repository builds only against a copy of that directory, pinned to a
 commit in [`contract/UPSTREAM`](contract/UPSTREAM); CI checks the copy still
 matches. The TypeScript types the pages use are generated from those schemas.
+A weekly job ([`contract-upstream.yml`](.github/workflows/contract-upstream.yml))
+fails when the copy differs from clearcutt-verify's latest release, without
+ever gating a pull request.
 
 When reading a bundle, the portal:
 
@@ -123,7 +127,8 @@ npm ci --ignore-scripts
 npm run dev          # the site, from contract/fixtures/northcutted-images
 npm test             # unit tests, and real builds of the vendored bundles
 npm run check        # types, and that src/lib/contract.gen.ts matches the schemas
-scripts/sync-contract.sh <commit> && npm run gen-types   # move to a newer contract
+scripts/sync-contract.sh main     # move to verify's newest contract (or a tag/commit); regenerates types
+scripts/sync-contract.sh --check-upstream   # does contract/ match verify's latest release?
 scripts/release.sh v0.2.0   # after adding a CHANGELOG section: re-pin refs, commit, tag
 ```
 

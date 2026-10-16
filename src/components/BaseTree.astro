@@ -1,7 +1,8 @@
 ---
 // One base repository and the images built on it, recursively.
+import type { BaseLink } from '../lib/contract.gen.ts';
 import type { BaseNode } from '../lib/estate.ts';
-import { imageLabel } from '../lib/estate.ts';
+import { daysBehind, imageLabel } from '../lib/estate.ts';
 import { formatDay, plural } from '../lib/format.ts';
 import { drift, method, strength, verdict } from '../lib/present.ts';
 import { imageHref } from '../lib/site.ts';
@@ -13,6 +14,10 @@ interface Props {
 }
 const { node } = Astro.props;
 const b = node.base;
+const behind = (link: BaseLink) => {
+  const days = daysBehind(link);
+  return days === null ? 'behind, age unknown' : `${days} days behind`;
+};
 ---
 <div class="base-node">
   <p>
@@ -24,6 +29,7 @@ const b = node.base;
   {b && (
     <p class="small dim">
       Newest observed: <code>{b.currentRef}</code> <Digest digest={b.currentDigest} />
+      {b.currentPlatform && b.currentDigest && <> (its {b.currentPlatform} image)</>}
       {b.currentCreated && <>, created {formatDay(b.currentCreated)}</>}
       {' · '}{plural(b.consumers, 'consumer')} on {plural(b.versions, 'version')}
       {b.staleConsumers > 0 && <>, <strong>{b.staleConsumers} stale</strong></>}
@@ -35,12 +41,18 @@ const b = node.base;
         <li>
           <p>
             <a href={imageHref(c.image.id)}>{imageLabel(c.image)}</a>{' '}
-            <Chip term={strength(c.link.strength)} title={`By ${method(c.link.method)}. ${strength(c.link.strength).meaning}`} />{' '}
+            <Chip
+              term={strength(c.link.strength)}
+              title={`By ${method(c.link.method)}${c.link.provenOn ? `, comparing the ${c.link.provenOn} images` : ''}. ${strength(c.link.strength).meaning}`}
+            />{' '}
             <Chip
               term={drift(c.link.drift)}
-              label={c.link.drift === 'stale' ? `${c.link.daysBehind} days behind` : undefined}
+              label={c.link.drift === 'stale' ? behind(c.link) : undefined}
             />{' '}
-            <span class="dim small">on <code>{c.link.ref}</code> <Digest digest={c.link.digest} /></span>
+            <span class="dim small">
+              on <code>{c.link.ref}</code> <Digest digest={c.link.digest} />
+              {c.link.platform && c.link.digest && <> (its {c.link.platform} image)</>}
+            </span>
           </p>
           {c.asBase && <Astro.self node={c.asBase} />}
         </li>

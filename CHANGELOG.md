@@ -32,6 +32,20 @@ is an http(s) URL; and an image ID that can't be a page name is a bundle
 error. The build replaces `--out` only when it is empty or a site an earlier
 build wrote, and never when it overlaps the bundle.
 
+**clearcutt-verify v0.15's contract.** Image pages show each image run by
+run from the history's per-image rows (verdict, digest, base, findings, with
+trend charts) and every rebase recorded; the history page lists what changed
+for each image since the previous run. A new Stacks page lists the registry
+stacks apps are built on, each version's signature against the policy's
+stack signers, and the apps on an older version; app pages name their stack.
+Bases say which platform image a digest names and which platforms were
+compared to prove them; package lists say which SBOM they were read from and
+whether it was verified; the policy shows its scan-age limit and stack
+signers; and a smoke test a recipe declares reads as "Declared in recipe".
+A base whose age couldn't be measured (`daysBehindUnknown`, from a newer
+clearcutt-verify) shows as unknown, and a signer on evidence that isn't
+verified is shown as what its certificate claims.
+
 **Accessible.** A skip link that shows on focus; every status chip opens what
 it means, for keyboard, touch, and screen readers; and every charted value is
 also in a table.

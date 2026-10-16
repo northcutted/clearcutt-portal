@@ -1,0 +1,160 @@
+---
+import Layout from '../layouts/Layout.astro';
+import Chip from '../components/Chip.astro';
+import Digest from '../components/Digest.astro';
+import { loadBundle } from '../lib/bundle.ts';
+import { imageLabel, imagesById, stackAnchor, stackApps } from '../lib/estate.ts';
+import { formatTime, plural } from '../lib/format.ts';
+import { TONE_GLYPH, evidenceSource, evidenceStatus, stackVersionTerm, type Tone } from '../lib/present.ts';
+import { href, imageHref } from '../lib/site.ts';
+
+const { report } = loadBundle();
+const stacks = report.stacks ?? [];
+const byId = imagesById(report);
+const apps = stackApps(report);
+const listed = new Set(stacks.flatMap((s) => s.versions.flatMap((v) => v.images)));
+const unlisted = apps.filter((image) => !listed.has(image.id));
+const consumers = stacks.reduce((n, s) => n + s.consumers, 0);
+const stale = stacks.reduce((n, s) => n + s.staleConsumers, 0);
+const signers = report.policy.stackSigners ?? [];
+const signerText = (s: { identity?: string; identityRegexp?: string; key?: string; sourceRepository?: string }) =>
+  s.identity ?? s.identityRegexp ?? s.key ?? s.sourceRepository ?? 'unknown signer';
+
+const tiles: { label: string; value: number; tone: Tone; note: string }[] = [
+  { label: 'Registry stacks', value: stacks.length, tone: 'muted', note: 'clearcutt-factory stacks the apps are built on' },
+  { label: 'Apps on them', value: consumers, tone: 'muted', note: 'pinned to a stack version by their lock' },
+  {
+    label: 'On an older version',
+    value: stale,
+    tone: stale > 0 ? 'warn' : 'good',
+    note: "pinned to a version other than the one the stack's tag names now",
+  },
+];
+---
+<Layout title="Stacks" description="The clearcutt-factory stacks the estate's apps are built on, each version in use, and who signed it.">
+  <header class="page-head">
+    <p class="eyebrow">Stacks</p>
+    <h1>Stacks</h1>
+    <p class="lede">
+      The clearcutt-factory stacks published to a registry that this estate's apps are built on: each version an app's
+      lock pins, whether a signer the policy trusts for stacks signed it, and which apps are on an older version than
+      the stack's tag names now.
+    </p>
+  </header>
+
+  {stacks.length === 0 ? (
+    <section class="card">
+      <h2>No registry stacks in this report</h2>
+      <p>
+        No app in this report is built on a registry stack that clearcutt-verify could read from a verified recipe, or
+        the report comes from a clearcutt-verify older than v0.15, which didn't list stacks.
+      </p>
+    </section>
+  ) : (
+    <>
+      <section aria-label="Summary">
+        <div class="tiles">
+          {tiles.map((t) => (
+            <div class={`tile tone-${t.tone}`}>
+              <p class="tile-value">{t.value}</p>
+              <p class="tile-label">{t.tone !== 'muted' && `${TONE_GLYPH[t.tone]} `}{t.label}</p>
+              <p class="tile-note">{t.note}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {stacks.map((stack) => (
+        <section aria-labelledby={stackAnchor(stack)}>
+          <h2 id={stackAnchor(stack)} class="mono">{stack.repository}</h2>
+          <dl class="kv">
+            <dt>Tag apps name</dt><dd><code>{stack.ref}</code></dd>
+            <dt>It points at</dt>
+            <dd>
+              {stack.currentDigest ? (
+                <Digest digest={stack.currentDigest} full />
+              ) : (
+                <Chip term={{ label: 'Unknown', tone: 'unknown', meaning: "The stack's tag couldn't be read, so which version is newest is unknown." }} />
+              )}
+            </dd>
+            <dt>Apps</dt>
+            <dd>
+              {plural(stack.consumers, 'app')}
+              {stack.currentDigest ? `, ${stack.staleConsumers} on an older version` : ''}
+            </dd>
+          </dl>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Version</th><th>Currency</th><th>Signature</th><th>Apps pinned to it</th></tr></thead>
+              <tbody>
+                {stack.versions.map((version) => (
+                  <tr>
+                    <td><Digest digest={version.digest} /></td>
+                    <td><Chip term={stackVersionTerm(version, stack.currentDigest !== undefined)} /></td>
+                    <td class="small">
+                      <Chip term={evidenceStatus(version.signature.status)} />
+                      {version.signature.signer && (
+                        <div>
+                          <code>{signerText(version.signature.signer)}</code>
+                          {version.signature.status !== 'verified' && <span class="dim"> (as its certificate claims; not checked)</span>}
+                        </div>
+                      )}
+                      {version.signature.source && <div class="dim">{evidenceSource(version.signature.source)}{version.signature.timestamp && `, ${formatTime(version.signature.timestamp)}`}</div>}
+                      {version.signature.detail && <div class="dim">{version.signature.detail}</div>}
+                    </td>
+                    <td>
+                      <ul class="inline-list">
+                        {version.images.map((id) => {
+                          const image = byId.get(id);
+                          return <li>{image ? <a href={imageHref(id)}>{imageLabel(image)}</a> : <code>{id}</code>}</li>;
+                        })}
+                      </ul>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ))}
+
+      <p class="small dim">
+        {signers.length > 0 ? (
+          <>Each version's signature is checked against the {plural(signers.length, 'stack signer')} in <a href={href('about/#policy')}>the policy</a>.</>
+        ) : (
+          <>The <a href={href('about/#policy')}>policy</a> names no stack signers, so a stack's signature can be found but not verified.</>
+        )}
+      </p>
+    </>
+  )}
+
+  {unlisted.length > 0 && (
+    <section aria-labelledby="unlisted">
+      <h2 id="unlisted">Apps on stacks not listed here</h2>
+      <p class="lede small">
+        These apps name a stack, but the report lists no registry stack for them: the stack is defined beside the app
+        rather than published, or the app's recipe wasn't verified, so its lock couldn't be trusted to say which stack.
+      </p>
+      <ul>
+        {unlisted.map((image) => (
+          <li>
+            <a href={imageHref(image.id)}>{imageLabel(image)}</a>
+            <span class="dim small">
+              {' '}on {image.factory?.stack ? <code>{image.factory.stack}</code> : 'a stack'}
+              {image.factory?.stackRef && <> from <code>{image.factory.stackRef}</code></>}
+              {image.factory?.stackDigest && <> at <Digest digest={image.factory.stackDigest} /></>}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  )}
+
+  <aside class="callout" aria-labelledby="limits">
+    <h2 id="limits">What this does not prove</h2>
+    <ul>
+      <li>A verified stack signature shows who published that stack version. It doesn't show the version is safe, or that an app built on it is.</li>
+      <li>Older is measured against what the stack's tag pointed at during this run. A tag that hasn't moved in a while leaves its apps looking current.</li>
+    </ul>
+  </aside>
+</Layout>

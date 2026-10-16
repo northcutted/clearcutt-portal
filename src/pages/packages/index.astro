@@ -15,7 +15,7 @@ const { known, unknown } = report.summary.packages;
     <p class="eyebrow">Packages</p>
     <h1>Which images ship a package</h1>
     <p class="lede">
-      {plural(groups.length, 'package')} in {plural(report.packages.length, 'version')}, read from the package sets of
+      {plural(groups.length, 'package')} in {plural(report.packages.length, 'version')}, read from the package sets of{' '}
       {plural(known, 'image')}. {unknown > 0 ? `${plural(unknown, 'image is', 'images are')} not covered.` : ''}
     </p>
   </header>

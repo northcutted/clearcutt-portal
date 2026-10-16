@@ -1,13 +1,15 @@
 ---
 // What the images were held to in this run.
 import type { Policy, Signer } from '../lib/contract.gen.ts';
-import { EVIDENCE_KINDS } from '../lib/present.ts';
+import { plural } from '../lib/format.ts';
+import { evidenceKindLabel } from '../lib/present.ts';
 
 interface Props {
   policy: Policy;
+  /** How many registry stacks the report lists; their signers matter only then. */
+  stacks?: number;
 }
-const { policy } = Astro.props;
-const kindLabel = (key: string) => EVIDENCE_KINDS.find((k) => k.key === key)?.label ?? key;
+const { policy, stacks = 0 } = Astro.props;
 
 function signerLines(s: Signer): [string, string][] {
   const lines: [string, string][] = [];
@@ -21,43 +23,68 @@ function signerLines(s: Signer): [string, string][] {
   if (s.sourceMatchesImage) lines.push(['Run in', "the repository the image names as its source"]);
   return lines;
 }
+
+const stackSigners = policy.stackSigners ?? [];
+const signerGroups = [
+  { label: 'Trusted signers', signers: policy.trustedSigners, none: 'none: nothing could be verified, only found' },
+  ...(stacks > 0 || stackSigners.length > 0
+    ? [
+        {
+          label: 'Stack signers',
+          signers: stackSigners,
+          none: "none: the stacks' signatures could be found, but not verified",
+        },
+      ]
+    : []),
+];
+const scanAge = policy.maxScanAgeDays ?? 0;
 ---
 <section aria-labelledby="policy">
   <h2 id="policy">Policy</h2>
   <dl class="kv">
     <dt>Required, verified</dt>
-    <dd>{policy.required.length > 0 ? policy.required.map(kindLabel).join(', ') : 'nothing'}</dd>
+    <dd>{policy.required.length > 0 ? policy.required.map(evidenceKindLabel).join(', ') : 'nothing'}</dd>
     <dt>Vulnerabilities</dt>
     <dd>
       {policy.failOn
         ? `fail at ${policy.failOn} or above${policy.onlyFixed ? ', counting only findings with a fix' : ''}`
         : 'never fail on findings'}
     </dd>
+    <dt>Scan age</dt>
+    <dd>
+      {scanAge > 0
+        ? `unverified when the vulnerability scan is more than ${plural(scanAge, 'day')} old, or its date is unknown: what was found since is unknown`
+        : 'any age: a scan describes the day it was made, however long ago'}
+    </dd>
     <dt>Base age</dt>
     <dd>{policy.maxDaysBehind ? `fail when more than ${policy.maxDaysBehind} days behind` : 'no limit'}</dd>
     <dt>Rebuilds</dt>
     <dd>{policy.reproduce ? 'this run rebuilt images to check them' : "this run didn't rebuild images"}</dd>
-    <dt>Trusted signers</dt>
-    <dd>
-      {policy.trustedSigners.length === 0 ? (
-        'none: nothing could be verified, only found'
-      ) : (
-        <ol class="signers">
-          {policy.trustedSigners.map((s) => (
-            <li>
-              <dl class="kv">
-                {signerLines(s).map(([k, v]) => (
-                  <>
-                    <dt>{k}</dt>
-                    <dd><code>{v}</code></dd>
-                  </>
-                ))}
-              </dl>
-            </li>
-          ))}
-        </ol>
-      )}
-    </dd>
+    {signerGroups.map((group) => (
+      <>
+        <dt>{group.label}</dt>
+        <dd>
+          {group.signers.length === 0 ? (
+            group.none
+          ) : (
+            <ol class="signers">
+              {group.signers.map((s) => (
+                <li>
+                  <dl class="kv">
+                    {signerLines(s).map(([k, v]) => (
+                      <>
+                        <dt>{k}</dt>
+                        <dd><code>{v}</code></dd>
+                      </>
+                    ))}
+                  </dl>
+                </li>
+              ))}
+            </ol>
+          )}
+        </dd>
+      </>
+    ))}
   </dl>
 </section>
 

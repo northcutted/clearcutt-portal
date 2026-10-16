@@ -1,7 +1,7 @@
 ---
 // One glyph per evidence kind, in the order of EVIDENCE_KINDS.
 import type { Image } from '../lib/contract.gen.ts';
-import { EVIDENCE_KINDS, evidenceStatus } from '../lib/present.ts';
+import { EVIDENCE_KINDS, evidenceTerm } from '../lib/present.ts';
 import StatusCell from './StatusCell.astro';
 
 interface Props {
@@ -13,7 +13,7 @@ const { image } = Astro.props;
   const item = image.evidence[kind.key];
   return (
     <td class="center tight">
-      <StatusCell term={evidenceStatus(item.status)} subject={kind.label} detail={item.detail} />
+      <StatusCell term={evidenceTerm(kind.key, item)} subject={kind.label} detail={item.detail} />
     </td>
   );
 })}

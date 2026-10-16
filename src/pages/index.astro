@@ -6,7 +6,7 @@ import StatusCell from '../components/StatusCell.astro';
 import VulnSummary from '../components/VulnSummary.astro';
 import PolicySummary from '../components/PolicySummary.astro';
 import { loadBundle } from '../lib/bundle.ts';
-import { byVerdict, imageLabel, staleImages } from '../lib/estate.ts';
+import { byVerdict, daysBehind, imageLabel, staleImages } from '../lib/estate.ts';
 import { formatTime, plural } from '../lib/format.ts';
 import {
   EVIDENCE_KINDS,
@@ -28,6 +28,9 @@ const attention = images.filter((i) => i.verdict.status !== 'verified');
 const stale = staleImages(report);
 const withBase = summary.bases.proven + summary.bases.claimed;
 const recipes = summary.reproducibility.reproduced + summary.reproducibility.notReproduced + summary.reproducibility.notChecked;
+const stacks = report.stacks ?? [];
+const stackConsumers = stacks.reduce((n, s) => n + s.consumers, 0);
+const staleOnStacks = stacks.reduce((n, s) => n + s.staleConsumers, 0);
 
 const verdictTiles: { status: string; count: number }[] = [
   { status: 'verified', count: summary.verdicts.verified },
@@ -66,6 +69,16 @@ const otherTiles: { label: string; value: number; tone: Tone; note: string }[] =
     tone: summary.reproducibility.notReproduced > 0 ? 'bad' : 'good',
     note: `of ${plural(recipes, 'image')} with a recipe or rebase record${policy.reproduce ? '' : ' (this run did not rebuild)'}`,
   },
+  ...(stacks.length > 0
+    ? [
+        {
+          label: 'On an older stack',
+          value: staleOnStacks,
+          tone: (staleOnStacks > 0 ? 'warn' : 'good') as Tone,
+          note: `of ${plural(stackConsumers, 'app')} on ${plural(stacks.length, 'registry stack')}`,
+        },
+      ]
+    : []),
 ];
 
 const evidenceColumns = [
@@ -165,8 +178,14 @@ const sources = metadata.sources.map((s) => [s.registry, s.namespace].filter(Boo
                   <td><Chip term={strength(image.base.strength)} /></td>
                   <td class="num">{image.base.versionsBehind}</td>
                   <td class="num">
-                    {image.base.daysBehind}
-                    {policy.maxDaysBehind && image.base.daysBehind > policy.maxDaysBehind ? ' (over the limit)' : ''}
+                    {daysBehind(image.base) === null ? (
+                      <span class="dim">unknown</span>
+                    ) : (
+                      <>
+                        {image.base.daysBehind}
+                        {policy.maxDaysBehind && image.base.daysBehind > policy.maxDaysBehind ? ' (over the limit)' : ''}
+                      </>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -279,7 +298,7 @@ const sources = metadata.sources.map((s) => [s.registry, s.namespace].filter(Boo
     </div>
   </section>
 
-  <PolicySummary policy={policy} />
+  <PolicySummary policy={policy} stacks={report.stacks?.length ?? 0} />
 
   <aside class="callout" aria-labelledby="limits">
     <h2 id="limits">What this does not prove</h2>

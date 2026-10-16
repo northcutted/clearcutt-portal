@@ -3,7 +3,7 @@ import Layout from '../layouts/Layout.astro';
 import BaseTree from '../components/BaseTree.astro';
 import Chip from '../components/Chip.astro';
 import { loadBundle } from '../lib/bundle.ts';
-import { baseGraph, imageLabel, staleImages } from '../lib/estate.ts';
+import { baseGraph, daysBehind, imageLabel, staleImages } from '../lib/estate.ts';
 import { plural } from '../lib/format.ts';
 import { TONE_GLYPH, method, strength, type Tone } from '../lib/present.ts';
 import { imageHref } from '../lib/site.ts';
@@ -73,7 +73,13 @@ const strengths = ['proof', 'declared', 'assisted', 'weak'];
                 <td class="mono small">{image.base.currentRef ?? '—'}</td>
                 <td><Chip term={strength(image.base.strength)} /></td>
                 <td class="num">{image.base.versionsBehind}</td>
-                <td class="num">{image.base.daysBehind}{limit && image.base.daysBehind > limit ? ` (over ${limit})` : ''}</td>
+                <td class="num">
+                  {daysBehind(image.base) === null ? (
+                    <span class="dim">unknown</span>
+                  ) : (
+                    <>{image.base.daysBehind}{limit && image.base.daysBehind > limit ? ` (over ${limit})` : ''}</>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>

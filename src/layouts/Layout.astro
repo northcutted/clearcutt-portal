@@ -2,6 +2,7 @@
 import '../styles/global.css';
 import ThemeToggle from '../components/ThemeToggle.astro';
 import { loadBundle } from '../lib/bundle.ts';
+import { stackApps } from '../lib/estate.ts';
 import { formatTime } from '../lib/format.ts';
 import { href, portalVersion, siteTitle } from '../lib/site.ts';
 
@@ -16,9 +17,12 @@ const site = siteTitle();
 const fullTitle = title ? `${title} · ${site}` : site;
 const desc = description ?? `What clearcutt-verify found and proved about the ${report.metadata.name} image estate.`;
 
+// Stacks only matter to an estate with clearcutt-factory apps on them.
+const hasStacks = (report.stacks?.length ?? 0) > 0 || stackApps(report).length > 0;
 const nav = [
   { path: '', label: 'Overview' },
   { path: 'bases/', label: 'Bases' },
+  ...(hasStacks ? [{ path: 'stacks/', label: 'Stacks' }] : []),
   { path: 'packages/', label: 'Packages' },
   { path: 'history/', label: 'History' },
   { path: 'about/', label: 'About' },

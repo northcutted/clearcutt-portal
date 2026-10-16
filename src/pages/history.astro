@@ -1,15 +1,18 @@
 ---
 import Layout from '../layouts/Layout.astro';
 import LineChart from '../components/LineChart.astro';
+import StatusText from '../components/StatusText.astro';
 import VerdictBars from '../components/VerdictBars.astro';
 import type { HistoryEntry, Summary } from '../lib/contract.gen.ts';
 import type { Point } from '../lib/charts.ts';
 import { loadBundle } from '../lib/bundle.ts';
-import { chronological } from '../lib/estate.ts';
-import { formatTime, plural } from '../lib/format.ts';
-import { TONE_GLYPH, type Tone } from '../lib/present.ts';
+import { chronological, imageChanges, imageLabel, imagesById } from '../lib/estate.ts';
+import { formatTime, plural, shortDigest } from '../lib/format.ts';
+import { TONE_GLYPH, drift, verdict, type Tone } from '../lib/present.ts';
+import { imageHref } from '../lib/site.ts';
 
-const { history } = loadBundle();
+const { report, history } = loadBundle();
+const byId = imagesById(report);
 const series = chronological(history);
 const newestFirst = [...series].reverse();
 const latest = newestFirst[0];
@@ -47,6 +50,8 @@ function delta(m: (typeof measures)[number]): { text: string; tone: Tone } | nul
   return { text: `${d > 0 ? '+' : ''}${d} since the previous run`, tone: better ? 'good' : 'warn' };
 }
 const headline = measures.slice(0, 8);
+const changes = latest && previous ? imageChanges(latest, previous) : null;
+const count = (n: number | null) => (n === null ? '?' : String(n));
 ---
 <Layout title="History" description="How the estate's verdicts, bases, and findings changed from run to run.">
   <header class="page-head">
@@ -71,7 +76,7 @@ const headline = measures.slice(0, 8);
       <section aria-labelledby="latest">
         <h2 id="latest">Latest run</h2>
         <p class="small dim">
-          {formatTime(latest!.generatedAt)}{previous ? `, compared with ${formatTime(previous.generatedAt)}` : ''}.
+          {formatTime(latest!.generatedAt)}{previous ? `, compared with ${formatTime(previous.generatedAt)}` : ''}.{' '}
           {plural(series.length, 'run')} recorded.
         </p>
         <div class="tiles">
@@ -90,6 +95,62 @@ const headline = measures.slice(0, 8);
           })}
         </div>
       </section>
+
+      {previous && (
+        <section aria-labelledby="changes">
+          <h2 id="changes">What changed for each image</h2>
+          {changes === null ? (
+            <p class="dim">
+              {latest!.images
+                ? 'The previous run recorded no per-image rows'
+                : 'The latest run recorded no per-image rows'}{' '}
+              (clearcutt-verify writes them from v0.15), so changes to particular images show once two runs in a row
+              have them.
+            </p>
+          ) : changes.length === 0 ? (
+            <p>No image was added or removed, and none changed its verdict, digest, base currency, or critical or high findings.</p>
+          ) : (
+            <div class="table-wrap">
+              <table>
+                <caption class="sr-only">What changed for each image since the previous run</caption>
+                <thead><tr><th>Image</th><th>Since {formatTime(previous.generatedAt)}</th></tr></thead>
+                <tbody>
+                  {changes.map((c) => {
+                    const image = byId.get(c.id);
+                    return (
+                      <tr>
+                        <td>{image ? <a href={imageHref(c.id)}>{imageLabel(image)}</a> : <code>{c.id}</code>}</td>
+                        <td>
+                          <ul class="change-list">
+                            {c.kind === 'added' && <li>New in this run</li>}
+                            {c.kind === 'removed' && <li>Not in this run</li>}
+                            {c.verdict && (
+                              <li>Verdict <StatusText term={verdict(c.verdict[0])} /> → <StatusText term={verdict(c.verdict[1])} /></li>
+                            )}
+                            {c.digest && (
+                              <li>
+                                {c.rebasedFrom ? 'Rebased' : 'New digest'}: <code>{shortDigest(c.digest[0])}</code> → <code>{shortDigest(c.digest[1])}</code>
+                              </li>
+                            )}
+                            {c.drift && (
+                              <li>
+                                Base {c.drift[0] === 'none' ? 'none' : <StatusText term={drift(c.drift[0])} />} →{' '}
+                                {c.drift[1] === 'none' ? 'none' : <StatusText term={drift(c.drift[1])} />}
+                              </li>
+                            )}
+                            {c.critical && <li>Critical findings {count(c.critical[0])} → {count(c.critical[1])}</li>}
+                            {c.high && <li>High findings {count(c.high[0])} → {count(c.high[1])}</li>}
+                          </ul>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+      )}
 
       {series.length < 2 ? (
         <p>One run so far. A trend needs at least two.</p>
@@ -161,7 +222,10 @@ const headline = measures.slice(0, 8);
         <ul>
           <li>Each run is judged against the policy in force when it ran. A change in policy changes the verdicts without any image changing.</li>
           <li>A run that read fewer images, or scanned fewer, can look better without anything having improved. Compare the image and not-scanned counts first.</li>
-          <li>The history holds each run's headline numbers only. What changed for a particular image isn't recorded.</li>
+          <li>
+            Runs from clearcutt-verify v0.15 on also record each image's digest, verdict, base, rebase, and findings, which
+            each image's page shows run by run. Earlier runs hold headline numbers only.
+          </li>
         </ul>
       </aside>
     </>
@@ -178,5 +242,9 @@ const headline = measures.slice(0, 8);
   }
   .runs th.num {
     white-space: normal;
+  }
+  .change-list {
+    margin: 0;
+    padding-left: 1rem;
   }
 </style>

@@ -6,6 +6,7 @@ import ExternalLink from '../../components/ExternalLink.astro';
 import Findings from '../../components/Findings.astro';
 import LineChart from '../../components/LineChart.astro';
 import StatusText from '../../components/StatusText.astro';
+import VerifyCommands from '../../components/VerifyCommands.astro';
 import type { Point } from '../../lib/charts.ts';
 import type { Image } from '../../lib/contract.gen.ts';
 import { loadBundle } from '../../lib/bundle.ts';
@@ -39,6 +40,7 @@ import {
   vulnSource,
 } from '../../lib/present.ts';
 import { href, imageHref } from '../../lib/site.ts';
+import { diffImage, howWords } from '../../lib/timeline.ts';
 
 export function getStaticPaths() {
   return loadBundle().report.images.map((image) => ({ params: { id: image.id }, props: { image } }));
@@ -259,6 +261,8 @@ const showTrend = recorded.filter((run) => run.row?.vulnerabilities).length >= 2
     </div>
   </section>
 
+  <VerifyCommands report={report} image={image} />
+
   <section aria-labelledby="vulns">
     <h2 id="vulns">Vulnerabilities</h2>
     {v ? (
@@ -370,8 +374,9 @@ const showTrend = recorded.filter((run) => run.row?.vulnerabilities).length >= 2
     ) : (
       <>
         <p class="lede small">
-          This image in each run that recorded per-image rows, newest first. A new digest means it was rebuilt or
-          rebased between runs.
+          This image in each run that recorded per-image rows, newest first, and how it changed since the run before:
+          rebuilt or rebased (a new digest), or its base moved (the same image, its base more or less current).{' '}
+          <a href={href('history/changes/')}>Compare two runs</a> for every image at once.
         </p>
         <div class="table-wrap">
           <table>
@@ -393,7 +398,7 @@ const showTrend = recorded.filter((run) => run.row?.vulnerabilities).length >= 2
                     <td class="nowrap">{formatTime(run.at)}</td>
                     <td>
                       <Digest digest={row.digest} />
-                      {older && older.digest !== row.digest && <div class="small">new digest{row.rebasedFrom && row.rebasedFrom !== older.rebasedFrom ? ', rebased' : ''}</div>}
+                      {older && diffImage(image.id, older, row).how !== 'unchanged' && <div class="small">{howWords(diffImage(image.id, older, row)).label.toLowerCase()}</div>}
                     </td>
                     <td><StatusText term={verdict(row.verdict)} /></td>
                     <td class="small">

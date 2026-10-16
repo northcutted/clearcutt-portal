@@ -97,6 +97,24 @@ const sources = metadata.sources.map((s) =>
         "Which images ship this package" is answered only for images whose package set is in the report. The packages
         pages name the images that weren't covered, because a package's absence says nothing about them.
       </p>
+      <p>
+        The package search compares versions the way each package's ecosystem orders them, and adds the images built
+        on one that ships a match: they have its layers, so they inherit it. Each such answer says how the base link is
+        known, and whether the image is on the very version of its base whose packages the report read.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Checking it yourself</h2>
+    <div class="prose">
+      <p>
+        Each image page lists commands that check what it says without trusting this site: cosign for every signature
+        and attestation the report says verified, against the signer the policy trusts; gh for GitHub's provenance;
+        clearcutt-factory to rebuild a factory image; and clearcutt-verify to reach the verdict again. They name images
+        by digest, never by tag. The values in them come from the report, so each is quoted for the shell, and a
+        value that can't be shown exactly as it would run keeps its command off the page.
+      </p>
     </div>
   </section>
 

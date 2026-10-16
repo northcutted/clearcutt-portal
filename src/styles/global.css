@@ -593,6 +593,75 @@ details[open] > summary {
   width: 13rem;
 }
 
+/* ── Commands ─────────────────────────────────────────────────────────── */
+
+.command {
+  margin: 0;
+  border: 1px solid rgb(var(--ink-800));
+  border-radius: 0.6rem;
+  background: rgb(var(--ink-900) / 0.55);
+}
+.command figcaption {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.55rem 0.8rem 0;
+  font-size: 0.86rem;
+}
+.command pre {
+  margin: 0;
+  padding: 0.6rem 0.8rem 0.75rem;
+  overflow-x: auto;
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+.command code {
+  font-size: inherit;
+  white-space: pre;
+}
+.copy {
+  flex: none;
+  padding: 0.15rem 0.6rem;
+  border-radius: 0.4rem;
+  border: 1px solid rgb(var(--ink-700));
+  background: rgb(var(--ink-950));
+  color: rgb(var(--ink-100));
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.copy:hover {
+  border-color: rgb(var(--accent) / 0.6);
+}
+
+/* ── Search and comparisons ─────────────────────────────────────────── */
+
+.syntax {
+  margin: 0.5rem 0 0;
+  padding-left: 1.1rem;
+}
+.syntax li + li {
+  margin-top: 0.3rem;
+}
+.search-answer > * + * {
+  margin-top: 0.5rem;
+}
+[data-search-results] > * + * {
+  margin-top: 1.25rem;
+}
+.change-list {
+  margin: 0;
+  padding-left: 1rem;
+}
+.before-after td {
+  min-width: 7rem;
+}
+.before-after td:first-child {
+  min-width: 10rem;
+}
+
 @media (prefers-reduced-motion: reduce) {
   * {
     transition: none !important;

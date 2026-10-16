@@ -18,6 +18,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { before, describe, test } from 'node:test';
 import { readBundle } from '../src/lib/bundle.ts';
+import { verifyCommands } from '../src/lib/commands.ts';
 import { FIXTURE, MINIMAL, editedBundle, root, v015Bundle } from './helpers.ts';
 
 function cli(...args: string[]) {
@@ -86,6 +87,12 @@ const shown = (html: string) =>
   text(html.replace(/<span id="[^"]+" class="chip-tip" popover>[\s\S]*?<\/span><\/span>/g, ''))
     .replace(/\s+([,.;)])/g, '$1')
     .replace(/\(\s+/g, '(');
+
+/** The commands an image page shows, as text, in order. */
+const shownCommands = (html: string) =>
+  [...html.matchAll(/<pre><code>([\s\S]*?)<\/code><\/pre>/g)].map((m) =>
+    m[1].replace(/&#39;/g, "'").replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&'),
+  );
 
 describe('the example site', () => {
   let site: string;
@@ -159,6 +166,8 @@ describe('the example site', () => {
       assert.deepEqual(csp.get('default-src'), ["'none'"], file);
       assert.deepEqual(csp.get('base-uri'), ["'none'"], file);
       assert.deepEqual(csp.get('form-action'), ["'none'"], file);
+      // Scripts may fetch the site's own files (the package search's index), nothing else.
+      assert.deepEqual(csp.get('connect-src'), ["'self'"], file);
       const scripts = csp.get('script-src') ?? [];
       const styles = csp.get('style-src') ?? [];
       for (const sources of [scripts, styles]) {
@@ -185,6 +194,42 @@ describe('the example site', () => {
       assert.doesNotMatch(html, /<[^>]+\son[a-z]+="/, `${file}: event handler attribute`);
       assert.match(html, /<head>[\s\S]*content-security-policy[\s\S]*<\/head>/, file);
     }
+  });
+
+  test('every script is a file of the site, never inline', () => {
+    for (const file of htmlFiles(site)) {
+      for (const m of readFileSync(file, 'utf8').matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/g)) {
+        assert.match(m[1], /\bsrc="\/portal\//, `${file}: inline script`);
+        assert.equal(m[2], '', file);
+      }
+    }
+  });
+
+  test('the package search loads its index from the site, and says what to do without script', () => {
+    const index = JSON.parse(read(site, 'packages/search-index.json'));
+    const report = readBundle(MINIMAL).report;
+    assert.deepEqual(index.images.map((i: any) => i.id).sort(), report.images.map((i) => i.id).sort());
+    assert.ok(index.images.every((i: any) => i.href.startsWith('/portal/images/')));
+    assert.ok(index.packages.every((p: any) => p.href.startsWith('/portal/packages/')));
+    const html = read(site, 'packages/index.html');
+    assert.match(html, /<div data-package-search data-index="\/portal\/packages\/search-index\.json" hidden>/);
+    assert.match(text(html), /Searching by version needs JavaScript\. Without it, open a package below/);
+    assert.match(shown(html), /A version without an epoch or a revision ignores the package's: <2\.14\.0 holds for 2\.13\.9-r5 and not for 2\.14\.0-r1\./);
+  });
+
+  test('an image page shows commands to check it, naming the image by digest', () => {
+    const html = read(site, 'images/ghcr-io-acme-images-hello-app/index.html');
+    const commands = shownCommands(html);
+    const report = readBundle(MINIMAL).report;
+    const image = report.images.find((i) => i.id === 'ghcr-io-acme-images-hello-app')!;
+    assert.deepEqual(commands, verifyCommands(report, image).commands.map((c) => c.text));
+    assert.ok(commands.some((c) => c.startsWith('cosign verify \\')));
+    assert.ok(commands.some((c) => c.startsWith(`gh attestation verify \\\n  oci://ghcr.io/acme/images/hello-app@${image.digest}`)));
+    assert.ok(commands.some((c) => c.startsWith('clearcutt-factory verify')));
+    for (const c of commands) assert.doesNotMatch(c, /hello-app:latest/);
+    // Copy buttons wait for the script, which unhides them where the clipboard works.
+    assert.match(html, /<button type="button" class="copy" data-copy aria-label="Copy the Signature command" hidden>Copy<\/button>/);
+    assert.match(shown(read(site, 'images/docker-io-library-redis/index.html')), /No command for SBOM: it isn't verified, so there is no trusted signer to check it against\./);
   });
 
   test('the skip link is the first thing on the page, and shows when focused', () => {
@@ -243,8 +288,23 @@ describe('a report written by someone hostile', () => {
       r.images[2].source = { url: 'https://github.com@evil.example/acme', basis: 'annotation' };
       r.images[3].source = { url: 'https://example.test/acme/redis', basis: 'label' };
       r.images[3].description = '<script>alert(1)</script><img src=x onerror=alert(1)>';
+      r.policy.trustedSigners[0].identityRegexp = "^https://github\\.com/acme/(images|'$(touch pwned)'</code><script>alert(1)</script>)/";
+      // Not the policy's: the command would name it, and it can't be shown as it is.
+      r.images[1].evidence.sbom.signer.identity = 'https://github.com/other/images/x\n$(touch pwned)';
     });
     site = build(bundle);
+    report = readBundle(bundle).report;
+  });
+  let report: ReturnType<typeof readBundle>['report'];
+
+  test('a hostile signer is quoted in the command, or the command is not shown', () => {
+    const html = read(site, 'images/ghcr-io-acme-images-hello-app/index.html');
+    assert.doesNotMatch(html, /<script>alert/);
+    const image = report.images.find((i) => i.id === 'ghcr-io-acme-images-hello-app')!;
+    const built = verifyCommands(report, image);
+    assert.deepEqual(shownCommands(html), built.commands.map((c) => c.text));
+    assert.ok(built.commands[0].text.includes("--certificate-identity-regexp='^https://github\\.com/acme/(images|'\\''$(touch pwned)'\\''</code><script>alert(1)</script>)/'"));
+    assert.match(shown(html), /Not shown A value from the report can't be written into a shell command safely, so this page shows none for: SBOM ?: The signer's certificate-identity has characters other than printable ASCII\./);
   });
 
   test('a source URL that is not http(s) is shown as text, never as a link', () => {
@@ -386,18 +446,44 @@ describe('a report using everything clearcutt-verify v0.15 writes', () => {
 
   test("an image's page shows it run by run, with trends", () => {
     const page = shown(read(site, 'images/debian-tools/index.html'));
-    assert.match(page, /2026-10-10 16:51 UTC sha256:867c6cbf7f44 new digest ✓ Verified/);
+    assert.match(page, /2026-10-10 16:51 UTC sha256:867c6cbf7f44 rebuilt, same base ✓ Verified/);
     assert.match(page, /2026-10-06 23:30 UTC sha256:dddddddddddd ✕ Failed .* 30 /);
     assert.match(page, /1 earlier run recorded no per-image rows and isn't shown/);
     assert.match(read(site, 'images/debian-tools/index.html'), /aria-label="Critical findings\. 2 runs; latest [^"]*: 25\. lowest 25, highest 30\. Every value is in the table above\."/);
     assert.match(shown(read(site, 'images/static/index.html')), /2026-10-06 23:30 UTC Not in this run\./);
   });
 
+  test('the latest two runs side by side: each image before and after, and how it changed', () => {
+    const page = shown(read(site, 'history/changes/index.html'));
+    assert.match(page, /From 2026-10-06 23:30 UTC to 2026-10-10 16:51 UTC/);
+    assert.match(page, /0 Rebased 1 Rebuilt 1 Base moved 1 New 1 Gone 5 Same image/);
+    assert.match(page, /retired-image Gone In the older run only\. sha256:eeeeeeeeeeee none recorded ✓ Verified unknown: no vulnerability data/);
+    assert.match(page, /static:latest New In the newer run only\./);
+    assert.match(
+      page,
+      /debian-tools:latest Rebuilt, same base A new digest on the same base: its own layers changed\. sha256:dddddddddddd → sha256:867c6cbf7f44 sha256:a29215f6a35e ✓ Current ✕ Failed → ✓ Verified critical 30 → 25 \(5 fewer\) high 116/,
+    );
+    assert.match(page, /platform-tools:latest Base moved The same image; its base went from stale to current\. sha256:bf7990acf59e sha256:1c451d46a0d5 ! Stale → ✓ Current/);
+    assert.match(page, /5 images unchanged/);
+    assert.match(page, /It doesn't record which findings or which packages/);
+    // The drill: who had criticals before and after, and how each changed.
+    assert.match(page, /critical debian-tools:latest \(rebuilt, same base\) debian-tools:latest \(rebuilt, same base\) none none none/);
+    // The same comparison has a page of its own, and the others are a link away.
+    const pair = '20261006T233046Z--20261010T165146Z';
+    assert.equal(shown(read(site, `history/changes/${pair}/index.html`)).replace(/Changes from \S+ \S+ \S+ to \S+ \S+ \S+ · /, ''), page.replace(/Changes between runs · /, ''));
+    const html = read(site, 'history/changes/index.html');
+    assert.match(html, /<a href="\/history\/changes\/20261006T231441Z--20261006T233046Z\/">/);
+    assert.match(html, /<a href="\/history\/changes\/20261006T231441Z--20261010T165146Z\/">/);
+    assert.match(shown(read(site, 'history/changes/20261006T231441Z--20261006T233046Z/index.html')), /The older run recorded no per-image rows/);
+    assert.match(read(site, 'history/index.html'), /<a href="\/history\/changes\/20261006T233046Z--20261010T165146Z\/"[^>]*>What changed<\/a>/);
+    assert.match(shown(read(site, 'history/index.html')), /Compare the two runs image by image ?: each image before and after/);
+  });
+
   test('the history page lists what changed for each image', () => {
     const page = shown(read(site, 'history/index.html'));
     assert.match(page, /retired-image Not in this run/);
     assert.match(page, /static:latest New in this run/);
-    assert.match(page, /debian-tools:latest Verdict ✕ Failed → ✓ Verified New digest: sha256:dddddddddddd → sha256:867c6cbf7f44 Critical findings 30 → 25/);
+    assert.match(page, /debian-tools:latest Verdict ✕ Failed → ✓ Verified Rebuilt, same base: sha256:dddddddddddd → sha256:867c6cbf7f44 Critical findings 30 → 25/);
     assert.match(page, /platform-tools:latest Base ! Stale → ✓ Current/);
   });
 });
@@ -460,6 +546,43 @@ describe('a report from a newer clearcutt-verify', () => {
   });
 });
 
+describe('an image whose own packages are unknown', () => {
+  // platform-tools without its SBOM: it still has wolfi-base's packages,
+  // because the report proves it is built on wolfi-base's exact layers.
+  let site: string;
+  before(() => {
+    site = build(
+      editedBundle(FIXTURE, (r) => {
+        const tools = r.images.find((i: any) => i.id === 'platform-tools');
+        delete tools.packages;
+        delete tools.packagesSource;
+        for (const pkg of r.packages) pkg.images = pkg.images.filter((id: string) => id !== 'platform-tools');
+        r.packages = r.packages.filter((pkg: any) => pkg.images.length > 0);
+      }),
+    );
+  });
+
+  test("is listed on its base's package pages as inheriting them, without script", () => {
+    const page = shown(read(site, 'packages/apk-busybox/index.html'));
+    assert.match(page, /1 image ships it, in 1 version, and 1 more image inherits it from a base\./);
+    assert.match(
+      page,
+      /Built on one that ships it How platform-tools:latest Inherits it Built on wolfi-base:latest, which ships it\. The base link is proven by layer digests\. Its own package list is not in the report\./,
+    );
+  });
+
+  test('is in the search index with its base link', () => {
+    const index = JSON.parse(read(site, 'packages/search-index.json'));
+    assert.deepEqual(index.images.find((i: any) => i.id === 'platform-tools'), {
+      id: 'platform-tools',
+      label: 'platform-tools:latest',
+      href: '/images/platform-tools/',
+      packages: 'unknown',
+      base: { id: 'wolfi-base', strength: 'proof', exact: true },
+    });
+  });
+});
+
 describe('a rebased image with per-image history', () => {
   test('lists each rebase from the run that first recorded it', () => {
     const billing = 'ghcr-io-acme-images-billing';
@@ -482,7 +605,7 @@ describe('a rebased image with per-image history', () => {
     );
     const page = shown(read(build(bundle), `images/${billing}/index.html`));
     assert.match(page, /First recorded Rebased from Gave Rebase record 2026-10-06 06:00 UTC ghcr\.io\/acme\/images\/billing@sha256:0{64} sha256:555555555555 ✓ Verified/);
-    assert.match(page, /sha256:555555555555 new digest, rebased ✕ Failed/);
+    assert.match(page, /sha256:555555555555 rebased ✕ Failed/);
   });
 });
 

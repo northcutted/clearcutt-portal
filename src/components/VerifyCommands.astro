@@ -1,0 +1,59 @@
+---
+// Copy-paste commands that check what an image's page says without trusting
+// this site, built from the report's verified evidence only (lib/commands.ts).
+// A copy button appears beside each when script runs; the commands are
+// plain text either way.
+import type { EstateReport, Image } from '../lib/contract.gen.ts';
+import { verifyCommands } from '../lib/commands.ts';
+import { evidenceKindLabel } from '../lib/present.ts';
+
+interface Props {
+  report: EstateReport;
+  image: Image;
+}
+const { report, image } = Astro.props;
+const { ref, commands, skipped, unverified } = verifyCommands(report, image);
+const tools = [
+  ['cosign', 'cosign'],
+  ['gh', 'gh attestation'],
+  ['clearcutt-factory', 'clearcutt-factory'],
+  ['clearcutt-verify', 'clearcutt-verify'],
+].filter(([program]) => commands.some((c) => c.text.split('\n').some((line) => line.startsWith(`${program} `))));
+---
+<section aria-labelledby="check">
+  <h2 id="check">Check it yourself</h2>
+  <p class="lede small">
+    Commands that check what this page says without trusting this site or the report: each signature and attestation
+    the report says verified, against the signer the policy trusts{image.factory && ', a rebuild'}, and the verdict.{ref && <> They name the image by its digest, <code>{ref}</code>, never by a tag that could move.</>}{' '}
+    Every value comes from the report and is quoted for a POSIX shell (sh, bash, zsh).
+  </p>
+  {commands.map((c) => (
+    <figure class="command">
+      <figcaption>
+        <span><strong>{c.title}.</strong> <span class="dim small">{c.purpose}</span></span>
+        <button type="button" class="copy" data-copy aria-label={`Copy the ${c.title} command`} hidden>Copy</button>
+      </figcaption>
+      <pre><code>{c.text}</code></pre>
+    </figure>
+  ))}
+  <span class="sr-only" aria-live="polite" data-copy-status></span>
+  {unverified.length > 0 && (
+    <p class="small dim">
+      No command for {unverified.map(evidenceKindLabel).join(', ')}: {unverified.length === 1 ? "it isn't" : "they aren't"} verified, so there is no trusted signer to check {unverified.length === 1 ? 'it' : 'them'} against.
+    </p>
+  )}
+  {skipped.length > 0 && (
+    <div class="callout">
+      <h3>Not shown</h3>
+      <p>A value from the report can't be written into a shell command safely, so this page shows none for:</p>
+      <ul>{skipped.map((s) => <li><strong>{s.title}</strong>: {s.reason}</li>)}</ul>
+    </div>
+  )}
+  {tools.length > 0 && (
+    <p class="small dim">
+      Needs {tools.map(([, name]) => name).join(', ')}{commands.some((c) => c.title === 'Verdict') && `, as of ${report.metadata.generator.name} ${report.metadata.generator.version}, which wrote this report`}.
+    </p>
+  )}
+</section>
+
+<script src="../scripts/copy.ts"></script>

@@ -1,0 +1,248 @@
+---
+// Two runs side by side, image by image: what each image was before and
+// after, and how it changed (lib/timeline.ts). Every comparison the site
+// offers is a page of its own, so choosing two runs is following a link.
+import Digest from './Digest.astro';
+import StatusText from './StatusText.astro';
+import type { HistoryImage } from '../lib/contract.gen.ts';
+import { loadBundle } from '../lib/bundle.ts';
+import { imageLabel, imagesById } from '../lib/estate.ts';
+import { formatTime, plural } from '../lib/format.ts';
+import { SEVERITIES, drift, verdict } from '../lib/present.ts';
+import { href, imageHref } from '../lib/site.ts';
+import { changed, comparisonSlug, countHows, diffRuns, findingsDrill, howWords, type ImageDiff, type Run } from '../lib/timeline.ts';
+
+interface Props {
+  older: Run;
+  newer: Run;
+  /** Every run, oldest first. */
+  runs: Run[];
+}
+const { older, newer, runs } = Astro.props;
+const { report } = loadBundle();
+const byId = imagesById(report);
+const latest = runs.at(-1)!;
+const diffs = diffRuns(older.entry, newer.entry);
+const changes = diffs?.filter(changed) ?? [];
+const same = diffs?.filter((d) => !changed(d)) ?? [];
+const hows = diffs ? countHows(diffs) : null;
+const drill = diffs ? findingsDrill(diffs) : [];
+const label = (id: string) => (byId.has(id) ? imageLabel(byId.get(id)!) : id);
+const pageFor = (o: Run, n: Run) => href(`history/changes/${comparisonSlug(o, n)}/`);
+const here = comparisonSlug(older, newer);
+const newestFirst = [...runs].reverse();
+const count = (n: number | null) => (n === null ? '?' : String(n));
+const baseOf = (row: HistoryImage | undefined) => row?.base;
+const tiles: { key: keyof NonNullable<typeof hows>; label: string }[] = [
+  { key: 'rebased', label: 'Rebased' },
+  { key: 'rebuilt', label: 'Rebuilt' },
+  { key: 'base-moved', label: 'Base moved' },
+  { key: 'added', label: 'New' },
+  { key: 'removed', label: 'Gone' },
+  { key: 'unchanged', label: 'Same image' },
+];
+const verdictChanges = changes.filter((d) => d.verdict).length;
+const findingChanges = changes.filter((d) => d.before && d.after && d.findingsChanged.length > 0).length;
+const hasRows = (run: Run) => run.entry.images !== undefined;
+---
+<header class="page-head">
+  <p class="eyebrow">History · changes between runs</p>
+  <h1>From {formatTime(older.at)} to {formatTime(newer.at)}</h1>
+  <p class="lede">
+    Each image in the two runs, before and after: its digest, its base, its verdict, and its findings by severity,
+    and how it changed.{newer === latest && newer.at === report.metadata.generatedAt && ' The newer run is the report this site shows.'}
+  </p>
+  <p class="small"><a href={href('history/')}>Back to the history</a></p>
+</header>
+
+{diffs === null ? (
+  <section class="card">
+    <h2>These runs can't be compared image by image</h2>
+    <p>
+      {!hasRows(older) && !hasRows(newer)
+        ? 'Neither run recorded per-image rows'
+        : !hasRows(older)
+          ? 'The older run recorded no per-image rows'
+          : 'The newer run recorded no per-image rows'}{' '}
+      (clearcutt-verify writes them from v0.15), so what each image was then isn't known. The history page has both
+      runs' headline numbers.
+    </p>
+  </section>
+) : (
+  <>
+    <section aria-labelledby="summary">
+      <h2 id="summary">How the images changed</h2>
+      <div class="tiles">
+        {tiles.map((t) => (
+          <div class="tile">
+            <p class="tile-value">{hows![t.key]}</p>
+            <p class="tile-label">{t.label}</p>
+          </div>
+        ))}
+      </div>
+      <p class="small dim">
+        {plural(verdictChanges, 'image changed', 'images changed')} verdict and {plural(findingChanges, 'image', 'images')} in both runs
+        changed findings. Rebased: a new digest from a rebase. Rebuilt: a new digest otherwise. Base moved: the same
+        image, its base more or less current than before. A verdict or findings can change while the image stays the
+        same, when the policy, the evidence, or the advisories do.
+      </p>
+    </section>
+
+    {drill.length > 0 && (
+      <section aria-labelledby="drill">
+        <h2 id="drill">Who had findings, before and after</h2>
+        <p class="lede small">
+          Per severity, the images that had findings in each run and, of the images in both, which have none now and
+          which have some for the first time, each with how it changed. The history counts findings; it doesn't say
+          which, so the latest run's image pages list them.
+        </p>
+        <div class="table-wrap">
+          <table class="drill">
+            <thead><tr><th>Severity</th><th>Had some before</th><th>Have some after</th><th>Now none</th><th>Newly some</th><th>Unknown in one run</th></tr></thead>
+            <tbody>
+              {drill.map((d) => {
+                const names = (ids: string[]) =>
+                  ids.length === 0 ? <span class="dim">none</span> : (
+                    <ul class="change-list">
+                      {ids.map((id) => {
+                        const diff = diffs.find((x) => x.id === id)!;
+                        return <li>{byId.has(id) ? <a href={imageHref(id)}>{label(id)}</a> : <code>{id}</code>} <span class="dim small">({howWords(diff).label.toLowerCase()})</span></li>;
+                      })}
+                    </ul>
+                  );
+                return (
+                  <tr>
+                    <td>{d.severity}</td>
+                    <td>{names(d.before)}</td>
+                    <td>{names(d.after)}</td>
+                    <td>{names(d.cleared)}</td>
+                    <td>{names(d.appeared)}</td>
+                    <td>{names(d.unknown)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        <p class="small dim">An image with no vulnerability data in a run is unknown there, not clean.</p>
+      </section>
+    )}
+
+    <section aria-labelledby="images">
+      <h2 id="images">Image by image</h2>
+      {changes.length === 0 ? (
+        <p>No image changed: the same images, digests, bases, verdicts, and findings in both runs.</p>
+      ) : (
+        <div class="table-wrap">
+          <table class="before-after">
+            <caption class="sr-only">Each image that changed, before and after</caption>
+            <thead><tr><th>Image</th><th>How</th><th>Digest</th><th>Base</th><th>Verdict</th><th>Findings</th></tr></thead>
+            <tbody>
+              {changes.map((d: ImageDiff) => {
+                const words = howWords(d);
+                const [b, a] = [d.before, d.after];
+                const baseB = baseOf(b);
+                const baseA = baseOf(a);
+                return (
+                  <tr>
+                    <td>{byId.has(d.id) ? <a href={imageHref(d.id)}>{label(d.id)}</a> : <code>{d.id}</code>}</td>
+                    <td>
+                      <strong>{words.label}</strong>
+                      <div class="small dim">{words.meaning}</div>
+                      {d.how === 'rebased' && a?.rebasedFrom && <div class="small mono">from {a.rebasedFrom}</div>}
+                    </td>
+                    <td class="small">
+                      {b && a && b.digest !== a.digest ? <><Digest digest={b.digest} /> → <Digest digest={a.digest} /></> : <Digest digest={(a ?? b)!.digest} />}
+                    </td>
+                    <td class="small">
+                      {!baseB && !baseA ? (
+                        <span class="dim">none recorded</span>
+                      ) : (
+                        <>
+                          {b && a && baseB?.digest !== baseA?.digest ? (
+                            <><Digest digest={baseB?.digest} /> → <Digest digest={baseA?.digest} /></>
+                          ) : (
+                            <Digest digest={(baseA ?? baseB)?.digest} />
+                          )}
+                          <div>
+                            {d.drift ? (
+                              <>{d.drift[0] === 'none' ? 'none' : <StatusText term={drift(d.drift[0])} />} → {d.drift[1] === 'none' ? 'none' : <StatusText term={drift(d.drift[1])} />}</>
+                            ) : (
+                              <StatusText term={drift((baseA ?? baseB)!.drift)} />
+                            )}
+                          </div>
+                        </>
+                      )}
+                    </td>
+                    <td class="small">
+                      {d.verdict ? (
+                        <><StatusText term={verdict(d.verdict[0])} /> → <StatusText term={verdict(d.verdict[1])} /></>
+                      ) : (
+                        <StatusText term={verdict((a ?? b)!.verdict)} />
+                      )}
+                    </td>
+                    <td class="small">
+                      {SEVERITIES.every((s) => d.findings[s][0] === null && d.findings[s][1] === null) ? (
+                        <span class="dim">unknown: no vulnerability data</span>
+                      ) : (
+                        <ul class="change-list">
+                          {SEVERITIES.filter((s) => d.findingsChanged.includes(s) || (d.findings[s][0] ?? 0) > 0 || (d.findings[s][1] ?? 0) > 0).map((s) => {
+                            const [x, y] = d.findings[s];
+                            return d.findingsChanged.includes(s) ? (
+                              <li><strong>{s} {count(x)} → {count(y)}</strong>{x !== null && y !== null && <span class="dim"> ({y > x ? `${y - x} more` : `${x - y} fewer`})</span>}</li>
+                            ) : (
+                              <li>{s} {count(b && a ? x : (a ? y : x))}</li>
+                            );
+                          })}
+                          {SEVERITIES.every((s) => !d.findingsChanged.includes(s) && (d.findings[s][0] ?? 0) === 0 && (d.findings[s][1] ?? 0) === 0) && <li class="dim">none</li>}
+                        </ul>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {same.length > 0 && (
+        <details>
+          <summary>{plural(same.length, 'image', 'images')} unchanged</summary>
+          <p class="small">
+            The same digest, base currency, verdict, and findings in both runs:{' '}
+            {same.map((d, i) => <>{i > 0 && ', '}{byId.has(d.id) ? <a href={imageHref(d.id)}>{label(d.id)}</a> : <code>{d.id}</code>}</>)}.
+          </p>
+        </details>
+      )}
+      <p class="small dim">
+        ? means unknown: the run had no vulnerability data for that image. The history records each image's digest,
+        verdict, base, rebase, and findings counted by severity. It doesn't record which findings or which packages, so
+        which advisories were fixed and which packages changed between these runs isn't known.
+      </p>
+    </section>
+  </>
+)}
+
+<section aria-labelledby="runs">
+  <h2 id="runs">Compare other runs</h2>
+  <div class="table-wrap">
+    <table>
+      <caption class="sr-only">Every run, newest first, with the comparisons this site has</caption>
+      <thead><tr><th>Run</th><th>With the run before</th><th>With the latest run</th></tr></thead>
+      <tbody>
+        {newestFirst.map((run, i) => {
+          const before = newestFirst[i + 1];
+          const link = (o: Run, n: Run) =>
+            comparisonSlug(o, n) === here ? <span aria-current="page"><strong>this page</strong></span> : <a href={pageFor(o, n)}>{formatTime(o.at)} → {formatTime(n.at)}</a>;
+          return (
+            <tr>
+              <td class="nowrap">{formatTime(run.at)}{!hasRows(run) && <div class="dim small">no per-image rows</div>}</td>
+              <td>{before ? link(before, run) : <span class="dim">the first run</span>}</td>
+              <td>{run === latest ? <span class="dim">the latest run</span> : link(run, latest)}</td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  </div>
+</section>

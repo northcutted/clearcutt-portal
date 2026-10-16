@@ -9,7 +9,8 @@ import { loadBundle } from '../lib/bundle.ts';
 import { chronological, imageChanges, imageLabel, imagesById } from '../lib/estate.ts';
 import { formatTime, plural, shortDigest } from '../lib/format.ts';
 import { TONE_GLYPH, drift, verdict, type Tone } from '../lib/present.ts';
-import { imageHref } from '../lib/site.ts';
+import { href, imageHref } from '../lib/site.ts';
+import { comparisonSlug, diffRuns, historyRuns, howWords } from '../lib/timeline.ts';
 
 const { report, history } = loadBundle();
 const byId = imagesById(report);
@@ -51,6 +52,10 @@ function delta(m: (typeof measures)[number]): { text: string; tone: Tone } | nul
 }
 const headline = measures.slice(0, 8);
 const changes = latest && previous ? imageChanges(latest, previous) : null;
+// How each image's digest changed (rebased, rebuilt on a new base, ...).
+const how = new Map((latest && previous ? (diffRuns(previous, latest) ?? []) : []).map((d) => [d.id, howWords(d).label]));
+const runs = historyRuns(history);
+const runsNewestFirst = [...runs].reverse();
 const count = (n: number | null) => (n === null ? '?' : String(n));
 ---
 <Layout title="History" description="How the estate's verdicts, bases, and findings changed from run to run.">
@@ -129,7 +134,7 @@ const count = (n: number | null) => (n === null ? '?' : String(n));
                             )}
                             {c.digest && (
                               <li>
-                                {c.rebasedFrom ? 'Rebased' : 'New digest'}: <code>{shortDigest(c.digest[0])}</code> → <code>{shortDigest(c.digest[1])}</code>
+                                {how.get(c.id) ?? (c.rebasedFrom ? 'Rebased' : 'New digest')}: <code>{shortDigest(c.digest[0])}</code> → <code>{shortDigest(c.digest[1])}</code>
                               </li>
                             )}
                             {c.drift && (
@@ -148,6 +153,12 @@ const count = (n: number | null) => (n === null ? '?' : String(n));
                 </tbody>
               </table>
             </div>
+          )}
+          {changes !== null && (
+            <p>
+              <a href={href('history/changes/')}>Compare the two runs image by image</a>: each image before and after,
+              how it changed, and who had findings in each run.
+            </p>
           )}
         </section>
       )}
@@ -189,12 +200,17 @@ const count = (n: number | null) => (n === null ? '?' : String(n));
               </tr>
             </thead>
             <tbody>
-              {newestFirst.map((e) => {
+              {runsNewestFirst.map((run, i) => {
+                const e = run.entry;
                 const s = e.summary;
                 const scanned = s.vulnerabilities.scanned > 0;
+                const before = runsNewestFirst[i + 1];
                 return (
                   <tr>
-                    <td class="nowrap">{formatTime(e.generatedAt)}{e.ref && <div class="dim small mono">{e.ref}</div>}</td>
+                    <td class="nowrap">
+                      {formatTime(e.generatedAt)}{e.ref && <div class="dim small mono">{e.ref}</div>}
+                      {before && <div class="small"><a href={href(`history/changes/${comparisonSlug(before, run)}/`)}>What changed</a></div>}
+                    </td>
                     <td class="num">{s.images}</td>
                     <td class="num">{s.verdicts.verified}</td>
                     <td class="num">{s.verdicts.failed}</td>

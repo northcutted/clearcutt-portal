@@ -76,12 +76,17 @@ From a clone, with Node 22.18 or newer:
 ```sh
 npm ci --ignore-scripts
 node bin/clearcutt-portal.ts build --bundle path/to/bundle --out _site [--base /path] [--site https://host] [--title "…"] \
-  [--scan-age-days N]
+  [--scan-age-days N] [--history-runs N]
 node bin/clearcutt-portal.ts check --bundle path/to/bundle    # validate only
 ```
 
 `--scan-age-days` sets the age past which the overview flags a vulnerability
 scan as old (default: the policy's `maxScanAgeDays`, or 7 days without one).
+`--history-runs` sets how many of the latest runs the history, comparison, and
+image pages show (default 50; `0` shows every run). clearcutt-verify doesn't
+trim the history, and a site that showed all of it would grow with every run
+(a page per comparison, each listing every run); the pages say how many older
+runs they leave out, and `estate-history.json` on the site has every one.
 
 The build reads the bundle and nothing else: it contacts no registry, and the
 site it writes loads nothing from another origin. A bundle that doesn't match

@@ -6,10 +6,13 @@ import Layout from '../../../layouts/Layout.astro';
 import RunComparison from '../../../components/RunComparison.astro';
 import { loadBundle } from '../../../lib/bundle.ts';
 import { formatTime } from '../../../lib/format.ts';
+import { windowed } from '../../../lib/estate.ts';
+import { historyWindow } from '../../../lib/site.ts';
 import { comparisons, historyRuns, type Run } from '../../../lib/timeline.ts';
 
 export function getStaticPaths() {
-  const runs = historyRuns(loadBundle().history);
+  // The latest runs only (historyWindow), each named over the whole history.
+  const runs = windowed(historyRuns(loadBundle().history), historyWindow());
   return comparisons(runs).map((c) => ({ params: { pair: c.slug }, props: { older: c.older, newer: c.newer, runs, slug: c.slug } }));
 }
 

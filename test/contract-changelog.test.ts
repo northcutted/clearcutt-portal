@@ -2,14 +2,13 @@
 // change since the last release tag needs a CHANGELOG entry that says so.
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { cpSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { cpSync, mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
-import { root } from './helpers.ts';
+import { root, scratch } from './helpers.ts';
 
 function repo(): { dir: string; git: (...args: string[]) => void; check: () => ReturnType<typeof spawnSync> } {
-  const dir = mkdtempSync(path.join(tmpdir(), 'portal-changelog-'));
+  const dir = scratch('portal-changelog-');
   mkdirSync(path.join(dir, 'scripts'));
   mkdirSync(path.join(dir, 'contract'));
   cpSync(path.join(root, 'scripts/check-contract-changelog.sh'), path.join(dir, 'scripts/check-contract-changelog.sh'));

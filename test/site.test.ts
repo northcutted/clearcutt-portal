@@ -5,7 +5,6 @@ import { createHash } from 'node:crypto';
 import {
   cpSync,
   existsSync,
-  mkdtempSync,
   readFileSync,
   readdirSync,
   realpathSync,
@@ -14,12 +13,11 @@ import {
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { before, describe, test } from 'node:test';
 import { readBundle } from '../src/lib/bundle.ts';
 import { verifyCommands } from '../src/lib/commands.ts';
-import { FIXTURE, MINIMAL, editedBundle, root, v015Bundle } from './helpers.ts';
+import { editedBundle, FIXTURE, MINIMAL, root, scratch, v015Bundle } from './helpers.ts';
 
 function cli(...args: string[]) {
   return spawnSync(process.execPath, [path.join(root, 'bin/clearcutt-portal.ts'), ...args], {
@@ -29,7 +27,7 @@ function cli(...args: string[]) {
 }
 
 function build(bundle: string, ...extra: string[]): string {
-  const out = mkdtempSync(path.join(tmpdir(), 'portal-site-'));
+  const out = scratch('portal-site-');
   const run = cli('build', '--bundle', bundle, '--out', out, ...extra);
   assert.equal(run.status, 0, `build failed:\n${run.stdout}\n${run.stderr}`);
   return out;
@@ -793,6 +791,25 @@ describe('a rebased image with per-image history', () => {
   });
 });
 
+describe('a history longer than the site shows', () => {
+  let site: string;
+  before(() => {
+    site = build(v015Bundle(), '--history-runs', '2');
+  });
+
+  test('the history pages show the latest runs, say so, and point to the rest', () => {
+    const page = shown(read(site, 'history/index.html'));
+    assert.match(page, /3 runs recorded; this site shows the latest 2\./);
+    assert.match(page, /The latest 2 runs 1 older run is not shown here, in the trends, or in the comparisons/);
+    assert.match(read(site, 'history/index.html'), /<a href="\/estate-history\.json"[^>]*>estate-history\.json<\/a> has every run/);
+    // Comparisons among the shown runs only: each with the one before, and since each.
+    const pairs = readdirSync(path.join(site, 'history/changes'), { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name).sort();
+    assert.deepEqual(pairs, ['20261006T233046Z--20261010T165146Z', '20261006T233046Z--latest']);
+    assert.match(shown(read(site, 'history/changes/index.html')), /This site compares the latest 2 runs; 1 older one is in estate-history\.json\./);
+    assert.match(shown(read(site, 'images/debian-tools/index.html')), /This shows the latest 2 runs; 1 older one is in estate-history\.json\./);
+  });
+});
+
 describe('an estate whose policy passes, with work outstanding', () => {
   let site: string;
   before(() => {
@@ -874,7 +891,7 @@ describe('a report at the edges of what the schema allows', () => {
 describe('the CLI', () => {
   test('refuses a bundle that does not match the contract', () => {
     const bad = editedBundle(MINIMAL, (r) => (r.images[0].verdict.status = 'fine'));
-    const run = cli('build', '--bundle', bad, '--out', mkdtempSync(path.join(tmpdir(), 'portal-site-')));
+    const run = cli('build', '--bundle', bad, '--out', scratch('portal-site-'));
     assert.equal(run.status, 1);
     assert.match(run.stderr, /does not match the EstateReport schema/);
   });
@@ -888,7 +905,7 @@ describe('the CLI', () => {
   test('builds from any working directory, with relative paths', () => {
     // A fleet's workflow runs the portal from its own checkout, not the
     // portal's.
-    const cwd = realpathSync(mkdtempSync(path.join(tmpdir(), 'portal-cwd-')));
+    const cwd = realpathSync(scratch('portal-cwd-'));
     const run = spawnSync(
       process.execPath,
       [path.join(root, 'bin/clearcutt-portal.ts'), 'build', '--bundle', path.relative(cwd, MINIMAL), '--out', 'site'],
@@ -915,7 +932,7 @@ describe('the CLI', () => {
   test('rebuilds over an earlier site, but not over other files', () => {
     const out = build(MINIMAL);
     assert.equal(cli('build', '--bundle', MINIMAL, '--out', out).status, 0);
-    const other = mkdtempSync(path.join(tmpdir(), 'portal-other-'));
+    const other = scratch('portal-other-');
     writeFileSync(path.join(other, 'keep.txt'), 'mine');
     const run = cli('build', '--bundle', MINIMAL, '--out', other);
     assert.equal(run.status, 2);
@@ -938,12 +955,12 @@ describe('the CLI', () => {
 
   test('never writes the site into, around, or over the bundle', () => {
     // In a directory of its own, so "around it" is a directory this test owns.
-    const bundle = path.join(mkdtempSync(path.join(tmpdir(), 'portal-around-')), 'bundle');
+    const bundle = path.join(scratch('portal-around-'), 'bundle');
     cpSync(MINIMAL, bundle, { recursive: true });
     writeFileSync(path.join(bundle, 'policy.yaml'), 'mine');
     writeFileSync(path.join(bundle, 'refs.txt'), 'ghcr.io/acme/images/billing:latest\n');
     const before = snapshot(bundle);
-    const link = path.join(mkdtempSync(path.join(tmpdir(), 'portal-link-')), 'site');
+    const link = path.join(scratch('portal-link-'), 'site');
     symlinkSync(bundle, link);
     for (const out of [
       bundle, // the bundle itself
@@ -966,7 +983,7 @@ describe('the CLI', () => {
   });
 
   test('refuses a file as --out', () => {
-    const file = path.join(mkdtempSync(path.join(tmpdir(), 'portal-file-')), 'site');
+    const file = path.join(scratch('portal-file-'), 'site');
     writeFileSync(file, 'mine');
     const run = cli('build', '--bundle', MINIMAL, '--out', file);
     assert.equal(run.status, 2);
@@ -976,7 +993,7 @@ describe('the CLI', () => {
 
   test('an image id that is not a plain page name is a bundle error, not a crash', () => {
     const bad = editedBundle(MINIMAL, (r) => (r.images[3].id = '../../escape'));
-    const out = mkdtempSync(path.join(tmpdir(), 'portal-site-'));
+    const out = scratch('portal-site-');
     const run = cli('build', '--bundle', bad, '--out', out);
     assert.equal(run.status, 1);
     assert.match(run.stderr, /image id "\.\.\/\.\.\/escape" can't name a page/);
@@ -997,6 +1014,15 @@ describe('the CLI', () => {
     });
     assert.match(inActions.stdout, /^::warning title=Report beyond this portal's contract::estate-report\.json has a field/m);
     assert.equal(cli('check', '--bundle', MINIMAL).stderr, '', 'nothing to say about a covered bundle');
+  });
+
+  test('the window and scan-age settings must be whole numbers', () => {
+    for (const arg of ['--history-runs=many', '--history-runs=-1', '--scan-age-days=0', '--scan-age-days=1.5']) {
+      const run = cli('build', '--bundle', MINIMAL, '--out', scratch('portal-site-'), arg);
+      assert.equal(run.status, 2, arg);
+      const [flag, value] = arg.split('=');
+      assert.match(run.stderr, new RegExp(`${flag} ${value.replace('.', '\\.')}: must be a whole number`));
+    }
   });
 
   test('usage errors exit 2', () => {

@@ -1,11 +1,10 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { rmSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import { BundleError, describeNotes, newerThan, readBundle } from '../src/lib/bundle.ts';
 import { CONTRACT_UPSTREAM } from '../src/lib/contract.gen.ts';
-import { FIXTURE, MINIMAL, editedBundle, v015Bundle } from './helpers.ts';
+import { editedBundle, FIXTURE, MINIMAL, scratch, v015Bundle } from './helpers.ts';
 
 test('the vendored fixture and example are valid bundles', () => {
   for (const dir of [FIXTURE, MINIMAL]) {
@@ -17,7 +16,7 @@ test('the vendored fixture and example are valid bundles', () => {
 });
 
 test('a directory without a report is not a bundle', () => {
-  const dir = mkdtempSync(path.join(tmpdir(), 'portal-empty-'));
+  const dir = scratch('portal-empty-');
   assert.throws(() => readBundle(dir), (err: Error) => err instanceof BundleError && /not found/.test(err.message));
 });
 

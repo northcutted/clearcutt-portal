@@ -4,7 +4,7 @@ import pkg from '../../package.json' with { type: 'json' };
 import { loadBundle } from './bundle.ts';
 import { buildSearchIndex, type SearchIndex } from './package-search.ts';
 import { scanAgeLimit } from './overview.ts';
-import { SCAN_AGE_ENV, TITLE_ENV, VERSION_ENV } from './site-env.ts';
+import { HISTORY_RUNS_ENV, SCAN_AGE_ENV, TITLE_ENV, VERSION_ENV } from './site-env.ts';
 
 /** A link to a page of this site, under the base path it is deployed at. */
 export function href(path: string): string {
@@ -50,6 +50,18 @@ export function envCount(name: string): number | undefined {
  */
 export function scanAgeDays(): number {
   return scanAgeLimit(loadBundle().report, envCount(SCAN_AGE_ENV));
+}
+
+/** How many of the latest runs the history pages show when the build doesn't say. */
+export const DEFAULT_HISTORY_RUNS = 50;
+
+/**
+ * How many of the latest runs the history, comparison, and image pages show:
+ * --history-runs, else DEFAULT_HISTORY_RUNS; 0 shows every run. Each page
+ * holds a table of the runs it shows, so pages and their size grow with it.
+ */
+export function historyWindow(): number {
+  return envCount(HISTORY_RUNS_ENV) ?? DEFAULT_HISTORY_RUNS;
 }
 
 let index: SearchIndex | null = null;

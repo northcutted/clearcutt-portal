@@ -72,10 +72,10 @@ const footer = `
  * The clearcutt-verify commit the vendored contract is from, and the newest
  * release at or before it ("none" when there is none), from contract/UPSTREAM.
  */
-export const CONTRACT_UPSTREAM = {
+export const CONTRACT_UPSTREAM: { commit: string; release: string } = {
   commit: ${JSON.stringify(field('commit'))},
   release: ${JSON.stringify(/^v\d+\.\d+\.\d+$/.test(release) ? release : 'none')},
-} as const;
+};
 `;
 const text = banner + merged.trim() + '\n' + footer;
 

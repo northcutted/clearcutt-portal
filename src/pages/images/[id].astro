@@ -40,7 +40,7 @@ import {
   verdict,
   vulnSource,
 } from '../../lib/present.ts';
-import { href, imageHref } from '../../lib/site.ts';
+import { historyWindow, href, imageHref } from '../../lib/site.ts';
 import { diffImage, howWords } from '../../lib/timeline.ts';
 
 export function getStaticPaths() {
@@ -69,7 +69,9 @@ const packagesSource = image.packagesSource;
 
 // This image run by run, from the history's per-image rows. Runs before
 // clearcutt-verify recorded rows can't say anything about it.
-const runs = imageRuns(history, image.id);
+const window = historyWindow();
+const runs = imageRuns(history, image.id, window);
+const olderRuns = (history?.entries.length ?? 0) - runs.length;
 const recorded = runs.filter((run) => run.row !== undefined);
 const unrecorded = runs.length - recorded.length;
 const rebases = rebasesOf(runs);
@@ -447,6 +449,7 @@ const showTrend = recorded.filter((run) => run.row?.vulnerabilities).length >= 2
         </div>
         <p class="small dim">
           ? means unknown: the run had no vulnerability data for this image.
+          {olderRuns > 0 && ` This shows the latest ${plural(runs.length, 'run')}; ${plural(olderRuns, 'older one is', 'older ones are')} in estate-history.json.`}
           {unrecorded > 0 && ` ${plural(unrecorded, 'earlier run')} recorded no per-image rows and ${unrecorded === 1 ? "isn't" : "aren't"} shown.`}
         </p>
         {showTrend && (

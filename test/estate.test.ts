@@ -5,6 +5,10 @@ import {
   baseGraph,
   byVerdict,
   chronological,
+  consumersOf,
+  imagesById,
+  packagesOf,
+  windowed,
   imageRuns,
   packageGroups,
   packagesUnknown,
@@ -163,4 +167,35 @@ test('runs are in the order of the times they name, and the latest is the latest
   const tie = { ...history, entries: [{ generatedAt: '2026-10-10T16:00:00Z', ref: 'second', summary }, { generatedAt: '2026-10-10T18:00:00+02:00', ref: 'first', summary }] };
   assert.deepEqual(chronological(tie).map((e) => e.ref), ['first', 'second']);
   assert.deepEqual(chronological({ ...history, entries: [] }), []);
+});
+
+test('the per-report indexes answer as a scan of the report would', () => {
+  for (const report of [fixture, minimal]) {
+    for (const image of report.images) {
+      assert.deepEqual(
+        packagesOf(report, image),
+        report.packages.filter((p) => p.images.includes(image.id)).sort((a, b) => a.name.localeCompare(b.name) || a.version.localeCompare(b.version)),
+      );
+      assert.deepEqual(consumersOf(report, image), report.images.filter((o) => o.base?.imageId === image.id));
+      assert.equal(imagesById(report).get(image.id), image);
+    }
+  }
+  // A caller can't change what the next one gets.
+  const image = fixture.images.find((i) => i.id === 'debian-tools')!;
+  packagesOf(fixture, image).length = 0;
+  assert.ok(packagesOf(fixture, image).length > 0);
+});
+
+test('a windowed history: the latest runs only, the same rows', () => {
+  assert.deepEqual(windowed([1, 2, 3, 4], 2), [3, 4]);
+  assert.deepEqual(windowed([1, 2, 3, 4], 0), [1, 2, 3, 4]);
+  assert.deepEqual(windowed([1, 2], 5), [1, 2]);
+  const history = readBundle(v015Bundle()).history;
+  const all = imageRuns(history, 'debian-tools');
+  assert.equal(all.length, 3);
+  assert.deepEqual(imageRuns(history, 'debian-tools', 2), all.slice(0, 2), 'the newest two, newest first');
+  assert.deepEqual(imageRuns(history, 'debian-tools', 0), all);
+  // A row lookup says absent (null) apart from not recorded (undefined).
+  assert.deepEqual(all.map((r) => (r.row === undefined ? 'unrecorded' : r.row === null ? 'absent' : r.row.id)), ['debian-tools', 'debian-tools', 'unrecorded']);
+  assert.equal(imageRuns(history, 'retired-image')[0].row, null);
 });

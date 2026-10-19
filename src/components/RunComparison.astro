@@ -33,10 +33,12 @@ interface Props {
   slug: string;
 }
 const { older, newer, runs, slug: here } = Astro.props;
-const { report } = loadBundle();
+const { report, history } = loadBundle();
 const byId = imagesById(report);
+const unshown = (history?.entries.length ?? 0) - runs.length;
 const latest = runs.at(-1)!;
 const diffs = diffRuns(older.entry, newer.entry);
+const diffById = new Map((diffs ?? []).map((d) => [d.id, d]));
 const changes = diffs?.filter(changed) ?? [];
 const same = diffs?.filter((d) => !changed(d)) ?? [];
 const hows = diffs ? countHows(diffs) : null;
@@ -127,7 +129,7 @@ const hasRows = (run: Run) => run.entry.images !== undefined;
                   ids.length === 0 ? <span class="dim">none</span> : (
                     <ul class="change-list">
                       {ids.map((id) => {
-                        const diff = diffs.find((x) => x.id === id)!;
+                        const diff = diffById.get(id)!;
                         return <li>{byId.has(id) ? <a href={imageHref(id)}>{label(id)}</a> : <code>{id}</code>} <span class="dim small">({howWords(diff).label.toLowerCase()})</span></li>;
                       })}
                     </ul>
@@ -169,7 +171,7 @@ const hasRows = (run: Run) => run.entry.images !== undefined;
                   const names = (ids: string[]) =>
                     ids.length === 0 ? <span class="dim">none</span> : (
                       <ul class="change-list">
-                        {ids.map((id) => <li>{byId.has(id) ? <a href={imageHref(id)}>{label(id)}</a> : <code>{id}</code>} <span class="dim small">({howWords(diffs.find((x) => x.id === id)!).label.toLowerCase()})</span></li>)}
+                        {ids.map((id) => <li>{byId.has(id) ? <a href={imageHref(id)}>{label(id)}</a> : <code>{id}</code>} <span class="dim small">({howWords(diffById.get(id)!).label.toLowerCase()})</span></li>)}
                       </ul>
                     );
                   return (
@@ -307,6 +309,7 @@ const hasRows = (run: Run) => run.entry.images !== undefined;
   <p class="small dim">
     A run with the one before it always shows those two runs. "Since" a run compares it with whichever run is the latest,
     so its address stays the same as new runs arrive.
+    {unshown > 0 && <> This site compares the latest {plural(runs.length, 'run')}; {plural(unshown, 'older one is', 'older ones are')} in <a href={href('estate-history.json')}>estate-history.json</a>.</>}
   </p>
   <div class="table-wrap">
     <table>

@@ -1,4 +1,4 @@
-import { cpSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -6,12 +6,24 @@ export const root = path.resolve(import.meta.dirname, '..');
 export const FIXTURE = path.join(root, 'contract/fixtures/northcutted-images');
 export const MINIMAL = path.join(root, 'contract/examples/minimal');
 
+const scratchDirs: string[] = [];
+process.once('exit', () => {
+  for (const dir of scratchDirs) rmSync(dir, { recursive: true, force: true });
+});
+
+/** A new temporary directory, removed when the test process exits (sites add up). */
+export function scratch(prefix: string): string {
+  const dir = mkdtempSync(path.join(tmpdir(), prefix));
+  scratchDirs.push(dir);
+  return dir;
+}
+
 /**
  * A writable copy of a bundle, with its report passed through `edit` and,
  * when given, its history through `editHistory`.
  */
 export function editedBundle(from: string, edit: (report: any) => void, editHistory?: (history: any) => void): string {
-  const dir = mkdtempSync(path.join(tmpdir(), 'portal-bundle-'));
+  const dir = scratch('portal-bundle-');
   cpSync(from, dir, { recursive: true });
   const rewrite = (name: string, fn: (doc: any) => void) => {
     const file = path.join(dir, name);

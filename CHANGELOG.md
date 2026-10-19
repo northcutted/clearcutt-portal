@@ -59,6 +59,24 @@ between minor releases, with notes here.
 - The README says how clearcutt-verify's CI can build its output with a
   released portal.
 
+### Added: scale
+
+- The history, comparison, and image pages show the latest 50 runs
+  (`--history-runs N`; `0` shows every run), say how many older runs they
+  leave out, and link `estate-history.json`, which has every run. Run names
+  are still taken over the whole history, so they don't change as the window
+  moves. A history of 1,000 runs used to give 2,000 comparison pages, each
+  listing every run (2.6 GB of a 3.4 GB site for 500 images, past GitHub
+  Pages' 1 GB); it now gives 98.
+- Lookups the pages repeat are indexed once per report: an image's packages,
+  its history rows, the images built on it, images by ID, and package groups.
+  An image page used to scan every history row of every run.
+- `scripts/gen-fixture.ts` writes a synthetic estate (500 images and 1,000
+  runs by default) valid against the contract, and a CI job builds it within
+  a time budget (`test/scale.test.ts`; about 8 s on a laptop, 110 s before
+  these changes).
+- The tests remove the temporary bundles and sites they build.
+
 ### Fixed
 
 - A history whose `entries` is empty no longer crashes the build: the history,

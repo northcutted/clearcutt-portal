@@ -2,7 +2,7 @@
 // clearcutt-portal turns a clearcutt-verify bundle into a static website.
 //
 //   clearcutt-portal build --bundle DIR [--out DIR] [--site URL] [--base PATH] [--title TEXT]
-//                          [--scan-age-days N]
+//                          [--scan-age-days N] [--history-runs N]
 //   clearcutt-portal check --bundle DIR
 //
 // build validates the bundle against the vendored contract, then renders the
@@ -19,15 +19,17 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { BUNDLE_ENV, BundleError, describeNotes, readBundle } from '../src/lib/bundle.ts';
-import { SCAN_AGE_ENV, TITLE_ENV } from '../src/lib/site-env.ts';
+import { HISTORY_RUNS_ENV, SCAN_AGE_ENV, TITLE_ENV } from '../src/lib/site-env.ts';
 
 const usage = `usage:
   clearcutt-portal build --bundle DIR [--out DIR] [--site URL] [--base PATH] [--title TEXT]
-                         [--scan-age-days N]
+                         [--scan-age-days N] [--history-runs N]
   clearcutt-portal check --bundle DIR
 
   --scan-age-days N   flag vulnerability scans older than N days on the overview
-                      (default: the policy's maxScanAgeDays, or 7)`;
+                      (default: the policy's maxScanAgeDays, or 7)
+  --history-runs N    show the latest N runs on the history, comparison, and
+                      image pages (default 50; 0 shows every run)`;
 
 function fail(message: string, code: number): never {
   console.error(message);
@@ -85,6 +87,7 @@ let values: {
   base?: string;
   title?: string;
   'scan-age-days'?: string;
+  'history-runs'?: string;
   help?: boolean;
 };
 try {
@@ -97,6 +100,7 @@ try {
       base: { type: 'string', default: '/' },
       title: { type: 'string' },
       'scan-age-days': { type: 'string' },
+      'history-runs': { type: 'string' },
       help: { type: 'boolean', short: 'h' },
     },
   }));
@@ -117,6 +121,7 @@ function count(flag: string, raw: string | undefined, min: number): number | und
   return Number(raw);
 }
 const scanAgeDays = count('scan-age-days', values['scan-age-days'], 1);
+const historyRuns = count('history-runs', values['history-runs'], 0);
 
 const bundleDir = path.resolve(values.bundle);
 let images: number;
@@ -175,6 +180,7 @@ if (existsSync(outDir)) {
 process.env[BUNDLE_ENV] = bundleDir;
 if (values.title) process.env[TITLE_ENV] = values.title;
 if (scanAgeDays !== undefined) process.env[SCAN_AGE_ENV] = String(scanAgeDays);
+if (historyRuns !== undefined) process.env[HISTORY_RUNS_ENV] = String(historyRuns);
 // Astro's anonymous usage telemetry is on by default; a build in someone
 // else's CI shouldn't phone home.
 process.env.ASTRO_TELEMETRY_DISABLED = '1';

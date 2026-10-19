@@ -4,11 +4,12 @@
 import Layout from '../../../layouts/Layout.astro';
 import RunComparison from '../../../components/RunComparison.astro';
 import { loadBundle } from '../../../lib/bundle.ts';
+import { windowed } from '../../../lib/estate.ts';
 import { comparisonSlug, historyRuns } from '../../../lib/timeline.ts';
-import { href } from '../../../lib/site.ts';
+import { historyWindow, href } from '../../../lib/site.ts';
 
 const { history } = loadBundle();
-const runs = historyRuns(history);
+const runs = windowed(historyRuns(history), historyWindow());
 const newer = runs.at(-1);
 const older = runs.at(-2);
 ---

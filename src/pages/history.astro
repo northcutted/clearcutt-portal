@@ -6,15 +6,20 @@ import VerdictBars from '../components/VerdictBars.astro';
 import type { HistoryEntry, Summary } from '../lib/contract.gen.ts';
 import type { Point } from '../lib/charts.ts';
 import { loadBundle } from '../lib/bundle.ts';
-import { chronological, imageLabel, imagesById } from '../lib/estate.ts';
+import { chronological, imageLabel, imagesById, windowed } from '../lib/estate.ts';
 import { formatTime, plural, shortDigest } from '../lib/format.ts';
 import { SEVERITIES, TONE_GLYPH, drift, verdict, type Tone } from '../lib/present.ts';
-import { href, imageHref } from '../lib/site.ts';
+import { historyWindow, href, imageHref } from '../lib/site.ts';
 import { changed, comparisonSlug, diffRuns, historyRuns, howWords } from '../lib/timeline.ts';
 
 const { report, history } = loadBundle();
 const byId = imagesById(report);
-const series = chronological(history);
+// The latest runs only: a page per comparison and a row per run grow with
+// the history, which clearcutt-verify doesn't trim.
+const window = historyWindow();
+const all = chronological(history);
+const series = windowed(all, window);
+const older = all.length - series.length;
 const newestFirst = [...series].reverse();
 const latest = newestFirst[0];
 const previous = newestFirst[1];
@@ -55,7 +60,8 @@ const changes = latest && previous ? (diffRuns(previous, latest)?.filter(changed
 // A few finding IDs inline; the comparison page has all of them.
 const ids = (list: string[]) => (list.length <= 5 ? list.join(', ') : `${list.slice(0, 5).join(', ')}, and ${list.length - 5} more`);
 const capital = (s: string) => `${s[0].toUpperCase()}${s.slice(1)}`;
-const runs = historyRuns(history);
+// Named over the whole history, so a run keeps its name as the window moves.
+const runs = windowed(historyRuns(history), window);
 const runsNewestFirst = [...runs].reverse();
 const count = (n: number | null) => (n === null ? '?' : String(n));
 ---
@@ -91,7 +97,7 @@ const count = (n: number | null) => (n === null ? '?' : String(n));
         <h2 id="latest">Latest run</h2>
         <p class="small dim">
           {formatTime(latest!.generatedAt)}{previous ? `, compared with ${formatTime(previous.generatedAt)}` : ''}.{' '}
-          {plural(series.length, 'run')} recorded.
+          {plural(all.length, 'run')} recorded{older > 0 && <>; this site shows the latest {series.length}</>}.
         </p>
         <div class="tiles">
           {headline.map((m) => {
@@ -203,7 +209,14 @@ const count = (n: number | null) => (n === null ? '?' : String(n));
       )}
 
       <section aria-labelledby="runs">
-        <h2 id="runs">Every run</h2>
+        <h2 id="runs">{older > 0 ? `The latest ${plural(series.length, 'run')}` : 'Every run'}</h2>
+        {older > 0 && (
+          <p class="small">
+            {plural(older, 'older run is', 'older runs are')} not shown here, in the trends, or in the comparisons, so the
+            site stays a manageable size; <a href={href('estate-history.json')}>estate-history.json</a> has every run.
+            The build's <code>--history-runs</code> sets how many are shown.
+          </p>
+        )}
         <div class="table-wrap">
           <table class="runs">
             <thead>

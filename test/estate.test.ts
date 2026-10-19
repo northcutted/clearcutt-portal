@@ -5,6 +5,10 @@ import {
   baseGraph,
   byVerdict,
   chronological,
+  consumersOf,
+  imagesById,
+  packagesOf,
+  windowed,
   imageRuns,
   packageGroups,
   packagesUnknown,
@@ -141,4 +145,57 @@ test("an app's registry stack is found by the version it is pinned to", () => {
   assert.equal(found.version.digest, hello.factory!.stackDigest);
   assert.equal(stackAnchor(found.stack), 'stack-ghcr-io-northcutted-stacks-go');
   assert.equal(stackOf(fixture, fixture.images.find((i) => i.id === 'hello-app')!), undefined);
+});
+
+test('runs are in the order of the times they name, and the latest is the latest', () => {
+  const summary = minimal.summary;
+  const history = {
+    apiVersion: 'clearcutt.dev/v1' as const,
+    kind: 'EstateHistory' as const,
+    name: 'x',
+    // Newest first, as the file lists them; by text, 18:00+02:00 would be the
+    // newest and 46Z newer than 46.5Z.
+    entries: ['2026-10-10T17:00:00Z', '2026-10-10T18:00:00+02:00', '2026-10-10T15:51:46.5Z', '2026-10-10T15:51:46Z'].map(
+      (generatedAt) => ({ generatedAt, summary }),
+    ),
+  };
+  assert.deepEqual(
+    chronological(history).map((e) => e.generatedAt),
+    ['2026-10-10T15:51:46Z', '2026-10-10T15:51:46.5Z', '2026-10-10T18:00:00+02:00', '2026-10-10T17:00:00Z'],
+  );
+  // Two runs at the same instant: the one the file lists first is the later.
+  const tie = { ...history, entries: [{ generatedAt: '2026-10-10T16:00:00Z', ref: 'second', summary }, { generatedAt: '2026-10-10T18:00:00+02:00', ref: 'first', summary }] };
+  assert.deepEqual(chronological(tie).map((e) => e.ref), ['first', 'second']);
+  assert.deepEqual(chronological({ ...history, entries: [] }), []);
+});
+
+test('the per-report indexes answer as a scan of the report would', () => {
+  for (const report of [fixture, minimal]) {
+    for (const image of report.images) {
+      assert.deepEqual(
+        packagesOf(report, image),
+        report.packages.filter((p) => p.images.includes(image.id)).sort((a, b) => a.name.localeCompare(b.name) || a.version.localeCompare(b.version)),
+      );
+      assert.deepEqual(consumersOf(report, image), report.images.filter((o) => o.base?.imageId === image.id));
+      assert.equal(imagesById(report).get(image.id), image);
+    }
+  }
+  // A caller can't change what the next one gets.
+  const image = fixture.images.find((i) => i.id === 'debian-tools')!;
+  packagesOf(fixture, image).length = 0;
+  assert.ok(packagesOf(fixture, image).length > 0);
+});
+
+test('a windowed history: the latest runs only, the same rows', () => {
+  assert.deepEqual(windowed([1, 2, 3, 4], 2), [3, 4]);
+  assert.deepEqual(windowed([1, 2, 3, 4], 0), [1, 2, 3, 4]);
+  assert.deepEqual(windowed([1, 2], 5), [1, 2]);
+  const history = readBundle(v015Bundle()).history;
+  const all = imageRuns(history, 'debian-tools');
+  assert.equal(all.length, 3);
+  assert.deepEqual(imageRuns(history, 'debian-tools', 2), all.slice(0, 2), 'the newest two, newest first');
+  assert.deepEqual(imageRuns(history, 'debian-tools', 0), all);
+  // A row lookup says absent (null) apart from not recorded (undefined).
+  assert.deepEqual(all.map((r) => (r.row === undefined ? 'unrecorded' : r.row === null ? 'absent' : r.row.id)), ['debian-tools', 'debian-tools', 'unrecorded']);
+  assert.equal(imageRuns(history, 'retired-image')[0].row, null);
 });

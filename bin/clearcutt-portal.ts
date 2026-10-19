@@ -2,23 +2,34 @@
 // clearcutt-portal turns a clearcutt-verify bundle into a static website.
 //
 //   clearcutt-portal build --bundle DIR [--out DIR] [--site URL] [--base PATH] [--title TEXT]
+//                          [--scan-age-days N] [--history-runs N]
 //   clearcutt-portal check --bundle DIR
 //
 // build validates the bundle against the vendored contract, then renders the
 // site into --out (default _site), replacing what is there. --out must be
 // empty, missing, or a site an earlier build wrote (it has a SITE_MARKER
 // file), and must not overlap the bundle. check only validates. Both exit 1
-// when the bundle doesn't match the contract, and 2 on a usage error.
+// when the bundle doesn't match the contract, and 2 on a usage error. Both
+// warn (on stderr, and as GitHub Actions annotations in a workflow) when the
+// bundle has fields the vendored contract doesn't define, or was written by a
+// newer clearcutt-verify release than the contract is from; the site's
+// footer says so too.
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
-import { BUNDLE_ENV, BundleError, readBundle } from '../src/lib/bundle.ts';
-import { TITLE_ENV } from '../src/lib/site-env.ts';
+import { BUNDLE_ENV, BundleError, describeNotes, readBundle } from '../src/lib/bundle.ts';
+import { HISTORY_RUNS_ENV, SCAN_AGE_ENV, TITLE_ENV } from '../src/lib/site-env.ts';
 
 const usage = `usage:
   clearcutt-portal build --bundle DIR [--out DIR] [--site URL] [--base PATH] [--title TEXT]
-  clearcutt-portal check --bundle DIR`;
+                         [--scan-age-days N] [--history-runs N]
+  clearcutt-portal check --bundle DIR
+
+  --scan-age-days N   flag vulnerability scans older than N days on the overview
+                      (default: the policy's maxScanAgeDays, or 7)
+  --history-runs N    show the latest N runs on the history, comparison, and
+                      image pages (default 50; 0 shows every run)`;
 
 function fail(message: string, code: number): never {
   console.error(message);
@@ -69,7 +80,16 @@ function within(inner: string, outer: string): boolean {
 }
 
 const [command, ...rest] = process.argv.slice(2);
-let values: { bundle?: string; out?: string; site?: string; base?: string; title?: string; help?: boolean };
+let values: {
+  bundle?: string;
+  out?: string;
+  site?: string;
+  base?: string;
+  title?: string;
+  'scan-age-days'?: string;
+  'history-runs'?: string;
+  help?: boolean;
+};
 try {
   ({ values } = parseArgs({
     args: rest,
@@ -79,6 +99,8 @@ try {
       site: { type: 'string' },
       base: { type: 'string', default: '/' },
       title: { type: 'string' },
+      'scan-age-days': { type: 'string' },
+      'history-runs': { type: 'string' },
       help: { type: 'boolean', short: 'h' },
     },
   }));
@@ -92,6 +114,15 @@ if (values.help || command === 'help' || command === '--help' || command === '-h
 if (command !== 'build' && command !== 'check') fail(usage, 2);
 if (!values.bundle) fail(`--bundle is required\n${usage}`, 2);
 
+/** A whole number of at least `min` from a flag, or a usage error. */
+function count(flag: string, raw: string | undefined, min: number): number | undefined {
+  if (raw === undefined) return undefined;
+  if (!/^\d+$/.test(raw) || Number(raw) < min) fail(`--${flag} ${raw}: must be a whole number, at least ${min}\n${usage}`, 2);
+  return Number(raw);
+}
+const scanAgeDays = count('scan-age-days', values['scan-age-days'], 1);
+const historyRuns = count('history-runs', values['history-runs'], 0);
+
 const bundleDir = path.resolve(values.bundle);
 let images: number;
 try {
@@ -101,6 +132,14 @@ try {
     `${bundleDir}: ${bundle.report.apiVersion} report of ${images} images` +
       (bundle.history ? ` with ${bundle.history.entries.length} history entries` : ', no history'),
   );
+  for (const line of describeNotes(bundle.notes, 20)) {
+    console.error(`warning: ${line}`);
+    // A workflow command's message escapes %, CR, and LF; the line holds
+    // nothing else a runner reads (field names are quoted when not plain).
+    if (process.env.GITHUB_ACTIONS === 'true') {
+      console.log(`::warning title=Report beyond this portal's contract::${line.replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A')}`);
+    }
+  }
 } catch (err) {
   if (err instanceof BundleError) fail(err.message, 1);
   throw err;
@@ -140,6 +179,8 @@ if (existsSync(outDir)) {
 
 process.env[BUNDLE_ENV] = bundleDir;
 if (values.title) process.env[TITLE_ENV] = values.title;
+if (scanAgeDays !== undefined) process.env[SCAN_AGE_ENV] = String(scanAgeDays);
+if (historyRuns !== undefined) process.env[HISTORY_RUNS_ENV] = String(historyRuns);
 // Astro's anonymous usage telemetry is on by default; a build in someone
 // else's CI shouldn't phone home.
 process.env.ASTRO_TELEMETRY_DISABLED = '1';

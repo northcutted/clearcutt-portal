@@ -4,6 +4,158 @@ ClearCutt Portal is pre-1.0. The bundle format it reads is clearcutt-verify's
 `clearcutt.dev/v1` contract; the portal's own inputs and pages may change
 between minor releases, with notes here.
 
+## Unreleased
+
+### Added: what to fix first
+
+- The overview opens with where the estate stands: whether the policy passes,
+  and what is outstanding either way (critical and high findings with how many
+  have a fix, images on a stale base, rebuilds that didn't reproduce, images
+  with no vulnerability data, scans older than a limit or with no date,
+  unknown bases). It no longer says "Every image meets every requirement" when
+  everything is verified; it says the policy passes and lists what is still
+  outstanding.
+- "Not verified, and why" is one card per reason, with the number of images it
+  holds back and each of them, instead of one card per image. Reasons that
+  differ only in a number ("3 …" and "30 …") are one card ("3–30 …").
+- Every headline number is a link to the images it counts: new pages under
+  `lists/` (`verified`, `failed`, `unverified`, `stale-base`, `base-proven`,
+  `base-claimed`, `base-unresolved`, `critical-high`, `not-scanned`,
+  `old-scans`, `reproduced`, `not-reproduced`, `not-checked`). New tiles count
+  critical and high findings, rebuilds that didn't reproduce, and the age of
+  the oldest vulnerability scan, flagged past `--scan-age-days` (default: the
+  policy's `maxScanAgeDays`, or 7).
+- A Findings page (`findings/`) lists every advisory in the estate in the order
+  to fix it: fixable critical and high first, then critical and high with no
+  fix known, then the rest by severity, most images first. Each advisory has a
+  page (`findings/<id>/`) with the images that have it, the package and
+  installed version, the fixed versions, where a VEX statement covers it, and
+  the images with no vulnerability data (which may have it, when they ship one
+  of its package versions). CVE, GHSA, Go, PYSEC, and RUSTSEC IDs of a known
+  shape link to their canonical pages (cve.org and NVD, GitHub, pkg.go.dev,
+  OSV, RustSec); any other ID stays text. The overview shows the first ten.
+- An image's findings are listed fix first, each ID linked to its advisory's
+  page and canonical pages.
+- The images table sorts by any column with script (verdict, base, each kind
+  of evidence, vulnerabilities, scan age, rebuild), says how it is sorted
+  (`aria-sort` and an announcement), and keeps unknown values at the bottom
+  whichever way it sorts. Without script it is the same table, in verdict
+  order. It also shows each image's scan age.
+
+### Added: the contract gate
+
+- The build warns when a report or history has fields the vendored contract
+  doesn't define, naming each (`images[].evidence.signature.newField`), and
+  when the report was written by a clearcutt-verify release newer than the
+  one the contract is from. The warnings go to stderr (and to GitHub Actions
+  annotations in a workflow), and into every page's footer and the About
+  page; nothing is dropped silently. The build still succeeds: v1 only grows.
+- `contract/UPSTREAM` records the clearcutt-verify release the pinned commit
+  is, or the newest before it (`release:`), which `scripts/sync-contract.sh`
+  writes and `--check` verifies. The contract is now pinned to
+  clearcutt-verify v0.16.0's commit, whose contract is the same as before.
+- CI fails when a schema in `contract/` changed since the last release and
+  the CHANGELOG's Unreleased section doesn't mention the contract.
+- The README says how clearcutt-verify's CI can build its output with a
+  released portal.
+
+### Added: scale
+
+- The history, comparison, and image pages show the latest 50 runs
+  (`--history-runs N`; `0` shows every run), say how many older runs they
+  leave out, and link `estate-history.json`, which has every run. Run names
+  are still taken over the whole history, so they don't change as the window
+  moves. A history of 1,000 runs used to give 2,000 comparison pages, each
+  listing every run (2.6 GB of a 3.4 GB site for 500 images, past GitHub
+  Pages' 1 GB); it now gives 98.
+- Lookups the pages repeat are indexed once per report: an image's packages,
+  its history rows, the images built on it, images by ID, and package groups.
+  An image page used to scan every history row of every run.
+- `scripts/gen-fixture.ts` writes a synthetic estate (500 images and 1,000
+  runs by default) valid against the contract, and a CI job builds it within
+  a 45-second budget (`test/scale.test.ts`; about 15 s on a GitHub-hosted
+  runner and 8 s on a laptop, where it took 110 s before these changes).
+- The tests remove the temporary bundles and sites they build.
+
+### Added: browser tests
+
+- Playwright tests (`e2e/`, `npx playwright test`) run the site's scripts in
+  Chromium under its Content-Security-Policy: sorting the images table (by
+  mouse and keyboard, both ways, unknown last), the filter boxes, the package
+  search and its `?q=` address, copy buttons, chips, focusable status cells,
+  and the theme toggle. An axe pass (WCAG 2.1 A and AA) covers every kind of
+  page in the light and dark themes, and the states the scripts produce. CI
+  runs them with Chromium's headless shell only, cached by Playwright version.
+  `@playwright/test` and `@axe-core/playwright` are development dependencies;
+  the build doesn't use them.
+
+### Added: signed bundles, and one version input
+
+- The action and the reusable workflow take `bundle-ref`: the bundle as the
+  OCI artifact `clearcutt-verify estate push` stores. Its cosign signature
+  must verify against the new `certificate-identity-regexp` (anchored with
+  `^` and `$`) and `certificate-oidc-issuer` inputs before anything of it is
+  read, and it must be an estate bundle (config media type
+  `application/vnd.clearcutt.estate.v1+json`); only the verified digest is
+  pulled. Without a signer, with one that doesn't match, or with another kind
+  of artifact, the build fails and nothing is built. The inputs are named
+  after cosign's flags, which clearcutt-verify's `estate pull` mirrors.
+  `registry-username` and `registry-password` (a secret, for the workflow) log
+  in to a private bundle's registry. The new output `bundle-digest` names the
+  digest that was verified. `bundle` (the action) and `bundle-artifact` (the
+  workflow) are no longer required: give one of them or `bundle-ref`.
+- The action and the workflow take `history-runs` and `scan-age-days`.
+- The reusable workflow builds the version it is called at, from the commit
+  it was called at (`job.workflow_sha`): a release's signed archive when that
+  is a release tag or the commit one names, that commit's source otherwise.
+  The action does the same for a commit pin. A new output, `portal-version`,
+  says which.
+- The deploy job runs in the concurrency group `clearcutt-portal-pages-deploy`
+  (one deploy at a time, the newest waiting), named so a caller's own group
+  can't deadlock with it.
+- The README and the adoption guide pin the action and the workflow by the
+  release's commit, like every other action, and show `bundle-ref`.
+
+### Changed
+
+- `portal-version` is deprecated. It still works, and the workflow warns that
+  it is no longer needed (and when it differs from the ref the workflow is
+  called at); remove it from callers. Without it, a caller at a branch or a
+  commit now builds that ref instead of the default release.
+- The action installs the portal with `npm ci --omit=dev`: the build needs no
+  development dependency.
+
+### Fixed
+
+- Light-theme secondary text (`--ink-300`) and links were 4.1–4.4:1 on cards
+  and table headers; both are now at least 4.5:1 on every surface, which
+  `test/contrast.test.ts` checks for both themes.
+- A command too wide for its box can be scrolled from the keyboard (its block
+  takes focus).
+- A history whose `entries` is empty no longer crashes the build: the history,
+  comparison, and image pages say the history lists no runs.
+- A `factory.sourceDateEpoch` too large for a date no longer stops the build
+  with a RangeError; the image page shows the number as it is.
+- Runs are ordered by the time they name, not by the text of their timestamp,
+  so an offset (`18:00+02:00` is before `17:00Z`) or a fractional second no
+  longer misorders the history or picks the wrong run as the latest.
+- The overview's "Reproduced" tile is green only when every image with a
+  recipe or rebase record reproduced. With none reproduced it reads as
+  unknown, and with nothing to rebuild as not applicable.
+- Comparison links are stable. A run's name in URLs depends only on its own
+  time (with milliseconds when it has them; a hash of the text when it doesn't
+  parse), so a new run never renames an older one. "Since" a run is now
+  `history/changes/<run>--latest/`, which keeps its address as runs arrive
+  (it used to name the latest run's time, so every new run broke it); a run
+  with the one before it is still `<older>--<newer>`, and always shows those
+  two runs.
+- Status glyphs have at least 4.5:1 contrast on every surface in both themes
+  (the light theme's were 2.1–3.8:1, and the dark theme's "not applicable"
+  3.4:1). Glyphs take their own color (`--glyph-*`); tones keep the tints.
+- The glyph-per-cell status tables (evidence and rebuild) are keyboard
+  reachable: each cell takes focus, is named for screen readers by what it
+  says ("SBOM: Unknown. …"), and shows that label while focused.
+
 ## v0.1.0
 
 The first version of ClearCutt Portal: a static website generated from

@@ -14,6 +14,7 @@ import type {
   Evidence,
   EvidenceItem,
   Reproducibility,
+  ReproducibilityCounts,
   Verdict,
   Vulnerabilities,
 } from './contract.gen.ts';
@@ -228,6 +229,19 @@ const REPRODUCIBILITY: Record<Reproducibility['status'], Term> = {
 
 export function reproducibility(status: string): Term {
   return REPRODUCIBILITY[status as Reproducibility['status']] ?? asIs(status);
+}
+
+/**
+ * The tone of the estate's "Reproduced" count. Good only when every image
+ * with a recipe or rebase record reproduced; any that didn't is bad; none to
+ * rebuild doesn't apply; otherwise some (or all) weren't checked, which is
+ * unknown, never a pass: zero reproduced is not green.
+ */
+export function reproducedTone(c: ReproducibilityCounts): Tone {
+  const withRecipe = c.reproduced + c.notReproduced + c.notChecked;
+  if (c.notReproduced > 0) return 'bad';
+  if (withRecipe === 0) return 'muted';
+  return c.reproduced === withRecipe ? 'good' : 'unknown';
 }
 
 const REPRO_METHOD: Record<NonNullable<Reproducibility['method']>, string> = {

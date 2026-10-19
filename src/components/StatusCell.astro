@@ -1,6 +1,7 @@
 ---
-// A status as a single glyph, for dense tables. The label is in the tooltip
-// and read out by screen readers.
+// A status as a single glyph, for dense tables. It is keyboard focusable and
+// named for screen readers (role="img" with the label as aria-label); the
+// label is its tooltip for a mouse, and shows above it on keyboard focus.
 import { TONE_GLYPH, type Term } from '../lib/present.ts';
 
 interface Props {
@@ -12,4 +13,4 @@ interface Props {
 const { term, subject, detail } = Astro.props;
 const text = `${subject}: ${term.label}${detail ? `. ${detail}` : ''}`;
 ---
-<span class={`cell-status tone-${term.tone}`} title={text}><span aria-hidden="true">{TONE_GLYPH[term.tone]}</span><span class="sr-only">{text}</span></span>
+<span class={`cell-status tone-${term.tone}`} tabindex="0" role="img" aria-label={text} title={text} data-label={text}><span aria-hidden="true">{TONE_GLYPH[term.tone]}</span></span>

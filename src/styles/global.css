@@ -10,13 +10,13 @@
   --ink-600: 172 176 190; /* Surface2 */
   --ink-500: 156 160 176; /* Overlay0 */
   --ink-400: 124 127 147; /* Overlay2 */
-  --ink-300: 108 111 133; /* Subtext0: secondary text */
+  --ink-300: 99 102 122; /* Subtext0, darkened: secondary text at 4.5:1 on every surface */
   --ink-200: 92 95 119; /* Subtext1 */
   --ink-100: 76 79 105; /* Text */
   --ink-50: 46 48 70; /* headings */
 
   --accent: 136 57 239; /* Mauve */
-  --link: 30 102 245; /* Blue */
+  --link: 28 94 225; /* Blue, darkened: 4.5:1 on every surface */
 
   --tone-good: 64 160 43; /* Green */
   --tone-claim: 30 102 245; /* Blue */
@@ -24,6 +24,17 @@
   --tone-bad: 210 15 57; /* Red */
   --tone-unknown: 124 127 147; /* Overlay2 */
   --tone-muted: 156 160 176; /* Overlay0 */
+
+  /* Status glyphs are text, so each tone has a glyph color with at least
+     4.5:1 contrast on every surface a glyph sits on (the page, cards, table
+     headers and hovered rows, and a status cell's own tint); the tones above
+     stay for borders and tints. test/contrast.test.ts checks every pair. */
+  --glyph-good: 44 110 30;
+  --glyph-claim: 25 86 206;
+  --glyph-warn: 165 65 7;
+  --glyph-bad: 183 13 50;
+  --glyph-unknown: 94 96 111;
+  --glyph-muted: 97 99 109;
 
   --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
@@ -52,6 +63,13 @@
   --tone-bad: 243 139 168;
   --tone-unknown: 166 173 200;
   --tone-muted: 127 132 156;
+
+  --glyph-good: 166 227 161;
+  --glyph-claim: 137 180 250;
+  --glyph-warn: 250 179 135;
+  --glyph-bad: 243 139 168;
+  --glyph-unknown: 166 173 200;
+  --glyph-muted: 154 158 177;
 }
 
 *,
@@ -391,21 +409,27 @@ section > * + * {
 /* Tones. Each has a glyph as well as a color; see TONE_GLYPH. */
 .tone-good {
   --tone: var(--tone-good);
+  --glyph: var(--glyph-good);
 }
 .tone-claim {
   --tone: var(--tone-claim);
+  --glyph: var(--glyph-claim);
 }
 .tone-warn {
   --tone: var(--tone-warn);
+  --glyph: var(--glyph-warn);
 }
 .tone-bad {
   --tone: var(--tone-bad);
+  --glyph: var(--glyph-bad);
 }
 .tone-unknown {
   --tone: var(--tone-unknown);
+  --glyph: var(--glyph-unknown);
 }
 .tone-muted {
   --tone: var(--tone-muted);
+  --glyph: var(--glyph-muted);
 }
 
 .chip {
@@ -460,7 +484,7 @@ button.chip:hover {
   }
 }
 .chip-glyph {
-  color: rgb(var(--tone, var(--ink-300)));
+  color: rgb(var(--glyph, var(--ink-300)));
   font-weight: 800;
 }
 .chip.tone-unknown {
@@ -472,9 +496,11 @@ button.chip:hover {
   color: rgb(var(--ink-300));
 }
 
-/* A status as a single glyph, for dense tables; the label is in title and
-   for screen readers. */
+/* A status as a single glyph, for dense tables. It takes keyboard focus,
+   and its label (title for a mouse, aria-label for screen readers) shows
+   above it while it has focus. */
 .cell-status {
+  position: relative;
   display: inline-flex;
   width: 1.45rem;
   height: 1.45rem;
@@ -483,9 +509,29 @@ button.chip:hover {
   border-radius: 0.35rem;
   border: 1px solid rgb(var(--tone) / 0.6);
   background: rgb(var(--tone) / 0.12);
-  color: rgb(var(--tone));
+  color: rgb(var(--glyph));
   font-weight: 800;
   font-size: 0.8rem;
+}
+.cell-status:focus-visible::after {
+  content: attr(data-label);
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 0.3rem);
+  z-index: 5;
+  width: max-content;
+  max-width: 18rem;
+  padding: 0.35rem 0.55rem;
+  border: 1px solid rgb(var(--ink-700));
+  border-radius: 0.4rem;
+  background: rgb(var(--ink-900));
+  color: rgb(var(--ink-100));
+  font-size: 0.78rem;
+  font-weight: 500;
+  line-height: 1.4;
+  text-align: left;
+  white-space: normal;
+  box-shadow: 0 0.35rem 1rem rgb(0 0 0 / 0.2);
 }
 .cell-status.tone-unknown {
   border-style: dashed;
@@ -834,4 +880,116 @@ td code {
 .chart svg[width] {
   max-width: 100%;
   width: auto;
+}
+
+/* ── Fix first ──────────────────────────────────────────────────────── */
+
+/* Where the estate stands, above the tiles: whether the policy passes, and
+   what is outstanding either way. */
+.standing {
+  border: 1px solid rgb(var(--ink-700));
+  border-radius: 0.6rem;
+  background: rgb(var(--ink-900) / 0.55);
+  padding: 0.9rem 1.1rem;
+}
+.standing > * + * {
+  margin-top: 0.45rem;
+}
+.standing-head {
+  font-size: 1.05rem;
+  font-weight: 650;
+  color: rgb(var(--ink-50));
+}
+.outstanding {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.2rem 1.5rem;
+  grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr));
+}
+
+.tiles + .tiles {
+  margin-top: 0.75rem;
+}
+.tile > * {
+  display: block;
+}
+a.tile-link {
+  color: inherit;
+  text-decoration: none;
+}
+a.tile-link:hover {
+  border-color: rgb(var(--tone, var(--ink-600)) / 0.8);
+}
+a.tile-link:hover .tile-label {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.reasons-grid {
+  grid-template-columns: repeat(auto-fill, minmax(20rem, 1fr));
+}
+.reason-images {
+  margin: 0;
+  padding-left: 1.1rem;
+  font-size: 0.86rem;
+}
+.reason-images li + li {
+  margin-top: 0.2rem;
+}
+.advisory-links {
+  font-size: 0.78rem;
+}
+
+/* A sortable column's heading is a button (added by sort-table.ts). */
+th button.sort {
+  all: unset;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+}
+th button.sort:focus-visible {
+  outline: 2px solid rgb(var(--accent));
+  outline-offset: 2px;
+  border-radius: 0.2rem;
+}
+th button.sort:hover {
+  color: rgb(var(--ink-50));
+}
+.sort-arrow::after {
+  content: '↕';
+  opacity: 0.45;
+}
+th[aria-sort='ascending'] .sort-arrow::after {
+  content: '↑';
+  opacity: 1;
+}
+th[aria-sort='descending'] .sort-arrow::after {
+  content: '↓';
+  opacity: 1;
+}
+
+/* What a report holds beyond this portal's contract, in the footer. */
+.contract-notes {
+  margin: 0.5rem 0;
+  border: 1px solid rgb(var(--tone-warn) / 0.6);
+  border-radius: 0.5rem;
+  padding: 0.55rem 0.8rem;
+  color: rgb(var(--ink-100));
+}
+.contract-notes ul {
+  margin: 0.3rem 0 0;
+  padding-left: 1.1rem;
+  overflow-wrap: anywhere;
+}
+
+/* A repository breaks after a slash, not inside a name. */
+td .repo {
+  overflow-wrap: normal;
 }

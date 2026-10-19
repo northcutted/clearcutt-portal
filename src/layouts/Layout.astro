@@ -1,9 +1,9 @@
 ---
 import '../styles/global.css';
 import ThemeToggle from '../components/ThemeToggle.astro';
-import { loadBundle } from '../lib/bundle.ts';
+import { describeNotes, loadBundle } from '../lib/bundle.ts';
 import { stackApps } from '../lib/estate.ts';
-import { formatTime } from '../lib/format.ts';
+import { formatTime, plural } from '../lib/format.ts';
 import { href, portalVersion, siteTitle } from '../lib/site.ts';
 
 interface Props {
@@ -12,7 +12,8 @@ interface Props {
 }
 
 const { title, description } = Astro.props;
-const { report, history } = loadBundle();
+const { report, history, notes } = loadBundle();
+const contractNotes = describeNotes(notes);
 const site = siteTitle();
 const fullTitle = title ? `${title} · ${site}` : site;
 const desc = description ?? `What clearcutt-verify found and proved about the ${report.metadata.name} image estate.`;
@@ -23,6 +24,7 @@ const nav = [
   { path: '', label: 'Overview' },
   { path: 'bases/', label: 'Bases' },
   ...(hasStacks ? [{ path: 'stacks/', label: 'Stacks' }] : []),
+  { path: 'findings/', label: 'Findings' },
   { path: 'packages/', label: 'Packages' },
   { path: 'history/', label: 'History' },
   { path: 'about/', label: 'About' },
@@ -77,9 +79,15 @@ const generator = report.metadata.generator;
       <div class="wrap">
         <p>
           Built from the estate report <code>{generator.name} {generator.version}</code> wrote at {formatTime(report.metadata.generatedAt)}
-          {history ? ` with ${history.entries.length} history entries` : ' (no history)'}.
+          {history ? ` with ${plural(history.entries.length, 'history entry', 'history entries')}` : ' (no history)'}.
           The site shows what that report says and nothing more.
         </p>
+        {contractNotes.length > 0 && (
+          <div class="contract-notes" role="note">
+            <p><span class="chip-glyph tone-warn" aria-hidden="true">!</span> <strong>This report goes beyond what this portal knows.</strong> The pages show what its contract defines; the raw data below has everything.</p>
+            <ul>{contractNotes.map((n) => <li>{n}</li>)}</ul>
+          </div>
+        )}
         <p>
           Raw data: <a href={href('estate-report.json')}>estate-report.json</a>{history && <>, <a href={href('estate-history.json')}>estate-history.json</a></>}
           · Rendered by <a href="https://github.com/northcutted/clearcutt-portal">clearcutt-portal</a> {portalVersion()}

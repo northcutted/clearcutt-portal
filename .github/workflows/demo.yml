@@ -36,4 +36,3 @@ jobs:
     with:
       bundle-artifact: demo-bundle
       title: ClearCutt Portal demo
-      portal-version: ${{ github.sha }}

@@ -5,26 +5,37 @@
 // the IDs of its fixable high and critical findings and a digest of its
 // package set. Other findings are only counted, and the digest says that the
 // package set changed, not how.
+import { createHash } from 'node:crypto';
 import type { EstateHistory, HistoryEntry, HistoryImage } from './contract.gen.ts';
 import { chronological } from './estate.ts';
 import { SEVERITIES, type Severity } from './present.ts';
 
 export interface Run {
-  /** A name for the run in URLs: its time, as 20261010T165146Z. */
+  /** A name for the run in URLs: its time, as 20261010T165146Z (runSlug). */
   slug: string;
   at: string;
   ref?: string;
   entry: HistoryEntry;
 }
 
-/** 2026-10-10T16:51:46Z → 20261010T165146Z; "run" for a time that doesn't parse. */
+/**
+ * A run's name in URLs, from the instant it names alone, so it doesn't depend
+ * on the other runs: 2026-10-10T18:51:46+02:00 → 20261010T165146Z, and
+ * milliseconds when there are any (20261010T165146.5Z → 20261010T165146.500Z),
+ * so two runs in the same second keep their own names. A time that doesn't
+ * parse is named by a hash of its text: run-1a2b3c4d.
+ */
 export function runSlug(at: string): string {
   const d = new Date(at);
-  if (Number.isNaN(d.getTime())) return 'run';
-  return d.toISOString().replace(/\.\d+Z$/, 'Z').replace(/[-:]/g, '');
+  if (Number.isNaN(d.getTime())) return `run-${createHash('sha256').update(at).digest('hex').slice(0, 8)}`;
+  return d.toISOString().replace(/\.000Z$/, 'Z').replace(/[-:]/g, '');
 }
 
-/** The history's runs, oldest first, each with a slug no other run has. */
+/**
+ * The history's runs, oldest first, each with a slug no other run has. Only
+ * runs naming the very same instant share a stem; the later of them gets -2,
+ * -3, …, so adding a newer run never renames an older one.
+ */
 export function historyRuns(history: EstateHistory | null): Run[] {
   const used = new Set<string>();
   return chronological(history).map((entry) => {
@@ -279,19 +290,37 @@ export interface Comparison {
   newer: Run;
   /** The comparison's page: history/changes/<slug>/. */
   slug: string;
+  /** Whether the page compares with whichever run is the latest (<older>--latest). */
+  sinceLatest: boolean;
 }
 
-export const comparisonSlug = (older: Run, newer: Run) => `${older.slug}--${newer.slug}`;
+/** What a comparison with the latest run says in its URL instead of that run's time. */
+export const LATEST = 'latest';
 
 /**
- * The comparisons the site pre-renders: each run with the one before it,
- * and each with the latest. Newest first.
+ * A comparison's name in URLs. Two runs: <older>--<newer>, which always
+ * names the same pair. With `LATEST`: <older>--latest, "what changed since
+ * that run", which stays the same URL when a newer run arrives.
+ */
+export const comparisonSlug = (older: Run, newer: Run | typeof LATEST) =>
+  `${older.slug}--${newer === LATEST ? LATEST : newer.slug}`;
+
+/**
+ * The comparisons the site pre-renders, newest first: each run with the one
+ * before it (<older>--<newer>), then each run with the latest
+ * (<older>--latest). Every URL stays when a run is added: a pair keeps its
+ * page, and "since" a run keeps its URL, now up to the newer latest.
  */
 export function comparisons(runs: Run[]): Comparison[] {
-  const out = new Map<string, Comparison>();
-  const add = (older: Run, newer: Run) => out.set(comparisonSlug(older, newer), { older, newer, slug: comparisonSlug(older, newer) });
-  for (let i = runs.length - 1; i > 0; i--) add(runs[i - 1], runs[i]);
+  const out: Comparison[] = [];
+  for (let i = runs.length - 1; i > 0; i--) {
+    out.push({ older: runs[i - 1], newer: runs[i], slug: comparisonSlug(runs[i - 1], runs[i]), sinceLatest: false });
+  }
   const latest = runs.at(-1);
-  if (latest) for (let i = runs.length - 3; i >= 0; i--) add(runs[i], latest);
-  return [...out.values()];
+  if (latest) {
+    for (let i = runs.length - 2; i >= 0; i--) {
+      out.push({ older: runs[i], newer: latest, slug: comparisonSlug(runs[i], LATEST), sinceLatest: true });
+    }
+  }
+  return out;
 }

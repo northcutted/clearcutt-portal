@@ -1,16 +1,20 @@
 # Publishes a ClearCutt portal to GitHub Pages from a clearcutt-verify
-# bundle. Run clearcutt-verify in an earlier job, upload the directory it
-# writes as an artifact, and pass the artifact's name:
+# bundle: the signed OCI artifact `clearcutt-verify estate push` stores
+# (verified before it is read), or an artifact an earlier job uploaded.
 #
 #   jobs:
-#     verify:
-#       ...   # clearcutt-verify estate verify --out estate; upload estate/ as "estate-bundle"
 #     portal:
-#       needs: verify
-#       uses: northcutted/clearcutt-portal/.github/workflows/portal.yml@v0.1.0
+#       uses: northcutted/clearcutt-portal/.github/workflows/portal.yml@<commit of a release tag> # vX.Y.Z
 #       permissions: {contents: read, pages: write, id-token: write}
 #       with:
-#         bundle-artifact: estate-bundle
+#         bundle-ref: ghcr.io/acme/estate:latest
+#         certificate-identity-regexp: ^https://github\.com/acme/estate/\.github/workflows/estate\.yml@refs/heads/main$
+#         certificate-oidc-issuer: https://token.actions.githubusercontent.com
+#
+# The version is the ref you call the workflow at, and nothing else: pinned
+# to a release tag, or the commit one names, it builds that release's signed
+# archive; at any other commit or branch, that commit's source.
+# portal-version is deprecated: it still works, with a warning.
 #
 # The repository's Pages source must be "GitHub Actions". With deploy: false
 # the site is uploaded as an artifact named clearcutt-portal-site instead; the
@@ -20,16 +24,40 @@ name: portal
 on:
   workflow_call:
     inputs:
-      bundle-artifact:
-        description: Name of the artifact holding the bundle (estate-report.json, and optionally estate-history.json).
+      bundle-ref:
+        description: The bundle as an OCI artifact (registry/repository:tag, or @sha256:… to pin it), as clearcutt-verify estate push stores it. Its cosign signature must verify against certificate-identity-regexp and certificate-oidc-issuer, or the build fails. Give this or bundle-artifact.
         type: string
-        required: true
+        default: ""
+      certificate-identity-regexp:
+        description: With bundle-ref, who must have signed the bundle (cosign's --certificate-identity-regexp), anchored with ^ and $.
+        type: string
+        default: ""
+      certificate-oidc-issuer:
+        description: With bundle-ref, the signer's OIDC issuer (cosign's --certificate-oidc-issuer), e.g. https://token.actions.githubusercontent.com.
+        type: string
+        default: ""
+      registry-username:
+        description: With bundle-ref, a user to log in to its registry as, with the registry-password secret. Without it the bundle is pulled anonymously, which works for a public package.
+        type: string
+        default: ""
+      bundle-artifact:
+        description: Name of an artifact of this run holding the bundle (estate-report.json, and optionally estate-history.json). Give this or bundle-ref.
+        type: string
+        default: ""
       bundle-path:
-        description: Directory of the bundle inside the artifact.
+        description: Directory of the bundle inside bundle-artifact.
         type: string
         default: .
       title:
         description: Site title. Default is the estate's name from the report.
+        type: string
+        default: ""
+      history-runs:
+        description: How many of the latest runs the history, comparison, and image pages show. Default 50; 0 shows every run.
+        type: string
+        default: ""
+      scan-age-days:
+        description: Flag vulnerability scans older than this many days on the overview. Default is the policy's maxScanAgeDays, or 7.
         type: string
         default: ""
       deploy:
@@ -37,54 +65,124 @@ on:
         type: boolean
         default: true
       portal-version:
-        description: clearcutt-portal release to build with (a tag), or a commit to build from source.
+        description: Deprecated; remove it. The workflow builds the version it is called at. Given, it is still used (a release tag, or a commit to build from source), with a warning.
         type: string
-        default: v0.1.0
+        default: ""
+    secrets:
+      registry-password:
+        description: With registry-username, the password or token for the bundle's registry.
+        required: false
     outputs:
       page-url:
         description: The deployed site's URL.
         value: ${{ jobs.deploy.outputs.page-url }}
+      portal-version:
+        description: The clearcutt-portal version that built the site (a release, or source@<commit>).
+        value: ${{ jobs.build.outputs.portal-version }}
+      bundle-digest:
+        description: With bundle-ref, the digest of the bundle that was verified and built.
+        value: ${{ jobs.build.outputs.bundle-digest }}
 permissions: {}
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: read
       pages: read
+    outputs:
+      portal-version: ${{ steps.portal.outputs.version == 'source' && format('source@{0}', steps.version.outputs.ref) || steps.portal.outputs.version }}
+      bundle-digest: ${{ steps.portal.outputs.bundle-digest }}
     steps:
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      - name: Check the inputs
+        env:
+          ARTIFACT: ${{ inputs.bundle-artifact }}
+          BUNDLE_REF: ${{ inputs.bundle-ref }}
+        run: |
+          if [ -n "$ARTIFACT" ] && [ -n "$BUNDLE_REF" ]; then
+            echo "::error title=clearcutt-portal::give bundle-ref or bundle-artifact, not both"; exit 1
+          fi
+          if [ -z "$ARTIFACT" ] && [ -z "$BUNDLE_REF" ]; then
+            echo "::error title=clearcutt-portal::give bundle-ref (a signed OCI artifact) or bundle-artifact"; exit 1
+          fi
+
+      # Which clearcutt-portal to build with: the commit this workflow was
+      # called at (job.workflow_sha), and the release that commit is, if it
+      # is one. Only a release tag (vX.Y.Z, as scripts/release.sh cuts
+      # them) has a signed archive for the action to verify and build; any
+      # other ref, even one whose name starts with v, builds from source.
+      - id: version
+        env:
+          JOB: ${{ toJSON(job) }}
+          REQUESTED: ${{ inputs.portal-version }}
+        run: |
+          set -euo pipefail
+          release='^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$'
+          workflow_ref=$(jq -r '.workflow_ref // ""' <<<"$JOB")   # owner/repo/.github/workflows/portal.yml@<ref>
+          sha=$(jq -r '.workflow_sha // ""' <<<"$JOB")
+          repo=$(jq -r '.workflow_repository // ""' <<<"$JOB")
+          repo=${repo:-northcutted/clearcutt-portal}
+          called=${workflow_ref#*@}
+          tag_of() { # the release tag that names commit $1, if one does
+            git ls-remote --tags "https://github.com/$repo" 'v*' | sed 's/\^{}$//' |
+              awk -v c="$1" '$1 == c { sub("refs/tags/", "", $2); print $2 }' |
+              grep -E "$release" | sort -V | tail -n 1 || true
+          }
+          if [ -n "$REQUESTED" ]; then
+            msg="portal-version is deprecated and will be removed: the workflow builds the version it is called at (${called:-unknown}). Remove portal-version from the caller."
+            if [ -n "$called" ] && [ "$REQUESTED" != "${called#refs/tags/}" ] && [ "$REQUESTED" != "$sha" ]; then
+              msg="$msg It differs from that ref, and the site is built with portal-version ($REQUESTED)."
+            fi
+            echo "::warning title=portal-version is deprecated::$msg"
+            ref=$REQUESTED
+            version=$REQUESTED
+          elif [ -n "$sha" ]; then
+            ref=$sha
+            case $called in
+              refs/tags/*) version=${called#refs/tags/} ;;
+              *) version=$(tag_of "$sha") ;;
+            esac
+          else
+            echo "::error title=clearcutt-portal::this GitHub doesn't tell a reusable workflow its own ref (job.workflow_ref), so set portal-version to the ref you call it at"
+            exit 1
+          fi
+          [[ "$version" =~ $release ]] || version=source
+          {
+            echo "repository=$repo"
+            echo "ref=$ref"
+            echo "version=$version"
+          } >> "$GITHUB_OUTPUT"
+          echo "clearcutt-portal: ${version} (${repo}@${ref})"
+
+      - if: inputs.bundle-artifact != ''
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: ${{ inputs.bundle-artifact }}
           path: .estate-bundle
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          repository: northcutted/clearcutt-portal
-          ref: ${{ inputs.portal-version }}
+          repository: ${{ steps.version.outputs.repository }}
+          ref: ${{ steps.version.outputs.ref }}
           path: .clearcutt-portal
           persist-credentials: false
       - id: pages
         if: inputs.deploy
         uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
-      # Only a release tag (vX.Y.Z, as scripts/release.sh cuts them) has a
-      # signed archive for the action to verify and build; a branch or commit,
-      # even one whose name starts with v, builds from the checkout above.
-      - id: version
-        env:
-          VERSION: ${{ inputs.portal-version }}
-        run: |
-          if [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
-            echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          else
-            echo "version=source" >> "$GITHUB_OUTPUT"
-          fi
       - id: portal
         uses: ./.clearcutt-portal
         with:
-          bundle: .estate-bundle/${{ inputs.bundle-path }}
+          bundle: ${{ inputs.bundle-artifact != '' && format('.estate-bundle/{0}', inputs.bundle-path) || '' }}
+          bundle-ref: ${{ inputs.bundle-ref }}
+          certificate-identity-regexp: ${{ inputs.certificate-identity-regexp }}
+          certificate-oidc-issuer: ${{ inputs.certificate-oidc-issuer }}
+          registry-username: ${{ inputs.registry-username }}
+          registry-password: ${{ secrets.registry-password }}
           output: .clearcutt-portal-site
           site-url: ${{ steps.pages.outputs.origin }}
           base-path: ${{ steps.pages.outputs.base_path || '/' }}
           title: ${{ inputs.title }}
+          history-runs: ${{ inputs.history-runs }}
+          scan-age-days: ${{ inputs.scan-age-days }}
           version: ${{ steps.version.outputs.version }}
       - if: inputs.deploy
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
@@ -100,9 +198,17 @@ jobs:
     if: inputs.deploy
     needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       pages: write
       id-token: write
+    # One deploy at a time, the newest waiting: a deploy started while
+    # another is running would make Pages refuse one of them. The group's
+    # name is this workflow's own, so a caller's workflow-level group (often
+    # "pages") can't deadlock with it.
+    concurrency:
+      group: clearcutt-portal-pages-deploy
+      cancel-in-progress: false
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

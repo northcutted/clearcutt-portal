@@ -1,73 +1,125 @@
 ---
 import Layout from '../layouts/Layout.astro';
-import Chip from '../components/Chip.astro';
-import EvidenceCells from '../components/EvidenceCells.astro';
-import StatusCell from '../components/StatusCell.astro';
-import VulnSummary from '../components/VulnSummary.astro';
+import AdvisoryLinks from '../components/AdvisoryLinks.astro';
+import ImagesTable from '../components/ImagesTable.astro';
 import PolicySummary from '../components/PolicySummary.astro';
+import StatusText from '../components/StatusText.astro';
+import Tile from '../components/Tile.astro';
 import { loadBundle } from '../lib/bundle.ts';
 import { byVerdict, daysBehind, imageLabel, staleImages } from '../lib/estate.ts';
+import { affectedImages, findingGroups, isSevere } from '../lib/findings.ts';
 import { formatTime, plural } from '../lib/format.ts';
+import { formatAge, listPath, oldScans, outstanding, reasonGroups, scanAges } from '../lib/overview.ts';
 import {
   EVIDENCE_KINDS,
   SEVERITIES,
   TONE_GLYPH,
-  drift,
   evidenceStatus,
-  reproducibility,
+  reproducedTone,
   strength,
   verdict,
   type Tone,
 } from '../lib/present.ts';
-import { imageHref } from '../lib/site.ts';
+import { href, imageHref, scanAgeDays } from '../lib/site.ts';
+import Chip from '../components/Chip.astro';
 
 const { report } = loadBundle();
 const { summary, metadata, policy } = report;
 const images = byVerdict(report.images);
-const attention = images.filter((i) => i.verdict.status !== 'verified');
 const stale = staleImages(report);
+const reasons = reasonGroups(report);
 const withBase = summary.bases.proven + summary.bases.claimed;
-const recipes = summary.reproducibility.reproduced + summary.reproducibility.notReproduced + summary.reproducibility.notChecked;
+const repro = summary.reproducibility;
+const recipes = repro.reproduced + repro.notReproduced + repro.notChecked;
 const stacks = report.stacks ?? [];
 const stackConsumers = stacks.reduce((n, s) => n + s.consumers, 0);
 const staleOnStacks = stacks.reduce((n, s) => n + s.staleConsumers, 0);
+const vulns = summary.vulnerabilities;
+const scanDays = scanAgeDays();
+const ages = scanAges(report);
+const oldest = ages.dated[0];
+const old = oldScans(report, scanDays);
+const todo = outstanding(report, scanDays);
+// What the verdicts don't already say.
+const besides = todo.filter((t) => t.path !== listPath('failed') && t.path !== listPath('unverified'));
+const passes = summary.verdicts.failed === 0 && summary.verdicts.unverified === 0;
+const groups = findingGroups(report);
+// The findings to fix first: fixable critical and high, then critical and
+// high with no fix known.
+const fixFirst = groups.filter((g) => g.counted.length > 0 && isSevere(g.severity));
+const SHOW = 10;
+// A reason's images: a few inline, the rest a click away.
+const INLINE = 12;
 
-const verdictTiles: { status: string; count: number }[] = [
-  { status: 'verified', count: summary.verdicts.verified },
-  { status: 'failed', count: summary.verdicts.failed },
-  { status: 'unverified', count: summary.verdicts.unverified },
-];
+const verdictTiles = (['verified', 'failed', 'unverified'] as const).map((status) => {
+  const term = verdict(status);
+  return { value: summary.verdicts[status], label: term.label, note: term.meaning, tone: term.tone, path: listPath(status) };
+});
 
-const otherTiles: { label: string; value: number; tone: Tone; note: string }[] = [
+const severe = vulns.counts.critical + vulns.counts.high;
+const otherTiles: { label: string; value: string | number; tone: Tone; note: string; path: string }[] = [
   {
-    label: 'Base proven',
-    value: summary.bases.proven,
-    tone: 'good',
-    note: `by layer digests; ${summary.bases.claimed} more rest on a claim`,
+    label: 'Critical and high findings',
+    value: vulns.scanned > 0 ? severe : '?',
+    tone: vulns.scanned === 0 ? 'unknown' : vulns.counts.critical > 0 ? 'bad' : vulns.counts.high > 0 ? 'warn' : 'good',
+    note:
+      vulns.scanned === 0
+        ? 'unknown: no image has vulnerability data'
+        : `${vulns.fixable.critical + vulns.fixable.high} with a fix, in ${plural(vulns.scanned, 'scanned image')}${vulns.notScanned > 0 ? ' (a floor)' : ''}`,
+    path: 'findings/',
   },
   {
     label: 'On a stale base',
     value: summary.bases.stale,
     tone: summary.bases.stale > 0 ? 'warn' : 'good',
     note: `of ${plural(withBase, 'image')} with a known base`,
+    path: listPath('stale-base'),
+  },
+  {
+    label: 'Base proven',
+    value: summary.bases.proven,
+    tone: 'good',
+    note: `by layer digests; ${summary.bases.claimed} more rest on a claim`,
+    path: listPath('base-proven'),
   },
   {
     label: 'Base unresolved',
     value: summary.bases.unresolved,
     tone: summary.bases.unresolved > 0 ? 'unknown' : 'muted',
-    note: "no base could be determined",
+    note: 'no base could be determined',
+    path: listPath('base-unresolved'),
   },
   {
     label: 'Vulnerabilities unknown',
-    value: summary.vulnerabilities.notScanned,
-    tone: summary.vulnerabilities.notScanned > 0 ? 'unknown' : 'muted',
+    value: vulns.notScanned,
+    tone: vulns.notScanned > 0 ? 'unknown' : 'muted',
     note: 'images with no vulnerability data',
+    path: listPath('not-scanned'),
+  },
+  {
+    label: 'Oldest scan',
+    value: oldest ? formatAge(oldest.ms) : '?',
+    tone: old.length > 0 ? 'warn' : ages.undated.length > 0 || !oldest ? 'unknown' : 'good',
+    note: oldest
+      ? `${imageLabel(oldest.image)}; ${old.length > 0 ? `${plural(old.length, 'scan is', 'scans are')} over` : 'none over'} ${plural(scanDays, 'day')}${ages.undated.length > 0 ? `, ${ages.undated.length} undated` : ''}`
+      : ages.undated.length > 0
+        ? `${plural(ages.undated.length, 'scan has', 'scans have')} no date`
+        : 'no image has vulnerability data',
+    path: listPath('old-scans'),
   },
   {
     label: 'Reproduced',
-    value: summary.reproducibility.reproduced,
-    tone: summary.reproducibility.notReproduced > 0 ? 'bad' : 'good',
+    value: repro.reproduced,
+    tone: reproducedTone(repro),
     note: `of ${plural(recipes, 'image')} with a recipe or rebase record${policy.reproduce ? '' : ' (this run did not rebuild)'}`,
+    path: listPath('reproduced'),
+  },
+  {
+    label: 'Not reproduced',
+    value: repro.notReproduced,
+    tone: repro.notReproduced > 0 ? 'bad' : recipes === 0 ? 'muted' : 'good',
+    note: `rebuilt to a different digest${repro.notChecked > 0 ? `; ${repro.notChecked} not checked` : ''}`,
+    path: listPath('not-reproduced'),
   },
   ...(stacks.length > 0
     ? [
@@ -76,6 +128,7 @@ const otherTiles: { label: string; value: number; tone: Tone; note: string }[] =
           value: staleOnStacks,
           tone: (staleOnStacks > 0 ? 'warn' : 'good') as Tone,
           note: `of ${plural(stackConsumers, 'app')} on ${plural(stacks.length, 'registry stack')}`,
+          path: 'stacks/',
         },
       ]
     : []),
@@ -89,8 +142,8 @@ const evidenceColumns = [
   { key: 'unknown', status: 'unknown' },
   { key: 'notApplicable', status: 'not-applicable' },
 ] as const;
-const vulns = summary.vulnerabilities;
 const sources = metadata.sources.map((s) => [s.registry, s.namespace].filter(Boolean).join('/'));
+const capital = (s: string) => `${s[0].toUpperCase()}${s.slice(1)}`;
 ---
 <Layout title="Overview">
   <header class="page-head">
@@ -103,29 +156,50 @@ const sources = metadata.sources.map((s) => [s.registry, s.namespace].filter(Boo
     </p>
   </header>
 
+  <section class="standing" aria-labelledby="standing">
+    <h2 id="standing" class="sr-only">Where the estate stands</h2>
+    <p class="standing-head">
+      {passes ? (
+        <><StatusText term={{ label: 'Policy passes:', tone: 'good', meaning: '' }} /> {summary.images === 1 ? 'the image is' : `all ${summary.images} images are`} verified.</>
+      ) : (
+        <>
+          <StatusText term={{ label: 'Policy does not pass:', tone: summary.verdicts.failed > 0 ? 'bad' : 'unknown', meaning: '' }} /> of{' '}
+          {plural(summary.images, 'image')},{' '}
+          {[
+            summary.verdicts.failed > 0 && `${summary.verdicts.failed} ${summary.verdicts.failed === 1 ? 'fails' : 'fail'} it`,
+            summary.verdicts.unverified > 0 && `${summary.verdicts.unverified} ${summary.verdicts.unverified === 1 ? 'is' : 'are'} unverified`,
+          ]
+            .filter(Boolean)
+            .join(' and ')}.
+        </>
+      )}
+    </p>
+    {besides.length > 0 ? (
+      <>
+        <p>{passes ? "Still outstanding, though the policy doesn't fail them:" : 'Also outstanding:'}</p>
+        <ul class="outstanding">
+          {besides.map((t) => (
+            <li><span class={`chip-glyph tone-${t.tone}`} aria-hidden="true">{TONE_GLYPH[t.tone]}</span> <a href={href(t.path)}>{capital(t.text)}</a></li>
+          ))}
+        </ul>
+      </>
+    ) : (
+      <p class="small">
+        Nothing else is outstanding: no critical or high findings, no image on a stale base, no rebuild that didn't
+        reproduce, and every image has vulnerability data no older than {plural(scanDays, 'day')}.
+      </p>
+    )}
+  </section>
+
   <section aria-labelledby="verdicts">
     <h2 id="verdicts">Verdicts</h2>
     <div class="tiles">
-      {verdictTiles.map((tile) => {
-        const term = verdict(tile.status);
-        return (
-          <div class={`tile tone-${term.tone}`}>
-            <p class="tile-value">{tile.count}</p>
-            <p class="tile-label">{TONE_GLYPH[term.tone]} {term.label}</p>
-            <p class="tile-note">{term.meaning}</p>
-          </div>
-        );
-      })}
+      {verdictTiles.map((tile) => <Tile value={tile.value} label={tile.label} note={tile.note} tone={tile.tone} glyph path={tile.path} />)}
     </div>
     <div class="tiles">
-      {otherTiles.map((tile) => (
-        <div class={`tile tone-${tile.tone}`}>
-          <p class="tile-value">{tile.value}</p>
-          <p class="tile-label">{tile.label}</p>
-          <p class="tile-note">{tile.note}</p>
-        </div>
-      ))}
+      {otherTiles.map((tile) => <Tile value={tile.value} label={tile.label} note={tile.note} tone={tile.tone} path={tile.path} />)}
     </div>
+    <p class="small dim">Each number opens the list of what it counts.</p>
   </section>
 
   {report.warnings.length > 0 && (
@@ -137,21 +211,85 @@ const sources = metadata.sources.map((s) => [s.registry, s.namespace].filter(Boo
 
   <section aria-labelledby="attention">
     <h2 id="attention">Not verified, and why</h2>
-    {attention.length === 0 ? (
-      <p>Every image meets every requirement in the policy.</p>
+    {reasons.length === 0 ? (
+      <p>No image falls short of the policy.{besides.length > 0 && <> What is still outstanding is listed above.</>}</p>
     ) : (
-      <div class="grid">
-        {attention.map((image) => (
-          <article class="card">
-            <p><a href={imageHref(image.id)}><strong>{imageLabel(image)}</strong></a></p>
-            <p class="dim small mono">{image.repository}</p>
-            <p><Chip term={verdict(image.verdict.status)} /></p>
-            {image.verdict.reasons.length > 0 && (
-              <ul class="reasons">{image.verdict.reasons.map((r) => <li>{r}</li>)}</ul>
-            )}
-          </article>
-        ))}
-      </div>
+      <>
+        <p class="lede small">
+          One card per reason, with every image it holds back: fix a reason and every image on its card moves. Reasons that
+          fail an image come first, then those that hold back the most images. An image can be on more than one card.
+        </p>
+        <div class="grid reasons-grid">
+          {reasons.map((group) => {
+            const shown = group.images.slice(0, INLINE);
+            const rest = group.images.slice(INLINE);
+            const item = ({ image, reason }: (typeof group.images)[number]) => (
+              <li>
+                <a href={imageHref(image.id)}>{imageLabel(image)}</a> <StatusText term={verdict(image.verdict.status)} />
+                {reason !== group.text && <div class="dim small">{reason}</div>}
+              </li>
+            );
+            return (
+              <article class="card">
+                <h3>{capital(group.text)}</h3>
+                <p class="small">
+                  {plural(group.images.length, 'image', 'images')}
+                  {group.failed > 0 && group.unverified > 0 && <>: {group.failed} failed, {group.unverified} unverified</>}
+                  {group.failed > 0 && group.unverified === 0 && <>, failed</>}
+                  {group.failed === 0 && <>, unverified</>}
+                </p>
+                <ul class="reason-images">{shown.map(item)}</ul>
+                {rest.length > 0 && (
+                  <details>
+                    <summary>{plural(rest.length, 'more image', 'more images')}</summary>
+                    <ul class="reason-images">{rest.map(item)}</ul>
+                  </details>
+                )}
+              </article>
+            );
+          })}
+        </div>
+      </>
+    )}
+  </section>
+
+  <section aria-labelledby="fix-first">
+    <h2 id="fix-first">Findings to fix first</h2>
+    {vulns.scanned === 0 ? (
+      <p>No image has vulnerability data, so what there is to fix is unknown.</p>
+    ) : fixFirst.length === 0 ? (
+      <p>
+        No image with vulnerability data has a critical or high finding.{vulns.notScanned > 0 && <> {plural(vulns.notScanned, 'image has', 'images have')} none, so {vulns.notScanned === 1 ? 'its findings are' : 'theirs are'} unknown.</>}{' '}
+        <a href={href('findings/')}>Every finding</a>.
+      </p>
+    ) : (
+      <>
+        <p class="lede small">
+          Critical and high findings with a fixed version first, then those with no fix known, each with the images that have
+          it. {vulns.notScanned > 0 && <>{plural(vulns.notScanned, 'image has', 'images have')} no vulnerability data, so this is a floor. </>}
+          <a href={href('findings/')}>Every finding</a>, by advisory.
+        </p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Finding</th><th>Severity</th><th>Fixed in</th><th>Package</th><th class="num">Images</th></tr></thead>
+            <tbody>
+              {fixFirst.slice(0, SHOW).map((g) => {
+                const fixes = [...new Set(g.counted.flatMap((o) => o.finding.fixedIn ?? []))];
+                return (
+                  <tr>
+                    <td><a class="mono" href={href(`findings/${encodeURIComponent(g.slug)}/`)}>{g.id}</a><div class="small"><AdvisoryLinks id={g.id} /></div></td>
+                    <td>{g.severity}</td>
+                    <td class="mono small">{fixes.length > 0 ? fixes.join(', ') : <span class="dim">no fix known</span>}</td>
+                    <td class="mono small">{g.packages.join(', ')}</td>
+                    <td class="num">{affectedImages(g).length}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        {fixFirst.length > SHOW && <p class="small"><a href={href('findings/')}>{plural(fixFirst.length - SHOW, 'more critical or high finding', 'more critical or high findings')}</a></p>}
+      </>
     )}
   </section>
 
@@ -198,46 +336,7 @@ const sources = metadata.sources.map((s) => [s.registry, s.namespace].filter(Boo
 
   <section aria-labelledby="images">
     <h2 id="images">Images</h2>
-    <div class="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th>Image</th>
-            <th>Verdict</th>
-            <th>Base</th>
-            {EVIDENCE_KINDS.map((k) => <th class="center tight" title={k.label}>{k.short}</th>)}
-            <th>Vulnerabilities</th>
-            <th class="center tight">Rebuild</th>
-          </tr>
-        </thead>
-        <tbody>
-          {images.map((image) => (
-            <tr>
-              <td>
-                <a href={imageHref(image.id)}>{imageLabel(image)}</a>
-                <div class="dim small mono nowrap">{image.repository}</div>
-              </td>
-              <td><Chip term={verdict(image.verdict.status)} /></td>
-              <td>
-                {image.base ? (
-                  <span class="inline-list">
-                    <Chip term={strength(image.base.strength)} />
-                    <Chip term={drift(image.base.drift)} />
-                  </span>
-                ) : image.root ? (
-                  <span class="dim small" title={image.root}>root</span>
-                ) : (
-                  <Chip term={{ label: 'Unresolved', tone: 'unknown', meaning: (image.unresolved ?? []).join('; ') || 'No base could be determined.' }} />
-                )}
-              </td>
-              <EvidenceCells image={image} />
-              <td><VulnSummary vulnerabilities={image.vulnerabilities} /></td>
-              <td class="center tight"><StatusCell term={reproducibility(image.reproducibility.status)} subject="Rebuild" detail={image.reproducibility.detail} /></td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <ImagesTable images={images} caption="Every image: verdict, base, evidence, vulnerabilities, scan age, and rebuild" />
     <p class="small dim">
       {(['good', 'claim', 'warn', 'bad', 'unknown', 'muted'] as Tone[]).map((tone, i) => {
         const names: Record<Tone, string> = {
@@ -284,7 +383,7 @@ const sources = metadata.sources.map((s) => [s.registry, s.namespace].filter(Boo
       Totals over the {plural(vulns.scanned, 'image')} with vulnerability data.
       {vulns.notScanned > 0
         ? ` ${plural(vulns.notScanned, 'image has', 'images have')} none, so their vulnerabilities are unknown and these totals are a floor for the estate, not its total.`
-        : ' Every image has vulnerability data.'}
+        : ' Every image has vulnerability data.'}{' '}
       Each image's findings describe the day its report was made.
     </p>
     <div class="table-wrap">

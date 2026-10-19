@@ -5,7 +5,7 @@
 // each run's value is in a table the page shows alongside (`valuesIn` says
 // where), so no value is only reachable by hovering over a dot.
 import { lineGeometry, type Point } from '../lib/charts.ts';
-import { formatDay, formatTime } from '../lib/format.ts';
+import { compareTimes, formatDay, formatTime } from '../lib/format.ts';
 
 interface Props {
   title: string;
@@ -19,7 +19,7 @@ const W = 240;
 const H = 120;
 const box = { x0: 26, x1: W - 26, y0: 12, y1: H - 22 };
 const g = lineGeometry(points, box);
-const sorted = [...points].sort((a, b) => a.at.localeCompare(b.at));
+const sorted = [...points].sort((a, b) => compareTimes(a.at, b.at));
 const first = sorted[0];
 const last = sorted[sorted.length - 1];
 const latest = g.dots[g.dots.length - 1];

@@ -1,6 +1,7 @@
 // Generates src/lib/contract.gen.ts, the TypeScript types for the estate
-// report contract, from the vendored JSON Schemas in contract/. Pages are
-// typed only by what the contract defines.
+// report contract, from the vendored JSON Schemas in contract/, and the
+// clearcutt-verify release the contract is from (contract/UPSTREAM). Pages
+// are typed only by what the contract defines.
 //
 // Usage: node scripts/gen-types.ts [--check]
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -61,7 +62,22 @@ const merged = parts
     return false;
   })
   .join('\n');
-const text = banner + merged.trim() + '\n';
+// Where the contract came from, so a build can say when a report is from a
+// newer clearcutt-verify than the one it was built against.
+const upstream = readFileSync(new URL('../contract/UPSTREAM', import.meta.url), 'utf8');
+const field = (name: string) => upstream.match(new RegExp(`^${name}: (.+)$`, 'm'))?.[1].trim() ?? '';
+const release = field('release');
+const footer = `
+/**
+ * The clearcutt-verify commit the vendored contract is from, and the newest
+ * release at or before it ("none" when there is none), from contract/UPSTREAM.
+ */
+export const CONTRACT_UPSTREAM: { commit: string; release: string } = {
+  commit: ${JSON.stringify(field('commit'))},
+  release: ${JSON.stringify(/^v\d+\.\d+\.\d+$/.test(release) ? release : 'none')},
+};
+`;
+const text = banner + merged.trim() + '\n' + footer;
 
 if (process.argv.includes('--check')) {
   if (readFileSync(out, 'utf8') !== text) {

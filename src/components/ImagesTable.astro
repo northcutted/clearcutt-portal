@@ -1,0 +1,101 @@
+---
+// The images table: verdict, base, each kind of evidence, vulnerabilities,
+// scan age, and rebuild, one row per image. It reads in the order given
+// without script; with it, every column sorts (src/scripts/sort-table.ts),
+// and anything unknown stays at the bottom whichever way a column sorts.
+import Chip from './Chip.astro';
+import EvidenceCells from './EvidenceCells.astro';
+import StatusCell from './StatusCell.astro';
+import VulnSummary from './VulnSummary.astro';
+import type { Image } from '../lib/contract.gen.ts';
+import { loadBundle } from '../lib/bundle.ts';
+import { daysBehind, imageLabel } from '../lib/estate.ts';
+import { formatAge, scanAges } from '../lib/overview.ts';
+import { EVIDENCE_KINDS, drift, reproducibility, strength, verdict } from '../lib/present.ts';
+import { imageHref } from '../lib/site.ts';
+
+interface Props {
+  images: Image[];
+  caption: string;
+}
+const { images, caption } = Astro.props;
+const { report } = loadBundle();
+const ages = new Map(scanAges(report).dated.map((s) => [s.image.id, s.ms]));
+
+// Sort keys: lower is worse for statuses, so "worst first" is ascending.
+const VERDICT_RANK: Record<string, number> = { failed: 0, unverified: 1, verified: 2 };
+const EVIDENCE_RANK: Record<string, number> = { failed: 0, missing: 1, unknown: 2, present: 3, verified: 4, 'not-applicable': 5 };
+const REBUILD_RANK: Record<string, number> = { 'not-reproduced': 0, 'not-checked': 1, reproduced: 2, 'no-recipe': 3 };
+const DRIFT_RANK: Record<string, number> = { stale: 0, unknown: 1, current: 2 };
+const baseKey = (image: Image) => {
+  const b = image.base;
+  if (!b) return image.root ? '3' : '1';
+  const days = daysBehind(b);
+  // Stale ones by how far behind, those whose days couldn't be measured last.
+  return `${DRIFT_RANK[b.drift] ?? 1} ${b.drift === 'stale' ? (days === null ? 1 : -days) : 0} ${-b.versionsBehind}`;
+};
+const vulnKey = (image: Image) => {
+  const c = image.vulnerabilities?.counts;
+  return c ? `${c.critical} ${c.high} ${c.medium} ${c.low}` : '';
+};
+---
+<div data-sort-root>
+<div class="table-wrap">
+  <table class="images" data-sortable>
+    <caption class="sr-only">{caption}</caption>
+    <thead>
+      <tr>
+        <th data-sort="text" data-sort-asc="A to Z" data-sort-desc="Z to A">Image</th>
+        <th data-sort="number" data-sort-asc="worst first" data-sort-desc="best first">Verdict</th>
+        <th data-sort="number" data-sort-asc="most behind first" data-sort-desc="most current first">Base</th>
+        {EVIDENCE_KINDS.map((k) => (
+          <th class="center tight" title={k.label} data-sort="number" data-sort-asc="worst first" data-sort-desc="best first" data-sort-label={k.label}>
+            <span aria-hidden="true">{k.short}</span><span class="sr-only">{k.label}</span>
+          </th>
+        ))}
+        <th data-sort="number" data-sort-first="descending" data-sort-asc="fewest first" data-sort-desc="most critical first">Vulnerabilities</th>
+        <th class="num" data-sort="number" data-sort-first="descending" data-sort-asc="newest first" data-sort-desc="oldest first">Scan age</th>
+        <th class="center tight" data-sort="number" data-sort-asc="worst first" data-sort-desc="best first">Rebuild</th>
+      </tr>
+    </thead>
+    <tbody>
+      {images.map((image) => {
+        const age = ages.get(image.id);
+        return (
+          <tr>
+            <td data-sort-value={imageLabel(image).toLowerCase()}>
+              <a href={imageHref(image.id)}>{imageLabel(image)}</a>
+              <div class="dim small mono repo">{image.repository.split('/').map((part, i) => <>{i > 0 && <>/<wbr /></>}{part}</>)}</div>
+            </td>
+            <td data-sort-value={String(VERDICT_RANK[image.verdict.status] ?? 1)}><Chip term={verdict(image.verdict.status)} /></td>
+            <td data-sort-value={baseKey(image)}>
+              {image.base ? (
+                <span class="inline-list">
+                  <Chip term={strength(image.base.strength)} />
+                  <Chip term={drift(image.base.drift)} />
+                </span>
+              ) : image.root ? (
+                <span class="dim small" title={image.root}>root</span>
+              ) : (
+                <Chip term={{ label: 'Unresolved', tone: 'unknown', meaning: (image.unresolved ?? []).join('; ') || 'No base could be determined.' }} />
+              )}
+            </td>
+            <EvidenceCells image={image} rank={EVIDENCE_RANK} />
+            <td data-sort-value={vulnKey(image)}><VulnSummary vulnerabilities={image.vulnerabilities} /></td>
+            <td class="num nowrap" data-sort-value={age === undefined ? '' : String(age)}>
+              {age !== undefined ? formatAge(age) : image.vulnerabilities ? <span class="dim">no date</span> : <span class="dim">no data</span>}
+            </td>
+            <td class="center tight" data-sort-value={String(REBUILD_RANK[image.reproducibility.status] ?? 1)}>
+              <StatusCell term={reproducibility(image.reproducibility.status)} subject="Rebuild" detail={image.reproducibility.detail} />
+            </td>
+          </tr>
+        );
+      })}
+    </tbody>
+  </table>
+</div>
+<p class="small dim sort-hint" data-sort-hint hidden>Select a column's heading to sort by it; select it again to reverse. Unknown values stay at the bottom.</p>
+<p class="sr-only" aria-live="polite" data-sort-status></p>
+</div>
+
+<script src="../scripts/sort-table.ts"></script>

@@ -949,3 +949,12 @@ export interface HistoryBase {
   platform?: string;
   strength: string;
 }
+
+/**
+ * The clearcutt-verify commit the vendored contract is from, and the newest
+ * release at or before it ("none" when there is none), from contract/UPSTREAM.
+ */
+export const CONTRACT_UPSTREAM: { commit: string; release: string } = {
+  commit: "365c373b678a8430348c8a84f7dd0a07877b98ed",
+  release: "v0.16.0",
+};

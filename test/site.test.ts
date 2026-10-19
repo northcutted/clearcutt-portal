@@ -5,7 +5,6 @@ import { createHash } from 'node:crypto';
 import {
   cpSync,
   existsSync,
-  mkdtempSync,
   readFileSync,
   readdirSync,
   realpathSync,
@@ -14,12 +13,11 @@ import {
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { before, describe, test } from 'node:test';
 import { readBundle } from '../src/lib/bundle.ts';
 import { verifyCommands } from '../src/lib/commands.ts';
-import { FIXTURE, MINIMAL, editedBundle, root, v015Bundle } from './helpers.ts';
+import { editedBundle, FIXTURE, MINIMAL, root, scratch, v015Bundle } from './helpers.ts';
 
 function cli(...args: string[]) {
   return spawnSync(process.execPath, [path.join(root, 'bin/clearcutt-portal.ts'), ...args], {
@@ -29,7 +27,7 @@ function cli(...args: string[]) {
 }
 
 function build(bundle: string, ...extra: string[]): string {
-  const out = mkdtempSync(path.join(tmpdir(), 'portal-site-'));
+  const out = scratch('portal-site-');
   const run = cli('build', '--bundle', bundle, '--out', out, ...extra);
   assert.equal(run.status, 0, `build failed:\n${run.stdout}\n${run.stderr}`);
   return out;
@@ -90,7 +88,7 @@ const shown = (html: string) =>
 
 /** The commands an image page shows, as text, in order. */
 const shownCommands = (html: string) =>
-  [...html.matchAll(/<pre><code>([\s\S]*?)<\/code><\/pre>/g)].map((m) =>
+  [...html.matchAll(/<pre[^>]*><code>([\s\S]*?)<\/code><\/pre>/g)].map((m) =>
     m[1].replace(/&#39;/g, "'").replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&'),
   );
 
@@ -280,6 +278,21 @@ describe('the example site', () => {
     assert.match(text(page), /Present, unverified\. Found, but not checked/);
   });
 
+  test('every status cell takes keyboard focus and is named for what it says', () => {
+    const html = read(site, 'index.html');
+    const cells = [...html.matchAll(/<span class="cell-status tone-[a-z]+"([^>]*)>/g)].map((m) => m[1]);
+    assert.ok(cells.length >= 4 * 8, 'a status cell per evidence kind and rebuild, per image');
+    for (const attrs of cells) {
+      assert.match(attrs, /\stabindex="0"/);
+      assert.match(attrs, /\srole="img"/);
+      const label = attrs.match(/\saria-label="([^"]+)"/)?.[1];
+      assert.ok(label, attrs);
+      assert.match(label, /^(Signature|SBOM|Vulnerability report|SLSA provenance|Recipe|Rebase record|Tests|Rebuild): /);
+      assert.ok(attrs.includes(`data-label="${label}"`), 'the label shown on focus is the accessible name');
+    }
+    assert.match(html, /aria-label="SBOM: Unknown/);
+  });
+
   test('charts hold nothing focusable, and every charted value is in the table of runs', () => {
     const html = read(site, 'history/index.html');
     const charts = [...html.matchAll(/<svg\b[^>]*role="img"[^>]*>[\s\S]*?<\/svg>/g)].map((m) => m[0]);
@@ -310,6 +323,16 @@ describe('a report written by someone hostile', () => {
       r.images[2].reproducibility.builder.id = 'javascript:alert(document.domain)';
       // Not the policy's: the command would name it, and it can't be shown as it is.
       r.images[1].evidence.sbom.signer.identity = 'https://github.com/other/images/x\n$(touch pwned)';
+      // Finding IDs that are markup, a path, and almost a CVE.
+      r.images[2].vulnerabilities.findings.push(
+        ...['"><script>alert(1)</script>', '../../../etc/passwd', 'CVE-2026-1234 javascript:alert(1)'].map((id) => ({
+          id,
+          severity: 'high',
+          package: 'p',
+          version: '1',
+          platforms: ['linux/amd64'],
+        })),
+      );
     });
     site = build(bundle);
     report = readBundle(bundle).report;
@@ -358,12 +381,95 @@ describe('a report written by someone hostile', () => {
     assert.doesNotMatch(page, /<script>alert|<img src=x/);
     assert.match(page, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
   });
+
+  test('a hostile finding ID is escaped, gets a page inside findings/, and links nowhere else', () => {
+    const pages = readdirSync(path.join(site, 'findings')).sort();
+    assert.ok(pages.includes('etc-passwd') && pages.includes('script-alert-1-script'), pages.join(' '));
+    assert.ok(!existsSync(path.join(site, 'etc')));
+    for (const page of ['findings/index.html', 'images/ghcr-io-acme-images-billing/index.html']) {
+      const html = read(site, page);
+      // Inside a quoted attribute, where < is text, it may stay as it is.
+      assert.doesNotMatch(html.replace(/="[^"]*"/g, '=""'), /<script>alert/);
+      assert.match(html, /&quot;&gt;&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
+      // Almost a CVE is not one: no advisory link built from it.
+      assert.doesNotMatch(html, /cve\.org[^"]*javascript|nvd\.nist\.gov[^"]*javascript/);
+    }
+  });
 });
 
 describe('the fixture site', () => {
   let site: string;
   before(() => {
     site = build(FIXTURE);
+  });
+
+  test('why images fall short: one card per reason, with every image it holds back', () => {
+    const html = read(site, 'index.html');
+    const section = html.slice(html.indexOf('id="attention"'), html.indexOf('id="fix-first"'));
+    assert.deepEqual(
+      [...section.matchAll(/<h3>([^<]+)<\/h3>/g)].map((m) => m[1]),
+      ['Vulnerabilities are unknown (no scan)', 'Provenance is missing', 'Sbom is missing', 'Signature is missing'],
+    );
+    assert.match(shown(section), /Vulnerabilities are unknown \(no scan\) 4 images: 2 failed, 2 unverified amazonlinux:2023 ✕ Failed debian:trixie-slim ✕ Failed static:latest \? Unverified wolfi-base:latest \? Unverified/);
+  });
+
+  test('every headline number links to the list of what it counts', () => {
+    const html = read(site, 'index.html');
+    const tiles = [...html.matchAll(/<a class="tile tone-[a-z]+ tile-link" href="([^"]+)">/g)].map((m) => m[1]);
+    for (const path of ['/lists/verified/', '/lists/failed/', '/lists/unverified/', '/findings/', '/lists/stale-base/', '/lists/not-scanned/', '/lists/old-scans/', '/lists/reproduced/', '/lists/not-reproduced/']) {
+      assert.ok(tiles.includes(path), path);
+    }
+    assert.doesNotMatch(html, /<div class="tile /, 'no tile is a dead end');
+    // A list is a page of its own, with the images it names and no others.
+    const failed = shown(read(site, 'lists/failed/index.html'));
+    assert.match(failed, /Failed images.*2 images/);
+    const rows = [...read(site, 'lists/failed/index.html').matchAll(/<a href="\/images\/([^/]+)\/">/g)].map((m) => m[1]);
+    assert.deepEqual(rows, ['amazonlinux-2023', 'debian-trixie-slim']);
+    assert.match(shown(read(site, 'lists/not-reproduced/index.html')), /No rebuild gave a different digest/);
+  });
+
+  test('the overview counts what did not reproduce, and says how old the oldest scan is', () => {
+    const page = shown(read(site, 'index.html'));
+    assert.match(page, /✕ Policy does not pass: of 8 images, 2 fail it and 2 are unverified\. Also outstanding: ✕ 25 critical findings \(0 with a fix\) ! 192 high findings \(88 with a fix\) \? 4 images with no vulnerability data Verdicts/);
+    assert.match(page, /0 Not reproduced rebuilt to a different digest/);
+    assert.match(page, /45 minutes Oldest scan hello-app:latest; none over 7 days 4 Reproduced/);
+  });
+
+  test('the findings to fix first: fixable critical and high first, each linked out to its advisory', () => {
+    const index = read(site, 'findings/index.html');
+    const ids = [...index.matchAll(/<a class="mono" href="\/findings\/[^"]+\/">([^<]+)<\/a>/g)].map((m) => m[1]);
+    assert.ok(ids.indexOf('GO-2026-6603') < ids.indexOf('CVE-2026-10536'), 'a fixable high before a critical with no fix');
+    assert.match(index, /<a href="https:\/\/pkg\.go\.dev\/vuln\/GO-2026-6603" rel="noreferrer">Go vulnerability database<span class="sr-only"> for GO-2026-6603<\/span><\/a>/);
+    assert.match(shown(index), /Covered by a VEX statement everywhere .*GO-2026-6604/);
+    const page = shown(read(site, 'findings/go-2026-6603/index.html'));
+    assert.match(page, /3 images have it\. Fixed in 0\.60\.0, 1\.26\.9, 1\.27\.2\./);
+    assert.match(page, /amazonlinux-tools:latest ✓ Verified golang\.org\/x\/net v0\.57\.0 0\.60\.0 high/);
+    const curl = read(site, 'findings/cve-2026-10536/index.html');
+    assert.match(curl, /href="https:\/\/www\.cve\.org\/CVERecord\?id=CVE-2026-10536"/);
+    assert.match(curl, /href="https:\/\/nvd\.nist\.gov\/vuln\/detail\/CVE-2026-10536"/);
+    assert.match(shown(curl), /1 image has it\. No image reports a fixed version\./);
+    // Images with no vulnerability data are unknown here, never unaffected.
+    assert.match(shown(curl), /Where it is unknown .*4 images have no vulnerability data, so whether they have it is unknown/);
+    // The overview's short list is the same order.
+    assert.match(shown(read(site, 'index.html')), /Findings to fix first .* GO-2026-/);
+  });
+
+  test("an image's findings are fix first, each opening the advisory's page", () => {
+    const html = read(site, 'images/debian-tools/index.html');
+    const rows = [...html.matchAll(/<tr data-text="([^"]+)">/g)].map((m) => m[1]);
+    const first = rows.findIndex((r) => r.endsWith(' critical'));
+    const fixableHigh = rows.findIndex((r) => r.startsWith('go-2026-6603 '));
+    assert.ok(fixableHigh >= 0 && fixableHigh < first, 'a fixable high comes before a critical with no fix');
+    assert.match(html, /<a class="mono" href="\/findings\/cve-2026-10536\/">CVE-2026-10536<\/a>/);
+  });
+
+  test('the images table reads in verdict order without script, and says how to sort with it', () => {
+    const html = read(site, 'index.html');
+    const table = html.slice(html.indexOf('<table class="images" data-sortable>'));
+    assert.match(table, /<th data-sort="text"[^>]*>Image<\/th>/);
+    const order = [...table.slice(0, table.indexOf('</table>')).matchAll(/<a href="\/images\/([^/]+)\/">/g)].map((m) => m[1]);
+    assert.deepEqual(order.slice(0, 4), ['amazonlinux-2023', 'debian-trixie-slim', 'static', 'wolfi-base']);
+    assert.match(html, /<p class="small dim sort-hint" data-sort-hint hidden>/);
   });
 
   test('builds, and every verified image shows each required kind verified', () => {
@@ -498,7 +604,8 @@ describe('a report using everything clearcutt-verify v0.15 writes', () => {
     assert.equal(shown(read(site, `history/changes/${pair}/index.html`)).replace(/Changes from \S+ \S+ \S+ to \S+ \S+ \S+ · /, ''), page.replace(/Changes between runs · /, ''));
     const html = read(site, 'history/changes/index.html');
     assert.match(html, /<a href="\/history\/changes\/20261006T231441Z--20261006T233046Z\/">/);
-    assert.match(html, /<a href="\/history\/changes\/20261006T231441Z--20261010T165146Z\/">/);
+    assert.match(html, /<a href="\/history\/changes\/20261006T231441Z--latest\/">Since 2026-10-06 23:14 UTC<\/a>/);
+    assert.match(shown(read(site, 'history/changes/20261006T231441Z--latest/index.html')), /From 2026-10-06 23:14 UTC to 2026-10-10 16:51 UTC/);
     assert.match(shown(read(site, 'history/changes/20261006T231441Z--20261006T233046Z/index.html')), /The older run recorded no per-image rows/);
     assert.match(read(site, 'history/index.html'), /<a href="\/history\/changes\/20261006T233046Z--20261010T165146Z\/"[^>]*>What changed<\/a>/);
     assert.match(shown(read(site, 'history/index.html')), /Compare the two runs image by image ?: each image before and after/);
@@ -524,6 +631,7 @@ describe('a report from a newer clearcutt-verify', () => {
       Object.assign(image('platform-tools').base, { drift: 'stale', versionsBehind: 1, daysBehind: 0, daysBehindUnknown: true });
       image('platform-tools').evidence.signature.someLaterField = 'ignored';
       r.someLaterSection = [{ anything: true }];
+      r.metadata.generator = { name: 'clearcutt-verify', version: 'v99.0.0' };
       const bare = image('debian-tools');
       bare.verdict = { status: 'unverified', reasons: ['sbom is present but not from a trusted signer'] };
       for (const key of ['vulnerabilities', 'packages', 'packagesSource', 'factory']) delete bare[key];
@@ -538,6 +646,16 @@ describe('a report from a newer clearcutt-verify', () => {
       };
     });
     site = build(bundle);
+  });
+
+  test("what this portal's contract doesn't cover is in every page's footer and on the about page", () => {
+    for (const page of ['index.html', 'images/platform-tools/index.html', 'about/index.html']) {
+      const text = shown(read(site, page));
+      assert.match(text, /This report goes beyond what this portal knows\./, page);
+      assert.match(text, /estate-report\.json has 2 fields this portal's contract doesn't define, so no page shows them: images\[\]\.evidence\.signature\.someLaterField, someLaterSection\./, page);
+      assert.match(text, /written by clearcutt-verify v99\.0\.0, newer than v\d+\.\d+\.\d+, whose contract this portal was built against/, page);
+    }
+    assert.match(shown(read(site, 'about/index.html')), /This portal was built against the contract of clearcutt-verify v\d+\.\d+\.\d+\./);
   });
 
   test('a stale base whose age is unknown says so, never 0 days', () => {
@@ -673,10 +791,107 @@ describe('a rebased image with per-image history', () => {
   });
 });
 
+describe('a history longer than the site shows', () => {
+  let site: string;
+  before(() => {
+    site = build(v015Bundle(), '--history-runs', '2');
+  });
+
+  test('the history pages show the latest runs, say so, and point to the rest', () => {
+    const page = shown(read(site, 'history/index.html'));
+    assert.match(page, /3 runs recorded; this site shows the latest 2\./);
+    assert.match(page, /The latest 2 runs 1 older run is not shown here, in the trends, or in the comparisons/);
+    assert.match(read(site, 'history/index.html'), /<a href="\/estate-history\.json"[^>]*>estate-history\.json<\/a> has every run/);
+    // Comparisons among the shown runs only: each with the one before, and since each.
+    const pairs = readdirSync(path.join(site, 'history/changes'), { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name).sort();
+    assert.deepEqual(pairs, ['20261006T233046Z--20261010T165146Z', '20261006T233046Z--latest']);
+    assert.match(shown(read(site, 'history/changes/index.html')), /This site compares the latest 2 runs; 1 older one is in estate-history\.json\./);
+    assert.match(shown(read(site, 'images/debian-tools/index.html')), /This shows the latest 2 runs; 1 older one is in estate-history\.json\./);
+  });
+});
+
+describe('an estate whose policy passes, with work outstanding', () => {
+  let site: string;
+  before(() => {
+    site = build(
+      editedBundle(FIXTURE, (r) => {
+        for (const image of r.images) image.verdict = { status: 'verified', reasons: [] };
+        r.summary.verdicts = { verified: r.images.length, failed: 0, unverified: 0 };
+        for (const id of ['platform-tools', 'hello-app']) {
+          Object.assign(r.images.find((i: any) => i.id === id).base, { drift: 'stale', daysBehind: 3, versionsBehind: 1 });
+        }
+        r.summary.bases.stale = 2;
+        r.summary.bases.current -= 2;
+        r.images.find((i: any) => i.id === 'amazonlinux-tools').vulnerabilities.scannedAt = '2026-09-30T16:00:00Z';
+      }),
+    );
+  });
+
+  test('says the policy passes and what is still outstanding, never that nothing is', () => {
+    const page = shown(read(site, 'index.html'));
+    assert.match(page, /✓ Policy passes: all 8 images are verified\. Still outstanding, though the policy doesn't fail them:/);
+    assert.match(page, /! 116 high findings \(12 with a fix\)|high findings \(\d+ with a fix\)/);
+    assert.match(page, /✕ 25 critical findings \(0 with a fix\)/);
+    assert.match(page, /! 2 images on a stale base/);
+    assert.match(page, /\? 4 images with no vulnerability data/);
+    assert.match(page, /! 1 scan older than 7 days/);
+    assert.doesNotMatch(page, /Every image meets every requirement/);
+    assert.match(page, /No image falls short of the policy\. What is still outstanding is listed above\./);
+    const html = read(site, 'index.html');
+    assert.match(html, /<a href="\/lists\/stale-base\/">2 images on a stale base<\/a>/);
+    assert.match(html, /<a href="\/lists\/old-scans\/">1 scan older than 7 days<\/a>/);
+    assert.match(page, /10 days Oldest scan amazonlinux-tools:latest; 1 scan is over 7 days/);
+  });
+});
+
+describe('a report at the edges of what the schema allows', () => {
+  let site: string;
+  before(() => {
+    site = build(
+      editedBundle(
+        FIXTURE,
+        (r) => {
+          // A SOURCE_DATE_EPOCH past what a date can hold.
+          r.images.find((i: any) => i.id === 'hello-app').factory.sourceDateEpoch = 1e20;
+          // Nothing was rebuilt: no image reproduced.
+          for (const image of r.images) {
+            if (image.reproducibility.status === 'reproduced') {
+              image.reproducibility = { status: 'not-checked', method: 'recipe-rebuild', detail: 'this run did not rebuild it' };
+            }
+          }
+          r.summary.reproducibility = { reproduced: 0, notReproduced: 0, notChecked: 4, noRecipe: 4 };
+          r.policy.reproduce = false;
+        },
+        // A history file that lists no runs.
+        (h) => {
+          h.entries = [];
+        },
+      ),
+    );
+  });
+
+  test('a history with no runs says so on every page that shows history', () => {
+    assert.match(shown(read(site, 'history/index.html')), /No runs in the history/);
+    assert.match(shown(read(site, 'history/changes/index.html')), /The history lists no runs, so there is nothing to compare/);
+    assert.match(shown(read(site, 'images/hello-app/index.html')), /The history lists no runs, so there is only this run/);
+  });
+
+  test('a SOURCE_DATE_EPOCH no date can hold is shown as the number it is', () => {
+    assert.match(shown(read(site, 'images/hello-app/index.html')), /files clamped to SOURCE_DATE_EPOCH 100000000000000000000, which is not a date this site can show/);
+  });
+
+  test('the Reproduced tile is not green when nothing reproduced', () => {
+    const html = read(site, 'index.html');
+    const tile = html.match(/class="tile tone-([a-z]+)[^"]*"(?:(?!class="tile ).)*?>Reproduced</s);
+    assert.ok(tile, 'a Reproduced tile');
+    assert.equal(tile[1], 'unknown');
+  });
+});
+
 describe('the CLI', () => {
   test('refuses a bundle that does not match the contract', () => {
     const bad = editedBundle(MINIMAL, (r) => (r.images[0].verdict.status = 'fine'));
-    const run = cli('build', '--bundle', bad, '--out', mkdtempSync(path.join(tmpdir(), 'portal-site-')));
+    const run = cli('build', '--bundle', bad, '--out', scratch('portal-site-'));
     assert.equal(run.status, 1);
     assert.match(run.stderr, /does not match the EstateReport schema/);
   });
@@ -690,7 +905,7 @@ describe('the CLI', () => {
   test('builds from any working directory, with relative paths', () => {
     // A fleet's workflow runs the portal from its own checkout, not the
     // portal's.
-    const cwd = realpathSync(mkdtempSync(path.join(tmpdir(), 'portal-cwd-')));
+    const cwd = realpathSync(scratch('portal-cwd-'));
     const run = spawnSync(
       process.execPath,
       [path.join(root, 'bin/clearcutt-portal.ts'), 'build', '--bundle', path.relative(cwd, MINIMAL), '--out', 'site'],
@@ -717,7 +932,7 @@ describe('the CLI', () => {
   test('rebuilds over an earlier site, but not over other files', () => {
     const out = build(MINIMAL);
     assert.equal(cli('build', '--bundle', MINIMAL, '--out', out).status, 0);
-    const other = mkdtempSync(path.join(tmpdir(), 'portal-other-'));
+    const other = scratch('portal-other-');
     writeFileSync(path.join(other, 'keep.txt'), 'mine');
     const run = cli('build', '--bundle', MINIMAL, '--out', other);
     assert.equal(run.status, 2);
@@ -740,12 +955,12 @@ describe('the CLI', () => {
 
   test('never writes the site into, around, or over the bundle', () => {
     // In a directory of its own, so "around it" is a directory this test owns.
-    const bundle = path.join(mkdtempSync(path.join(tmpdir(), 'portal-around-')), 'bundle');
+    const bundle = path.join(scratch('portal-around-'), 'bundle');
     cpSync(MINIMAL, bundle, { recursive: true });
     writeFileSync(path.join(bundle, 'policy.yaml'), 'mine');
     writeFileSync(path.join(bundle, 'refs.txt'), 'ghcr.io/acme/images/billing:latest\n');
     const before = snapshot(bundle);
-    const link = path.join(mkdtempSync(path.join(tmpdir(), 'portal-link-')), 'site');
+    const link = path.join(scratch('portal-link-'), 'site');
     symlinkSync(bundle, link);
     for (const out of [
       bundle, // the bundle itself
@@ -768,7 +983,7 @@ describe('the CLI', () => {
   });
 
   test('refuses a file as --out', () => {
-    const file = path.join(mkdtempSync(path.join(tmpdir(), 'portal-file-')), 'site');
+    const file = path.join(scratch('portal-file-'), 'site');
     writeFileSync(file, 'mine');
     const run = cli('build', '--bundle', MINIMAL, '--out', file);
     assert.equal(run.status, 2);
@@ -778,12 +993,37 @@ describe('the CLI', () => {
 
   test('an image id that is not a plain page name is a bundle error, not a crash', () => {
     const bad = editedBundle(MINIMAL, (r) => (r.images[3].id = '../../escape'));
-    const out = mkdtempSync(path.join(tmpdir(), 'portal-site-'));
+    const out = scratch('portal-site-');
     const run = cli('build', '--bundle', bad, '--out', out);
     assert.equal(run.status, 1);
     assert.match(run.stderr, /image id "\.\.\/\.\.\/escape" can't name a page/);
     assert.doesNotMatch(run.stderr, /\n\s+at /, 'no stack trace');
     assert.deepEqual(readdirSync(out), []);
+  });
+
+  test('warns about fields beyond the contract, on stderr and as workflow annotations', () => {
+    const dir = editedBundle(MINIMAL, (r) => (r.images[0].evidence.signature.newDetail = 'later'));
+    const { GITHUB_ACTIONS: _, ...outside } = process.env;
+    const plain = spawnSync(process.execPath, [path.join(root, 'bin/clearcutt-portal.ts'), 'check', '--bundle', dir], { cwd: root, encoding: 'utf8', env: outside });
+    assert.equal(plain.status, 0);
+    assert.match(plain.stderr, /^warning: estate-report\.json has a field this portal's contract doesn't define, so no page shows it: images\[\]\.evidence\.signature\.newDetail\.$/m);
+    assert.doesNotMatch(plain.stdout, /::warning/);
+    const inActions = spawnSync(process.execPath, [path.join(root, 'bin/clearcutt-portal.ts'), 'check', '--bundle', dir], {
+      cwd: root,
+      encoding: 'utf8',
+      env: { ...process.env, GITHUB_ACTIONS: 'true' },
+    });
+    assert.match(inActions.stdout, /^::warning title=Report beyond this portal's contract::estate-report\.json has a field/m);
+    assert.equal(cli('check', '--bundle', MINIMAL).stderr, '', 'nothing to say about a covered bundle');
+  });
+
+  test('the window and scan-age settings must be whole numbers', () => {
+    for (const arg of ['--history-runs=many', '--history-runs=-1', '--scan-age-days=0', '--scan-age-days=1.5']) {
+      const run = cli('build', '--bundle', MINIMAL, '--out', scratch('portal-site-'), arg);
+      assert.equal(run.status, 2, arg);
+      const [flag, value] = arg.split('=');
+      assert.match(run.stderr, new RegExp(`${flag} ${value.replace('.', '\\.')}: must be a whole number`));
+    }
   });
 
   test('usage errors exit 2', () => {

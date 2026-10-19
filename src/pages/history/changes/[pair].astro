@@ -1,19 +1,23 @@
 ---
-// A comparison of two runs: each run with the one before it, and each with
-// the latest (timeline.comparisons). Rendered at build time, like every page.
+// A comparison of two runs: each run with the one before it
+// (<older>--<newer>), and each with the latest (<older>--latest); see
+// timeline.comparisons. Rendered at build time, like every page.
 import Layout from '../../../layouts/Layout.astro';
 import RunComparison from '../../../components/RunComparison.astro';
 import { loadBundle } from '../../../lib/bundle.ts';
 import { formatTime } from '../../../lib/format.ts';
+import { windowed } from '../../../lib/estate.ts';
+import { historyWindow } from '../../../lib/site.ts';
 import { comparisons, historyRuns, type Run } from '../../../lib/timeline.ts';
 
 export function getStaticPaths() {
-  const runs = historyRuns(loadBundle().history);
-  return comparisons(runs).map((c) => ({ params: { pair: c.slug }, props: { older: c.older, newer: c.newer, runs } }));
+  // The latest runs only (historyWindow), each named over the whole history.
+  const runs = windowed(historyRuns(loadBundle().history), historyWindow());
+  return comparisons(runs).map((c) => ({ params: { pair: c.slug }, props: { older: c.older, newer: c.newer, runs, slug: c.slug } }));
 }
 
-const { older, newer, runs } = Astro.props as { older: Run; newer: Run; runs: Run[] };
+const { older, newer, runs, slug } = Astro.props as { older: Run; newer: Run; runs: Run[]; slug: string };
 ---
 <Layout title={`Changes from ${formatTime(older.at)} to ${formatTime(newer.at)}`} description="What changed for each image between two runs, and how.">
-  <RunComparison older={older} newer={newer} runs={runs} />
+  <RunComparison older={older} newer={newer} runs={runs} slug={slug} />
 </Layout>

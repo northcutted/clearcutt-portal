@@ -25,8 +25,12 @@ const base = (digest: string, drift = 'current') => ({ digest, drift, strength: 
 test('a run is named by its time, uniquely', () => {
   assert.equal(runSlug('2026-10-10T16:51:46Z'), '20261010T165146Z');
   assert.equal(runSlug('2026-10-10T18:51:46+02:00'), '20261010T165146Z');
-  assert.equal(runSlug('2026-10-10T16:51:46.123Z'), '20261010T165146Z');
-  assert.equal(runSlug('yesterday'), 'run');
+  assert.equal(runSlug('2026-10-10T16:51:46.123Z'), '20261010T165146.123Z');
+  assert.equal(runSlug('2026-10-10T16:51:46.5Z'), '20261010T165146.500Z');
+  // A time that doesn't parse is named by its text, not by where it is.
+  assert.match(runSlug('yesterday'), /^run-[0-9a-f]{8}$/);
+  assert.equal(runSlug('yesterday'), runSlug('yesterday'));
+  assert.notEqual(runSlug('yesterday'), runSlug('tomorrow'));
   const runs = historyRuns(readBundle(MINIMAL).history);
   assert.deepEqual(runs.map((r) => r.slug), ['20261005T060000Z', '20261006T060000Z']);
   const twice = historyRuns({
@@ -37,8 +41,18 @@ test('a run is named by its time, uniquely', () => {
       (e) => ({ ...e, summary: readBundle(MINIMAL).report.summary }) as HistoryEntry,
     ),
   });
-  assert.deepEqual(twice.map((r) => r.slug).sort(), ['20261010T165146Z', '20261010T165146Z-2', 'run']);
-  for (const r of twice) assert.match(r.slug, /^[A-Za-z0-9-]+$/);
+  assert.deepEqual(twice.map((r) => r.slug).sort(), ['20261010T165146.100Z', '20261010T165146.500Z', runSlug('nope')]);
+  for (const r of twice) assert.match(r.slug, /^[A-Za-z0-9.-]+$/);
+  // Only the very same instant shares a stem; the later-listed is the older.
+  const same = historyRuns({
+    apiVersion: 'clearcutt.dev/v1',
+    kind: 'EstateHistory',
+    name: 'x',
+    entries: [{ generatedAt: '2026-10-10T16:51:46Z', ref: 'newer' }, { generatedAt: '2026-10-10T18:51:46+02:00', ref: 'older' }].map(
+      (e) => ({ ...e, summary: readBundle(MINIMAL).report.summary }) as HistoryEntry,
+    ),
+  });
+  assert.deepEqual(same.map((r) => [r.ref, r.slug]), [['older', '20261010T165146Z'], ['newer', '20261010T165146Z-2']]);
 });
 
 test('how an image changed: rebased, rebuilt with or without a new base, base moved, unchanged', () => {
@@ -171,15 +185,35 @@ test('the findings drill says who had findings before, who after, and who cleare
   assert.deepEqual(rest[0], { severity: 'high', before: [], after: [], cleared: [], appeared: [], unknown: ['lost'] });
 });
 
-test('the comparisons to pre-render: each run with the one before, and with the latest', () => {
+test('the comparisons to pre-render: each run with the one before, and since each run', () => {
   const runs = historyRuns(readBundle(FIXTURE).history);
-  const pairs = comparisons(runs).map((c) => [c.older.slug, c.newer.slug]);
+  const pairs = comparisons(runs).map((c) => [c.older.slug, c.newer.slug, c.slug]);
   assert.deepEqual(pairs, [
-    ['20261006T233046Z', '20261010T165146Z'],
-    ['20261006T231441Z', '20261006T233046Z'],
-    ['20261006T231441Z', '20261010T165146Z'],
+    ['20261006T233046Z', '20261010T165146Z', '20261006T233046Z--20261010T165146Z'],
+    ['20261006T231441Z', '20261006T233046Z', '20261006T231441Z--20261006T233046Z'],
+    ['20261006T233046Z', '20261010T165146Z', '20261006T233046Z--latest'],
+    ['20261006T231441Z', '20261010T165146Z', '20261006T231441Z--latest'],
   ]);
-  assert.equal(comparisons(runs)[0].slug, '20261006T233046Z--20261010T165146Z');
   assert.deepEqual(comparisons(runs.slice(0, 1)), []);
   assert.deepEqual(comparisons([]), []);
+});
+
+test('comparison links stay put when a newer run arrives, and never change which runs they name', () => {
+  const history = readBundle(FIXTURE).history!;
+  const before = comparisons(historyRuns(history));
+  // The next run, at the front of the file as clearcutt-verify writes it.
+  const next = { ...history, entries: [{ ...history.entries[0], generatedAt: '2026-10-11T06:00:00Z' }, ...history.entries] };
+  const after = new Map(comparisons(historyRuns(next)).map((c) => [c.slug, c]));
+  for (const c of before) {
+    const now = after.get(c.slug);
+    assert.ok(now, `${c.slug} is still a page`);
+    assert.equal(now.older.at, c.older.at, c.slug);
+    // A pair names the same two runs; "since" a run now runs to the newer latest.
+    assert.equal(now.newer.at, c.sinceLatest ? '2026-10-11T06:00:00Z' : c.newer.at, c.slug);
+  }
+  // And no run is renamed, whatever order the file lists them in.
+  const slugs = (h: typeof history) => new Map(historyRuns(h).map((r) => [r.at, r.slug]));
+  const old = slugs(history);
+  for (const [at, slug] of slugs(next)) if (old.has(at)) assert.equal(slug, old.get(at));
+  assert.deepEqual(slugs({ ...history, entries: [...history.entries].reverse() }), old);
 });

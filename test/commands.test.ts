@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, test } from 'node:test';
@@ -17,7 +17,7 @@ import {
   type Command,
 } from '../src/lib/commands.ts';
 import type { EstateReport, Image, Policy, Signer } from '../src/lib/contract.gen.ts';
-import { FIXTURE, MINIMAL } from './helpers.ts';
+import { FIXTURE, MINIMAL, scratch } from './helpers.ts';
 
 const fixture = readBundle(FIXTURE).report;
 const minimal = readBundle(MINIMAL).report;
@@ -83,7 +83,7 @@ describe('shell words', () => {
 
   test('every shell reads each quoted value back exactly, and runs nothing', () => {
     assert.ok(SHELLS.length > 0);
-    const cwd = mkdtempSync(path.join(tmpdir(), 'portal-shell-'));
+    const cwd = scratch('portal-shell-');
     for (const shell of SHELLS) {
       for (const value of HOSTILE) {
         assert.deepEqual(argv(shell, shellWord(value), cwd), [value], `${shell}: ${JSON.stringify(value)}`);
@@ -224,7 +224,7 @@ describe('signers', () => {
 
 /** Stub programs that record their arguments, so a command can run for real. */
 function stubs(): { bin: string; log: string } {
-  const bin = mkdtempSync(path.join(tmpdir(), 'portal-stubs-'));
+  const bin = scratch('portal-stubs-');
   const log = path.join(bin, 'calls.log');
   for (const name of ['cosign', 'gh', 'clearcutt-factory', 'clearcutt-verify']) {
     const file = path.join(bin, name);
@@ -237,7 +237,7 @@ function stubs(): { bin: string; log: string } {
 /** Runs a command's text in a shell with stub programs: the argument lists each program got. */
 function runCommand(shell: string, command: Command): { calls: string[][]; cwd: string } {
   const { bin, log } = stubs();
-  const cwd = mkdtempSync(path.join(tmpdir(), 'portal-run-'));
+  const cwd = scratch('portal-run-');
   const run = spawnSync(shell, ['-c', `${command.text}\npwd > '${bin}/pwd'`], {
     cwd,
     encoding: 'utf8',

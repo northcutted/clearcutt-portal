@@ -12,7 +12,7 @@ import type {
   Stack,
   StackVersion,
 } from './contract.gen.ts';
-import { repoName, shortDigest } from './format.ts';
+import { compareTimes, repoName, shortDigest } from './format.ts';
 import { compareVersions, schemeOf } from './versions.ts';
 
 /** billing:latest, or billing@sha256:0123… when untagged. */
@@ -26,13 +26,37 @@ export function imageRef(image: Image): string {
   return image.tags.length > 0 ? `${image.repository}:${image.tags[0]}` : `${image.repository}@${image.digest}`;
 }
 
-export function imagesById(report: EstateReport): Map<string, Image> {
-  return new Map(report.images.map((image) => [image.id, image]));
+// Indexes over a report, built once per report: pages are rendered one per
+// image, so a lookup that scans the report from each page would cost
+// images² over the build.
+function memo<K extends object, V>(build: (key: K) => V): (key: K) => V {
+  const cache = new WeakMap<K, V>();
+  return (key) => {
+    let value = cache.get(key);
+    if (value === undefined) cache.set(key, (value = build(key)));
+    return value;
+  };
 }
+
+const byIdIndex = memo((report: EstateReport) => new Map(report.images.map((image) => [image.id, image])));
+
+/** The report's images by ID. The map is shared; don't change it. */
+export function imagesById(report: EstateReport): Map<string, Image> {
+  return byIdIndex(report);
+}
+
+const consumerIndex = memo((report: EstateReport) => {
+  const out = new Map<string, Image[]>();
+  for (const image of report.images) {
+    const base = image.base?.imageId;
+    if (base !== undefined) out.set(base, [...(out.get(base) ?? []), image]);
+  }
+  return out;
+});
 
 /** Images whose base is the given image (by the report's own link). */
 export function consumersOf(report: EstateReport, image: Image): Image[] {
-  return report.images.filter((other) => other.base?.imageId === image.id);
+  return [...(consumerIndex(report).get(image.id) ?? [])];
 }
 
 const VERDICT_ORDER: Record<string, number> = { failed: 0, unverified: 1, verified: 2 };
@@ -158,7 +182,10 @@ export interface PackageGroup {
   images: string[];
 }
 
-export function packageGroups(report: EstateReport): PackageGroup[] {
+/** Every package, by name and type, with its versions oldest first. Shared; don't change it. */
+export const packageGroups = memo(groupPackages);
+
+function groupPackages(report: EstateReport): PackageGroup[] {
   const groups = new Map<string, PackageGroup>();
   for (const pkg of report.packages) {
     const key = `${pkg.type}\u0000${pkg.name}`;
@@ -187,11 +214,41 @@ export function packageGroups(report: EstateReport): PackageGroup[] {
   return sorted;
 }
 
+const versionIndex = new WeakMap<EstateReport, Map<string, PackageUse[]>>();
+
+/**
+ * The report's entries for a package name and version, of any type: which
+ * images the report says ship it. Names are compared as they are written.
+ */
+export function packageVersions(report: EstateReport, name: string, version: string): PackageUse[] {
+  let index = versionIndex.get(report);
+  if (!index) {
+    index = new Map();
+    for (const pkg of report.packages) {
+      const key = `${pkg.name}\u0000${pkg.version}`;
+      index.set(key, [...(index.get(key) ?? []), pkg]);
+    }
+    versionIndex.set(report, index);
+  }
+  return index.get(`${name}\u0000${version}`) ?? [];
+}
+
+const packagesIndex = memo((report: EstateReport) => {
+  const out = new Map<string, PackageUse[]>();
+  for (const pkg of report.packages) {
+    for (const id of pkg.images) {
+      let list = out.get(id);
+      if (!list) out.set(id, (list = []));
+      list.push(pkg);
+    }
+  }
+  for (const list of out.values()) list.sort((a, b) => a.name.localeCompare(b.name) || a.version.localeCompare(b.version));
+  return out;
+});
+
 /** The package versions the report says an image ships. */
 export function packagesOf(report: EstateReport, image: Image): PackageUse[] {
-  return report.packages
-    .filter((pkg) => pkg.images.includes(image.id))
-    .sort((a, b) => a.name.localeCompare(b.name) || a.version.localeCompare(b.version));
+  return [...(packagesIndex(report).get(image.id) ?? [])];
 }
 
 /**
@@ -216,10 +273,27 @@ export function packagesPartial(report: EstateReport): Image[] {
 
 // ── History ─────────────────────────────────────────────────────────────
 
-/** History entries oldest first, for drawing a series left to right. */
+/**
+ * History entries oldest first, for drawing a series left to right, ordered
+ * by the time each names (compareTimes), not its text. The file lists them
+ * newest first, so of two runs at the same instant the one listed first
+ * stays the later.
+ */
 export function chronological(history: EstateHistory | null): HistoryEntry[] {
   if (!history) return [];
-  return [...history.entries].sort((a, b) => a.generatedAt.localeCompare(b.generatedAt));
+  return [...ordered(history)];
+}
+
+const ordered = memo((history: EstateHistory) =>
+  [...history.entries].reverse().sort((a, b) => compareTimes(a.generatedAt, b.generatedAt)),
+);
+
+/**
+ * The last `n` items of a list oldest first (all of them for 0): the runs a
+ * page shows, when the history is windowed.
+ */
+export function windowed<T>(list: T[], n: number): T[] {
+  return n > 0 && list.length > n ? list.slice(-n) : list;
 }
 
 /** One run of the history, as one image saw it. */
@@ -235,15 +309,18 @@ export interface ImageRun {
   row: HistoryImage | null | undefined;
 }
 
-/** An image's runs, newest first. */
-export function imageRuns(history: EstateHistory | null, id: string): ImageRun[] {
-  return chronological(history)
+const rowIndex = memo((entry: HistoryEntry) => new Map((entry.images ?? []).map((row) => [row.id, row])));
+
+/** An image's row in a run: null when the run has rows and none for it, undefined when it has none at all. */
+export function rowOf(entry: HistoryEntry, id: string): HistoryImage | null | undefined {
+  return entry.images === undefined ? undefined : (rowIndex(entry).get(id) ?? null);
+}
+
+/** An image's runs, newest first: the latest `window` runs (all of them for 0). */
+export function imageRuns(history: EstateHistory | null, id: string, window = 0): ImageRun[] {
+  return windowed(chronological(history), window)
     .reverse()
-    .map((entry) => ({
-      at: entry.generatedAt,
-      ref: entry.ref,
-      row: entry.images === undefined ? undefined : (entry.images.find((i) => i.id === id) ?? null),
-    }));
+    .map((entry) => ({ at: entry.generatedAt, ref: entry.ref, row: rowOf(entry, id) }));
 }
 
 export interface Rebase {

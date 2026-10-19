@@ -988,3 +988,8 @@ th[aria-sort='descending'] .sort-arrow::after {
   padding-left: 1.1rem;
   overflow-wrap: anywhere;
 }
+
+/* A repository breaks after a slash, not inside a name. */
+td .repo {
+  overflow-wrap: normal;
+}

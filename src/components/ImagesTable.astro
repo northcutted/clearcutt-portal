@@ -65,7 +65,7 @@ const vulnKey = (image: Image) => {
           <tr>
             <td data-sort-value={imageLabel(image).toLowerCase()}>
               <a href={imageHref(image.id)}>{imageLabel(image)}</a>
-              <div class="dim small mono">{image.repository}</div>
+              <div class="dim small mono repo">{image.repository.split('/').map((part, i) => <>{i > 0 && <>/<wbr /></>}{part}</>)}</div>
             </td>
             <td data-sort-value={String(VERDICT_RANK[image.verdict.status] ?? 1)}><Chip term={verdict(image.verdict.status)} /></td>
             <td data-sort-value={baseKey(image)}>

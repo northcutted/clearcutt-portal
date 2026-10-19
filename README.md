@@ -185,6 +185,9 @@ action verifies that signature before building. See [CHANGELOG.md](CHANGELOG.md)
 npm ci --ignore-scripts
 npm run dev          # the site, from contract/fixtures/northcutted-images
 npm test             # unit tests, and real builds of the vendored bundles
+npx playwright install chromium   # once, for the browser tests
+npx playwright test  # the scripts in a browser, and an axe pass over the pages in both themes
+CLEARCUTT_PORTAL_SCALE=1 node --test test/scale.test.ts   # 500 images, 1,000 runs, within a time budget
 npm run check        # types, and that src/lib/contract.gen.ts matches the schemas
 scripts/sync-contract.sh main     # move to verify's newest contract (or a tag/commit); regenerates types
 scripts/sync-contract.sh --check-upstream   # does contract/ match verify's latest release?

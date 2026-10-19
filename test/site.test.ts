@@ -88,7 +88,7 @@ const shown = (html: string) =>
 
 /** The commands an image page shows, as text, in order. */
 const shownCommands = (html: string) =>
-  [...html.matchAll(/<pre><code>([\s\S]*?)<\/code><\/pre>/g)].map((m) =>
+  [...html.matchAll(/<pre[^>]*><code>([\s\S]*?)<\/code><\/pre>/g)].map((m) =>
     m[1].replace(/&#39;/g, "'").replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&'),
   );
 

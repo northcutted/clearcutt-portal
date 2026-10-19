@@ -33,7 +33,7 @@ const tools = [
         <span><strong>{c.title}.</strong> <span class="dim small">{c.purpose}</span></span>
         <button type="button" class="copy" data-copy aria-label={`Copy the ${c.title} command`} hidden>Copy</button>
       </figcaption>
-      <pre><code>{c.text}</code></pre>
+      <pre tabindex="0"><code>{c.text}</code></pre>
     </figure>
   ))}
   <span class="sr-only" aria-live="polite" data-copy-status></span>

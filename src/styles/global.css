@@ -10,13 +10,13 @@
   --ink-600: 172 176 190; /* Surface2 */
   --ink-500: 156 160 176; /* Overlay0 */
   --ink-400: 124 127 147; /* Overlay2 */
-  --ink-300: 108 111 133; /* Subtext0: secondary text */
+  --ink-300: 99 102 122; /* Subtext0, darkened: secondary text at 4.5:1 on every surface */
   --ink-200: 92 95 119; /* Subtext1 */
   --ink-100: 76 79 105; /* Text */
   --ink-50: 46 48 70; /* headings */
 
   --accent: 136 57 239; /* Mauve */
-  --link: 30 102 245; /* Blue */
+  --link: 28 94 225; /* Blue, darkened: 4.5:1 on every surface */
 
   --tone-good: 64 160 43; /* Green */
   --tone-claim: 30 102 245; /* Blue */

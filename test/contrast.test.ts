@@ -65,6 +65,28 @@ for (const theme of ['light', 'dark']) {
   });
 }
 
+for (const theme of ['light', 'dark']) {
+  test(`secondary text and links have 4.5:1 contrast in the ${theme} theme`, () => {
+    const vars = variables(css, ':root');
+    if (theme === 'dark') for (const [k, v] of variables(css, '.dark')) vars.set(k, v);
+    const page = vars.get('ink-950')!;
+    const ink900 = vars.get('ink-900')!;
+    const surfaces: [string, RGB][] = [
+      ['page', page],
+      ['card', over(ink900, 0.55, page)],
+      ['table header', over(ink900, 0.7, page)],
+      ['hovered row', over(ink900, 0.45, page)],
+      ['popover', ink900],
+    ];
+    for (const name of ['ink-300', 'ink-200', 'ink-100', 'link']) {
+      for (const [where, surface] of surfaces) {
+        const ratio = contrast(vars.get(name)!, surface);
+        assert.ok(ratio >= 4.5, `${theme} --${name} on ${where}: ${ratio.toFixed(2)}:1`);
+      }
+    }
+  });
+}
+
 test('glyphs are drawn in their glyph color, not the tint', () => {
   assert.match(css, /\.chip-glyph \{\s*color: rgb\(var\(--glyph, var\(--ink-300\)\)\);/);
   assert.match(css, /\.cell-status \{[^}]*\n\s*color: rgb\(var\(--glyph\)\);/);

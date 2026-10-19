@@ -3,3 +3,5 @@ dist/
 .astro/
 _site*/
 .build-*/
+playwright-report/
+test-results/

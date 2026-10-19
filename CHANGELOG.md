@@ -77,8 +77,25 @@ between minor releases, with notes here.
   these changes).
 - The tests remove the temporary bundles and sites they build.
 
+### Added: browser tests
+
+- Playwright tests (`e2e/`, `npx playwright test`) run the site's scripts in
+  Chromium under its Content-Security-Policy: sorting the images table (by
+  mouse and keyboard, both ways, unknown last), the filter boxes, the package
+  search and its `?q=` address, copy buttons, chips, focusable status cells,
+  and the theme toggle. An axe pass (WCAG 2.1 A and AA) covers every kind of
+  page in the light and dark themes, and the states the scripts produce. CI
+  runs them with Chromium's headless shell only, cached by Playwright version.
+  `@playwright/test` and `@axe-core/playwright` are development dependencies;
+  the build doesn't use them.
+
 ### Fixed
 
+- Light-theme secondary text (`--ink-300`) and links were 4.1–4.4:1 on cards
+  and table headers; both are now at least 4.5:1 on every surface, which
+  `test/contrast.test.ts` checks for both themes.
+- A command too wide for its box can be scrolled from the keyboard (its block
+  takes focus).
 - A history whose `entries` is empty no longer crashes the build: the history,
   comparison, and image pages say the history lists no runs.
 - A `factory.sourceDateEpoch` too large for a date no longer stops the build

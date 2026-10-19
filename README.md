@@ -25,8 +25,10 @@ clearcutt-verify estate verify ──▶ bundle ──▶ clearcutt-portal build
 
 | Page | What it answers |
 |---|---|
-| Overview | How many images are verified, failed, or unverified; the reasons for each one that isn't; stale bases; evidence and vulnerabilities across the estate; the policy they were held to |
-| Image | Its base and how it is known, every piece of evidence with its signer and status, vulnerabilities and the day they describe, tests, whether a rebuild reproduced it and what checked that (this run, or an attested reproduction and where it ran), its stack, its rebases, platforms, packages and where they were read from, the image run by run, and copy-paste commands (cosign, gh, clearcutt-factory, clearcutt-verify) that check what the page says without trusting it |
+| Overview | Whether the policy passes and what is still outstanding either way (critical and high findings, stale bases, rebuilds that didn't reproduce, missing or old vulnerability data); headline numbers, each a link to the images it counts; why images aren't verified, one card per reason with every image it holds back; the findings to fix first; stale bases; every image in a table that sorts by any column; evidence and vulnerabilities across the estate; the policy they were held to |
+| Lists | The images behind each headline number (failed, unverified, on a stale base, with no vulnerability data, with scans older than a limit, not reproduced, …), one page each, with the same sortable table |
+| Findings | Every vulnerability advisory in the estate in the order to fix it (fixable critical and high first), and a page per advisory: the images that have it, in which package and version, what fixes it, where a VEX statement covers it, and where it is unknown; CVE, GHSA, Go, PyPI, and RustSec IDs link to their canonical advisory pages |
+| Image | Its base and how it is known, every piece of evidence with its signer and status, vulnerabilities (fix first, each linked to its advisory) and the day they describe, tests, whether a rebuild reproduced it and what checked that (this run, or an attested reproduction and where it ran), its stack, its rebases, platforms, packages and where they were read from, the image run by run, and copy-paste commands (cosign, gh, clearcutt-factory, clearcutt-verify) that check what the page says without trusting it |
 | Bases | Which images are built on which, how each relationship is known, and how far behind each image is |
 | Stacks | The clearcutt-factory stacks the apps are built on, who signed each version, and which apps are on an older one (shown when the estate has apps on stacks) |
 | Packages | Who ships a version: a search like `libxml2 <2.14` or `openssl >=3.0,<3.0.15`, in each ecosystem's version order, answered with the images that ship it and the images that inherit it from their base; and which images can't be answered for |
@@ -73,9 +75,13 @@ From a clone, with Node 22.18 or newer:
 
 ```sh
 npm ci --ignore-scripts
-node bin/clearcutt-portal.ts build --bundle path/to/bundle --out _site [--base /path] [--site https://host] [--title "…"]
+node bin/clearcutt-portal.ts build --bundle path/to/bundle --out _site [--base /path] [--site https://host] [--title "…"] \
+  [--scan-age-days N]
 node bin/clearcutt-portal.ts check --bundle path/to/bundle    # validate only
 ```
+
+`--scan-age-days` sets the age past which the overview flags a vulnerability
+scan as old (default: the policy's `maxScanAgeDays`, or 7 days without one).
 
 The build reads the bundle and nothing else: it contacts no registry, and the
 site it writes loads nothing from another origin. A bundle that doesn't match

@@ -1,0 +1,31 @@
+---
+// A filtered list of images, one page per filter (lib/overview.imageLists):
+// what each overview tile and outstanding item opens. Each is a static page,
+// so the lists work without script; with it, the table sorts.
+import Layout from '../../layouts/Layout.astro';
+import ImagesTable from '../../components/ImagesTable.astro';
+import { loadBundle } from '../../lib/bundle.ts';
+import { plural } from '../../lib/format.ts';
+import { imageLists, type ImageList } from '../../lib/overview.ts';
+import { href, scanAgeDays } from '../../lib/site.ts';
+
+export function getStaticPaths() {
+  return imageLists(loadBundle().report, scanAgeDays()).map((list) => ({ params: { list: list.key }, props: { list } }));
+}
+
+const { list } = Astro.props as { list: ImageList };
+const { report } = loadBundle();
+---
+<Layout title={list.title} description={list.lede}>
+  <header class="page-head">
+    <p class="eyebrow">Images · {list.images.length} of {report.summary.images}</p>
+    <h1>{list.title}</h1>
+    <p class="lede">{list.lede}</p>
+    <p class="small"><a href={href('')}>Back to the overview</a> · <a href={href('#images')}>Every image</a></p>
+  </header>
+
+  <section aria-labelledby="list">
+    <h2 id="list">{plural(list.images.length, 'image', 'images')}</h2>
+    {list.images.length === 0 ? <p>{list.empty}</p> : <ImagesTable images={list.images} caption={list.title} />}
+  </section>
+</Layout>

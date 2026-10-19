@@ -1,0 +1,109 @@
+---
+// Every vulnerability finding in the estate, one row per advisory, in the
+// order to fix them (lib/findings.findingGroups): fixable critical and high
+// first. Each has a page with the images it is in.
+import Layout from '../../layouts/Layout.astro';
+import AdvisoryLinks from '../../components/AdvisoryLinks.astro';
+import { loadBundle } from '../../lib/bundle.ts';
+import { affectedImages, findingGroups, fixFirstTier } from '../../lib/findings.ts';
+import { plural } from '../../lib/format.ts';
+import { listPath, scanAges } from '../../lib/overview.ts';
+import { SEVERITIES } from '../../lib/present.ts';
+import { href } from '../../lib/site.ts';
+
+const { report } = loadBundle();
+const vulns = report.summary.vulnerabilities;
+const groups = findingGroups(report);
+const counted = groups.filter((g) => g.counted.length > 0);
+const vexOnly = groups.filter((g) => g.counted.length === 0);
+const severityRank = (s: string) => {
+  const i = (SEVERITIES as readonly string[]).indexOf(s);
+  return i < 0 ? SEVERITIES.length : i;
+};
+const fixes = (g: (typeof groups)[number]) => [...new Set(g.counted.flatMap((o) => o.finding.fixedIn ?? []))];
+const page = (slug: string) => href(`findings/${encodeURIComponent(slug)}/`);
+const severeFixable = counted.filter((g) => g.fixable && fixFirstTier(g.severity, true) < 2).length;
+const oldest = scanAges(report).dated[0];
+---
+<Layout title="Findings" description="Every vulnerability finding in the estate, by advisory, in the order to fix them.">
+  <header class="page-head">
+    <p class="eyebrow">Vulnerabilities</p>
+    <h1>Findings, in the order to fix them</h1>
+    <p class="lede">
+      {plural(counted.length, 'advisory', 'advisories')} in the {plural(vulns.scanned, 'image')} with vulnerability data:
+      critical and high findings with a fixed version first ({severeFixable} of them), then critical and high with no
+      fix known, then the rest by severity. Each advisory's page lists the images that have it, in which package and
+      version, and the version that fixes it.
+    </p>
+    {vulns.notScanned > 0 && (
+      <p class="callout small">
+        {plural(vulns.notScanned, 'image has', 'images have')} no vulnerability data, so whether {vulns.notScanned === 1 ? 'it has' : 'they have'} any
+        of these is unknown, and this list is a floor for the estate, not its total: <a href={href(listPath('not-scanned'))}>the images with no data</a>.
+      </p>
+    )}
+    <p class="small dim">
+      Findings describe the day each image's scan was made{oldest && <>; the oldest scan here is {oldest.at.slice(0, 10)}</>}. Newer advisories aren't in them.
+    </p>
+  </header>
+
+  {counted.length === 0 ? (
+    <section>
+      <p>{vulns.scanned === 0 ? 'No image has vulnerability data, so its findings are unknown.' : 'No image with vulnerability data has a finding.'}</p>
+    </section>
+  ) : (
+    <section aria-labelledby="all">
+      <h2 id="all">Every advisory</h2>
+      {counted.length > 15 && (
+        <p><input class="filter" type="search" placeholder="Filter by ID, package, or severity" aria-label="Filter findings" data-filter data-filter-noun="advisories" /></p>
+      )}
+      <p class="small dim" data-count aria-live="polite"></p>
+      <div data-sort-root>
+        <div class="table-wrap">
+          <table data-sortable>
+            <caption class="sr-only">Every advisory, fix first</caption>
+            <thead>
+              <tr>
+                <th data-sort="number" data-sort-asc="fix first" data-sort-desc="fix last" data-sort-label="the order to fix them">Order</th>
+                <th data-sort="text" data-sort-asc="A to Z" data-sort-desc="Z to A">Finding</th>
+                <th data-sort="number" data-sort-asc="most severe first" data-sort-desc="least severe first">Severity</th>
+                <th>Fixed in</th>
+                <th data-sort="text" data-sort-asc="A to Z" data-sort-desc="Z to A">Package</th>
+                <th class="num" data-sort="number" data-sort-first="descending" data-sort-asc="fewest first" data-sort-desc="most first">Images</th>
+              </tr>
+            </thead>
+            <tbody>
+              {counted.map((g, i) => {
+                const fixed = fixes(g);
+                return (
+                  <tr data-text={`${g.id} ${g.packages.join(' ')} ${g.severity}`.toLowerCase()}>
+                    <td class="num" data-sort-value={String(i)}>{i + 1}</td>
+                    <td data-sort-value={g.id}><a class="mono" href={page(g.slug)}>{g.id}</a><div class="small"><AdvisoryLinks id={g.id} /></div></td>
+                    <td data-sort-value={String(severityRank(g.severity))}>{g.severity}</td>
+                    <td class="mono small">{fixed.length > 0 ? fixed.join(', ') : <span class="dim">no fix known</span>}</td>
+                    <td class="mono small" data-sort-value={g.packages[0]}>{g.packages.join(', ')}</td>
+                    <td class="num" data-sort-value={String(affectedImages(g).length)}>{affectedImages(g).length}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        <p class="small dim sort-hint" data-sort-hint hidden>Select a column's heading to sort by it; select it again to reverse.</p>
+        <p class="sr-only" aria-live="polite" data-sort-status></p>
+      </div>
+    </section>
+  )}
+
+  {vexOnly.length > 0 && (
+    <section aria-labelledby="vex">
+      <h2 id="vex">Covered by a VEX statement everywhere</h2>
+      <p class="lede small">Advisories every image that has them covers with a VEX statement, so the report doesn't count them.</p>
+      <ul class="inline-list">
+        {vexOnly.map((g) => <li><a class="mono" href={page(g.slug)}>{g.id}</a></li>)}
+      </ul>
+    </section>
+  )}
+</Layout>
+
+<script src="../../scripts/sort-table.ts"></script>
+<script src="../../scripts/filter-rows.ts"></script>

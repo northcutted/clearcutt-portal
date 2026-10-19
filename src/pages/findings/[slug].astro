@@ -1,0 +1,144 @@
+---
+// One advisory across the estate: the images that have it, in which package
+// and version, and what fixes it; the images where a VEX statement covers
+// it; and the images with no vulnerability data that ship one of those
+// package versions, for which it is unknown.
+import Layout from '../../layouts/Layout.astro';
+import AdvisoryLinks from '../../components/AdvisoryLinks.astro';
+import StatusText from '../../components/StatusText.astro';
+import type { Image } from '../../lib/contract.gen.ts';
+import { loadBundle } from '../../lib/bundle.ts';
+import { imageLabel, imagesById, packageVersions } from '../../lib/estate.ts';
+import { affectedImages, findingGroups, hasFix, type FindingGroup } from '../../lib/findings.ts';
+import { formatTime, plural } from '../../lib/format.ts';
+import { formatAge, listPath, scanAges } from '../../lib/overview.ts';
+import { verdict } from '../../lib/present.ts';
+import { href, imageHref } from '../../lib/site.ts';
+
+export function getStaticPaths() {
+  return findingGroups(loadBundle().report).map((group) => ({ params: { slug: group.slug }, props: { group } }));
+}
+
+const { group } = Astro.props as { group: FindingGroup };
+const { report } = loadBundle();
+const byId = imagesById(report);
+const ages = new Map(scanAges(report).dated.map((s) => [s.image.id, s.ms]));
+const affected = affectedImages(group);
+const fixes = [...new Set(group.counted.flatMap((o) => o.finding.fixedIn ?? []))];
+const unfixed = new Set(group.counted.filter((o) => !hasFix(o.finding)).map((o) => o.image.id));
+// Images the report has no vulnerability data for, but whose package list
+// has a package version this finding is in: whether they have it is unknown.
+const versions = [...new Map([...group.counted, ...group.suppressed].map((o) => [`${o.finding.package}\u0000${o.finding.version}`, o.finding])).values()];
+const unscannedShipping = new Map<string, { image: Image; packages: string[] }>();
+for (const f of versions) {
+  for (const pkg of packageVersions(report, f.package, f.version)) {
+    for (const id of pkg.images) {
+      const image = byId.get(id);
+      if (!image || image.vulnerabilities) continue;
+      const entry = unscannedShipping.get(id) ?? { image, packages: [] };
+      entry.packages.push(`${pkg.name} ${pkg.version}`);
+      unscannedShipping.set(id, entry);
+    }
+  }
+}
+const otherUnscanned = report.summary.vulnerabilities.notScanned - unscannedShipping.size;
+const scan = (image: Image) => {
+  const ms = ages.get(image.id);
+  return image.vulnerabilities?.scannedAt ? `${formatTime(image.vulnerabilities.scannedAt)}${ms !== undefined ? `, ${formatAge(ms)} before the report` : ''}` : 'no date';
+};
+---
+<Layout title={group.id} description={`The images in this estate that have ${group.id}.`}>
+  <header class="page-head">
+    <p class="eyebrow">Finding · {group.severity}</p>
+    <h1><span class="mono">{group.id}</span></h1>
+    {<p><AdvisoryLinks id={group.id} named={false} /></p>}
+    <p class="lede">
+      {group.counted.length > 0 ? (
+        <>
+          {plural(affected.length, 'image has', 'images have')} it{group.suppressed.length > 0 && <>, and a VEX statement covers it in {plural(new Set(group.suppressed.map((o) => o.image.id)).size, 'more')}</>}.{' '}
+          {fixes.length > 0
+            ? <>Fixed in {fixes.join(', ')}{unfixed.size > 0 && <>, though {plural(unfixed.size, 'image reports', 'images report')} no fix for its package</>}.</>
+            : 'No image reports a fixed version.'}
+        </>
+      ) : (
+        <>A VEX statement covers it in every image that has it, so the report doesn't count it.</>
+      )}
+    </p>
+    <p class="small"><a href={href('findings/')}>Every finding</a></p>
+  </header>
+
+  {group.counted.length > 0 && (
+    <section aria-labelledby="affected">
+      <h2 id="affected">Images that have it</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Image</th><th>Package</th><th>Version</th><th>Fixed in</th><th>Severity</th><th>Platforms</th><th>Scanned</th></tr></thead>
+          <tbody>
+          {group.counted.map((o) => (
+            <tr>
+              <td><a href={imageHref(o.image.id)}>{imageLabel(o.image)}</a> <StatusText term={verdict(o.image.verdict.status)} /></td>
+              <td>{o.finding.package}</td>
+              <td class="mono">{o.finding.version}</td>
+              <td class="mono">{hasFix(o.finding) ? o.finding.fixedIn!.join(', ') : <span class="dim">no fix known</span>}</td>
+              <td>{o.finding.severity}</td>
+              <td class="small">{o.finding.platforms.join(', ')}</td>
+              <td class="small nowrap">{scan(o.image)}</td>
+            </tr>
+          ))}
+          </tbody>
+        </table>
+      </div>
+      <p class="small dim">Each image's findings describe the day its scan was made; a newer scan may have more, or fewer.</p>
+    </section>
+  )}
+
+  {group.suppressed.length > 0 && (
+    <section aria-labelledby="vex">
+      <h2 id="vex">Covered by a VEX statement</h2>
+      <p class="lede small">These images have it, and a VEX statement says it doesn't apply to them, so the report doesn't count it there.</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Image</th><th>Package</th><th>Version</th><th>Fixed in</th><th>Severity</th><th>Platforms</th><th>Scanned</th></tr></thead>
+          <tbody>
+          {group.suppressed.map((o) => (
+            <tr>
+              <td><a href={imageHref(o.image.id)}>{imageLabel(o.image)}</a> <StatusText term={verdict(o.image.verdict.status)} /></td>
+              <td>{o.finding.package}</td>
+              <td class="mono">{o.finding.version}</td>
+              <td class="mono">{hasFix(o.finding) ? o.finding.fixedIn!.join(', ') : <span class="dim">no fix known</span>}</td>
+              <td>{o.finding.severity}</td>
+              <td class="small">{o.finding.platforms.join(', ')}</td>
+              <td class="small nowrap">{scan(o.image)}</td>
+            </tr>
+          ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  )}
+
+  {report.summary.vulnerabilities.notScanned > 0 && (
+    <section aria-labelledby="unknown">
+      <h2 id="unknown">Where it is unknown</h2>
+      {unscannedShipping.size > 0 && (
+        <>
+          <p>
+            {plural(unscannedShipping.size, 'image has', 'images have')} no vulnerability data, but {unscannedShipping.size === 1 ? 'its' : 'their'} package
+            list has a package version this finding is in, so {unscannedShipping.size === 1 ? 'it' : 'they'} may have it too:
+          </p>
+          <ul>
+            {[...unscannedShipping.values()].map((u) => (
+              <li><a href={imageHref(u.image.id)}>{imageLabel(u.image)}</a> <span class="dim small mono">({u.packages.join(', ')})</span></li>
+            ))}
+          </ul>
+        </>
+      )}
+      {otherUnscanned > 0 && (
+        <p>
+          {unscannedShipping.size > 0 ? `${plural(otherUnscanned, 'more image has', 'more images have')}` : plural(otherUnscanned, 'image has', 'images have')} no
+          vulnerability data, so whether {otherUnscanned === 1 ? 'it has' : 'they have'} it is unknown: <a href={href(listPath('not-scanned'))}>the images with no data</a>.
+        </p>
+      )}
+    </section>
+  )}
+</Layout>

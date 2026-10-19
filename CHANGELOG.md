@@ -6,6 +6,42 @@ between minor releases, with notes here.
 
 ## Unreleased
 
+### Added: what to fix first
+
+- The overview opens with where the estate stands: whether the policy passes,
+  and what is outstanding either way (critical and high findings with how many
+  have a fix, images on a stale base, rebuilds that didn't reproduce, images
+  with no vulnerability data, scans older than a limit or with no date,
+  unknown bases). It no longer says "Every image meets every requirement" when
+  everything is verified; it says the policy passes and lists what is still
+  outstanding.
+- "Not verified, and why" is one card per reason, with the number of images it
+  holds back and each of them, instead of one card per image. Reasons that
+  differ only in a number ("3 …" and "30 …") are one card ("3–30 …").
+- Every headline number is a link to the images it counts: new pages under
+  `lists/` (`verified`, `failed`, `unverified`, `stale-base`, `base-proven`,
+  `base-claimed`, `base-unresolved`, `critical-high`, `not-scanned`,
+  `old-scans`, `reproduced`, `not-reproduced`, `not-checked`). New tiles count
+  critical and high findings, rebuilds that didn't reproduce, and the age of
+  the oldest vulnerability scan, flagged past `--scan-age-days` (default: the
+  policy's `maxScanAgeDays`, or 7).
+- A Findings page (`findings/`) lists every advisory in the estate in the order
+  to fix it: fixable critical and high first, then critical and high with no
+  fix known, then the rest by severity, most images first. Each advisory has a
+  page (`findings/<id>/`) with the images that have it, the package and
+  installed version, the fixed versions, where a VEX statement covers it, and
+  the images with no vulnerability data (which may have it, when they ship one
+  of its package versions). CVE, GHSA, Go, PYSEC, and RUSTSEC IDs of a known
+  shape link to their canonical pages (cve.org and NVD, GitHub, pkg.go.dev,
+  OSV, RustSec); any other ID stays text. The overview shows the first ten.
+- An image's findings are listed fix first, each ID linked to its advisory's
+  page and canonical pages.
+- The images table sorts by any column with script (verdict, base, each kind
+  of evidence, vulnerabilities, scan age, rebuild), says how it is sorted
+  (`aria-sort` and an announcement), and keeps unknown values at the bottom
+  whichever way it sorts. Without script it is the same table, in verdict
+  order. It also shows each image's scan age.
+
 ### Fixed
 
 - A history whose `entries` is empty no longer crashes the build: the history,

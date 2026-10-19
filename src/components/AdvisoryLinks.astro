@@ -1,0 +1,20 @@
+---
+// Links to an advisory's canonical pages (lib/findings.advisoryLinks), for
+// IDs of a shape this site knows; nothing for any other.
+import { advisoryLinks } from '../lib/findings.ts';
+
+interface Props {
+  id: string;
+  /** Name the ID in each link for screen readers ("NVD for CVE-2026-1"). */
+  named?: boolean;
+}
+const { id, named = true } = Astro.props;
+const links = advisoryLinks(id);
+---
+{links.length > 0 && (
+  <span class="advisory-links">
+    {links.map((l, i) => (
+      <>{i > 0 && ' · '}<a href={l.url} rel="noreferrer">{l.label}{named && <span class="sr-only"> for {id}</span>}</a></>
+    ))}
+  </span>
+)}

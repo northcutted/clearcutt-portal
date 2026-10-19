@@ -187,6 +187,25 @@ export function packageGroups(report: EstateReport): PackageGroup[] {
   return sorted;
 }
 
+const versionIndex = new WeakMap<EstateReport, Map<string, PackageUse[]>>();
+
+/**
+ * The report's entries for a package name and version, of any type: which
+ * images the report says ship it. Names are compared as they are written.
+ */
+export function packageVersions(report: EstateReport, name: string, version: string): PackageUse[] {
+  let index = versionIndex.get(report);
+  if (!index) {
+    index = new Map();
+    for (const pkg of report.packages) {
+      const key = `${pkg.name}\u0000${pkg.version}`;
+      index.set(key, [...(index.get(key) ?? []), pkg]);
+    }
+    versionIndex.set(report, index);
+  }
+  return index.get(`${name}\u0000${version}`) ?? [];
+}
+
 /** The package versions the report says an image ships. */
 export function packagesOf(report: EstateReport, image: Image): PackageUse[] {
   return report.packages

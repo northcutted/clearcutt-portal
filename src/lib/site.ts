@@ -3,7 +3,8 @@
 import pkg from '../../package.json' with { type: 'json' };
 import { loadBundle } from './bundle.ts';
 import { buildSearchIndex, type SearchIndex } from './package-search.ts';
-import { TITLE_ENV, VERSION_ENV } from './site-env.ts';
+import { scanAgeLimit } from './overview.ts';
+import { SCAN_AGE_ENV, TITLE_ENV, VERSION_ENV } from './site-env.ts';
 
 /** A link to a page of this site, under the base path it is deployed at. */
 export function href(path: string): string {
@@ -32,6 +33,23 @@ export function siteTitle(): string {
 /** This portal's version: the release it was built from, or "source". */
 export function portalVersion(): string {
   return process.env[VERSION_ENV] || (pkg.version === '0.0.0' ? 'source' : `v${pkg.version}`);
+}
+
+/** A whole number from the environment, or undefined when it isn't set. */
+export function envCount(name: string): number | undefined {
+  const raw = process.env[name];
+  if (raw === undefined || raw === '') return undefined;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 0) throw new Error(`${name}=${raw}: not a whole number`);
+  return n;
+}
+
+/**
+ * Days after which a vulnerability scan is flagged as old: --scan-age-days,
+ * else the policy's maxScanAgeDays, else 7 (overview.scanAgeLimit).
+ */
+export function scanAgeDays(): number {
+  return scanAgeLimit(loadBundle().report, envCount(SCAN_AGE_ENV));
 }
 
 let index: SearchIndex | null = null;

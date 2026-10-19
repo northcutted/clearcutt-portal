@@ -1,46 +1,54 @@
 ---
-// An image's vulnerability findings, most severe first. Findings a VEX
-// statement covers are listed apart, because the report doesn't count them.
+// An image's vulnerability findings in the order to fix them
+// (findings.byFixFirst): fixable critical and high first. Each ID opens the
+// advisory's page across the estate, with links to its canonical pages.
+// Findings a VEX statement covers are listed apart, because the report
+// doesn't count them.
+import AdvisoryLinks from './AdvisoryLinks.astro';
 import type { Finding } from '../lib/contract.gen.ts';
-import { SEVERITIES } from '../lib/present.ts';
+import { loadBundle } from '../lib/bundle.ts';
+import { byFixFirst, findingPath } from '../lib/findings.ts';
+import { href } from '../lib/site.ts';
 
 interface Props {
   findings: Finding[];
 }
-const rank = (s: string) => {
-  const i = (SEVERITIES as readonly string[]).indexOf(s);
-  return i < 0 ? SEVERITIES.length : i;
-};
-const sorted = [...Astro.props.findings].sort(
-  (a, b) => rank(a.severity) - rank(b.severity) || a.id.localeCompare(b.id) || a.package.localeCompare(b.package),
-);
+const { report } = loadBundle();
+const sorted = byFixFirst(Astro.props.findings);
 const counted = sorted.filter((f) => !f.suppressed);
 const suppressed = sorted.filter((f) => f.suppressed);
 const groups = [
-  { label: `${counted.length} findings`, rows: counted, open: counted.length > 0 && counted.length <= 40 },
+  { label: `${counted.length} findings, fix first`, rows: counted, open: counted.length > 0 && counted.length <= 40 },
   { label: `${suppressed.length} covered by a VEX statement (not counted)`, rows: suppressed, open: false },
 ].filter((g) => g.rows.length > 0);
 ---
 {groups.map((group) => (
-  <details open={group.open} data-findings>
+  <details open={group.open}>
     <summary>{group.label}</summary>
     {group.rows.length > 15 && (
-      <p><input class="filter" type="search" placeholder="Filter by ID, package, or severity" aria-label="Filter findings" data-filter /></p>
+      <p><input class="filter" type="search" placeholder="Filter by ID, package, or severity" aria-label="Filter findings" data-filter data-filter-noun="findings" /></p>
     )}
+    <p class="small dim" data-count aria-live="polite"></p>
     <div class="table-wrap">
       <table>
         <thead><tr><th>ID</th><th>Package</th><th>Version</th><th>Severity</th><th>Fixed in</th><th>Platforms</th></tr></thead>
         <tbody>
-          {group.rows.map((f) => (
-            <tr data-text={`${f.id} ${f.package} ${f.version} ${f.severity}`.toLowerCase()}>
-              <td class="mono">{f.id}</td>
-              <td>{f.package}</td>
-              <td class="mono">{f.version}</td>
-              <td>{f.severity}</td>
-              <td class="mono">{f.fixedIn && f.fixedIn.length > 0 ? f.fixedIn.join(', ') : <span class="dim">no fix known</span>}</td>
-              <td class="small">{f.platforms.join(', ')}</td>
-            </tr>
-          ))}
+          {group.rows.map((f) => {
+            const page = findingPath(report, f.id);
+            return (
+              <tr data-text={`${f.id} ${f.package} ${f.version} ${f.severity}`.toLowerCase()}>
+                <td>
+                  {page ? <a class="mono" href={href(page)}>{f.id}</a> : <span class="mono">{f.id}</span>}
+                  <div class="small"><AdvisoryLinks id={f.id} /></div>
+                </td>
+                <td>{f.package}</td>
+                <td class="mono">{f.version}</td>
+                <td>{f.severity}</td>
+                <td class="mono">{f.fixedIn && f.fixedIn.length > 0 ? f.fixedIn.join(', ') : <span class="dim">no fix known</span>}</td>
+                <td class="small">{f.platforms.join(', ')}</td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
@@ -48,15 +56,4 @@ const groups = [
 ))}
 {groups.length === 0 && <p>No findings.</p>}
 
-<script>
-  for (const box of document.querySelectorAll<HTMLElement>('[data-findings]')) {
-    const input = box.querySelector<HTMLInputElement>('[data-filter]');
-    if (!input) continue;
-    input.addEventListener('input', () => {
-      const q = input.value.trim().toLowerCase();
-      for (const row of box.querySelectorAll<HTMLElement>('tr[data-text]')) {
-        row.hidden = q !== '' && !row.dataset.text!.includes(q);
-      }
-    });
-  }
-</script>
+<script src="../scripts/filter-rows.ts"></script>

@@ -1,18 +1,20 @@
 ---
-// One glyph per evidence kind, in the order of EVIDENCE_KINDS.
+// One glyph per evidence kind, in the order of EVIDENCE_KINDS. With `rank`,
+// each cell carries its status's sort key for a sortable table.
 import type { Image } from '../lib/contract.gen.ts';
 import { EVIDENCE_KINDS, evidenceTerm } from '../lib/present.ts';
 import StatusCell from './StatusCell.astro';
 
 interface Props {
   image: Image;
+  rank?: Record<string, number>;
 }
-const { image } = Astro.props;
+const { image, rank } = Astro.props;
 ---
 {EVIDENCE_KINDS.map((kind) => {
   const item = image.evidence[kind.key];
   return (
-    <td class="center tight">
+    <td class="center tight" data-sort-value={rank ? String(rank[item.status] ?? 2) : undefined}>
       <StatusCell term={evidenceTerm(kind.key, item)} subject={kind.label} detail={item.detail} />
     </td>
   );

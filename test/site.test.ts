@@ -325,6 +325,16 @@ describe('a report written by someone hostile', () => {
       r.images[2].reproducibility.builder.id = 'javascript:alert(document.domain)';
       // Not the policy's: the command would name it, and it can't be shown as it is.
       r.images[1].evidence.sbom.signer.identity = 'https://github.com/other/images/x\n$(touch pwned)';
+      // Finding IDs that are markup, a path, and almost a CVE.
+      r.images[2].vulnerabilities.findings.push(
+        ...['"><script>alert(1)</script>', '../../../etc/passwd', 'CVE-2026-1234 javascript:alert(1)'].map((id) => ({
+          id,
+          severity: 'high',
+          package: 'p',
+          version: '1',
+          platforms: ['linux/amd64'],
+        })),
+      );
     });
     site = build(bundle);
     report = readBundle(bundle).report;
@@ -373,12 +383,95 @@ describe('a report written by someone hostile', () => {
     assert.doesNotMatch(page, /<script>alert|<img src=x/);
     assert.match(page, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
   });
+
+  test('a hostile finding ID is escaped, gets a page inside findings/, and links nowhere else', () => {
+    const pages = readdirSync(path.join(site, 'findings')).sort();
+    assert.ok(pages.includes('etc-passwd') && pages.includes('script-alert-1-script'), pages.join(' '));
+    assert.ok(!existsSync(path.join(site, 'etc')));
+    for (const page of ['findings/index.html', 'images/ghcr-io-acme-images-billing/index.html']) {
+      const html = read(site, page);
+      // Inside a quoted attribute, where < is text, it may stay as it is.
+      assert.doesNotMatch(html.replace(/="[^"]*"/g, '=""'), /<script>alert/);
+      assert.match(html, /&quot;&gt;&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
+      // Almost a CVE is not one: no advisory link built from it.
+      assert.doesNotMatch(html, /cve\.org[^"]*javascript|nvd\.nist\.gov[^"]*javascript/);
+    }
+  });
 });
 
 describe('the fixture site', () => {
   let site: string;
   before(() => {
     site = build(FIXTURE);
+  });
+
+  test('why images fall short: one card per reason, with every image it holds back', () => {
+    const html = read(site, 'index.html');
+    const section = html.slice(html.indexOf('id="attention"'), html.indexOf('id="fix-first"'));
+    assert.deepEqual(
+      [...section.matchAll(/<h3>([^<]+)<\/h3>/g)].map((m) => m[1]),
+      ['Vulnerabilities are unknown (no scan)', 'Provenance is missing', 'Sbom is missing', 'Signature is missing'],
+    );
+    assert.match(shown(section), /Vulnerabilities are unknown \(no scan\) 4 images: 2 failed, 2 unverified amazonlinux:2023 ✕ Failed debian:trixie-slim ✕ Failed static:latest \? Unverified wolfi-base:latest \? Unverified/);
+  });
+
+  test('every headline number links to the list of what it counts', () => {
+    const html = read(site, 'index.html');
+    const tiles = [...html.matchAll(/<a class="tile tone-[a-z]+ tile-link" href="([^"]+)">/g)].map((m) => m[1]);
+    for (const path of ['/lists/verified/', '/lists/failed/', '/lists/unverified/', '/findings/', '/lists/stale-base/', '/lists/not-scanned/', '/lists/old-scans/', '/lists/reproduced/', '/lists/not-reproduced/']) {
+      assert.ok(tiles.includes(path), path);
+    }
+    assert.doesNotMatch(html, /<div class="tile /, 'no tile is a dead end');
+    // A list is a page of its own, with the images it names and no others.
+    const failed = shown(read(site, 'lists/failed/index.html'));
+    assert.match(failed, /Failed images.*2 images/);
+    const rows = [...read(site, 'lists/failed/index.html').matchAll(/<a href="\/images\/([^/]+)\/">/g)].map((m) => m[1]);
+    assert.deepEqual(rows, ['amazonlinux-2023', 'debian-trixie-slim']);
+    assert.match(shown(read(site, 'lists/not-reproduced/index.html')), /No rebuild gave a different digest/);
+  });
+
+  test('the overview counts what did not reproduce, and says how old the oldest scan is', () => {
+    const page = shown(read(site, 'index.html'));
+    assert.match(page, /✕ Policy does not pass: of 8 images, 2 fail it and 2 are unverified\. Also outstanding: ✕ 25 critical findings \(0 with a fix\) ! 192 high findings \(88 with a fix\) \? 4 images with no vulnerability data Verdicts/);
+    assert.match(page, /0 Not reproduced rebuilt to a different digest/);
+    assert.match(page, /45 minutes Oldest scan hello-app:latest; none over 7 days 4 Reproduced/);
+  });
+
+  test('the findings to fix first: fixable critical and high first, each linked out to its advisory', () => {
+    const index = read(site, 'findings/index.html');
+    const ids = [...index.matchAll(/<a class="mono" href="\/findings\/[^"]+\/">([^<]+)<\/a>/g)].map((m) => m[1]);
+    assert.ok(ids.indexOf('GO-2026-6603') < ids.indexOf('CVE-2026-10536'), 'a fixable high before a critical with no fix');
+    assert.match(index, /<a href="https:\/\/pkg\.go\.dev\/vuln\/GO-2026-6603" rel="noreferrer">Go vulnerability database<span class="sr-only"> for GO-2026-6603<\/span><\/a>/);
+    assert.match(shown(index), /Covered by a VEX statement everywhere .*GO-2026-6604/);
+    const page = shown(read(site, 'findings/go-2026-6603/index.html'));
+    assert.match(page, /3 images have it\. Fixed in 0\.60\.0, 1\.26\.9, 1\.27\.2\./);
+    assert.match(page, /amazonlinux-tools:latest ✓ Verified golang\.org\/x\/net v0\.57\.0 0\.60\.0 high/);
+    const curl = read(site, 'findings/cve-2026-10536/index.html');
+    assert.match(curl, /href="https:\/\/www\.cve\.org\/CVERecord\?id=CVE-2026-10536"/);
+    assert.match(curl, /href="https:\/\/nvd\.nist\.gov\/vuln\/detail\/CVE-2026-10536"/);
+    assert.match(shown(curl), /1 image has it\. No image reports a fixed version\./);
+    // Images with no vulnerability data are unknown here, never unaffected.
+    assert.match(shown(curl), /Where it is unknown .*4 images have no vulnerability data, so whether they have it is unknown/);
+    // The overview's short list is the same order.
+    assert.match(shown(read(site, 'index.html')), /Findings to fix first .* GO-2026-/);
+  });
+
+  test("an image's findings are fix first, each opening the advisory's page", () => {
+    const html = read(site, 'images/debian-tools/index.html');
+    const rows = [...html.matchAll(/<tr data-text="([^"]+)">/g)].map((m) => m[1]);
+    const first = rows.findIndex((r) => r.endsWith(' critical'));
+    const fixableHigh = rows.findIndex((r) => r.startsWith('go-2026-6603 '));
+    assert.ok(fixableHigh >= 0 && fixableHigh < first, 'a fixable high comes before a critical with no fix');
+    assert.match(html, /<a class="mono" href="\/findings\/cve-2026-10536\/">CVE-2026-10536<\/a>/);
+  });
+
+  test('the images table reads in verdict order without script, and says how to sort with it', () => {
+    const html = read(site, 'index.html');
+    const table = html.slice(html.indexOf('<table class="images" data-sortable>'));
+    assert.match(table, /<th data-sort="text"[^>]*>Image<\/th>/);
+    const order = [...table.slice(0, table.indexOf('</table>')).matchAll(/<a href="\/images\/([^/]+)\/">/g)].map((m) => m[1]);
+    assert.deepEqual(order.slice(0, 4), ['amazonlinux-2023', 'debian-trixie-slim', 'static', 'wolfi-base']);
+    assert.match(html, /<p class="small dim sort-hint" data-sort-hint hidden>/);
   });
 
   test('builds, and every verified image shows each required kind verified', () => {
@@ -689,6 +782,40 @@ describe('a rebased image with per-image history', () => {
   });
 });
 
+describe('an estate whose policy passes, with work outstanding', () => {
+  let site: string;
+  before(() => {
+    site = build(
+      editedBundle(FIXTURE, (r) => {
+        for (const image of r.images) image.verdict = { status: 'verified', reasons: [] };
+        r.summary.verdicts = { verified: r.images.length, failed: 0, unverified: 0 };
+        for (const id of ['platform-tools', 'hello-app']) {
+          Object.assign(r.images.find((i: any) => i.id === id).base, { drift: 'stale', daysBehind: 3, versionsBehind: 1 });
+        }
+        r.summary.bases.stale = 2;
+        r.summary.bases.current -= 2;
+        r.images.find((i: any) => i.id === 'amazonlinux-tools').vulnerabilities.scannedAt = '2026-09-30T16:00:00Z';
+      }),
+    );
+  });
+
+  test('says the policy passes and what is still outstanding, never that nothing is', () => {
+    const page = shown(read(site, 'index.html'));
+    assert.match(page, /✓ Policy passes: all 8 images are verified\. Still outstanding, though the policy doesn't fail them:/);
+    assert.match(page, /! 116 high findings \(12 with a fix\)|high findings \(\d+ with a fix\)/);
+    assert.match(page, /✕ 25 critical findings \(0 with a fix\)/);
+    assert.match(page, /! 2 images on a stale base/);
+    assert.match(page, /\? 4 images with no vulnerability data/);
+    assert.match(page, /! 1 scan older than 7 days/);
+    assert.doesNotMatch(page, /Every image meets every requirement/);
+    assert.match(page, /No image falls short of the policy\. What is still outstanding is listed above\./);
+    const html = read(site, 'index.html');
+    assert.match(html, /<a href="\/lists\/stale-base\/">2 images on a stale base<\/a>/);
+    assert.match(html, /<a href="\/lists\/old-scans\/">1 scan older than 7 days<\/a>/);
+    assert.match(page, /10 days Oldest scan amazonlinux-tools:latest; 1 scan is over 7 days/);
+  });
+});
+
 describe('a report at the edges of what the schema allows', () => {
   let site: string;
   before(() => {
@@ -727,7 +854,7 @@ describe('a report at the edges of what the schema allows', () => {
 
   test('the Reproduced tile is not green when nothing reproduced', () => {
     const html = read(site, 'index.html');
-    const tile = html.match(/class="tile tone-([a-z]+)"(?:(?!class="tile ).)*?>Reproduced</s);
+    const tile = html.match(/class="tile tone-([a-z]+)[^"]*"(?:(?!class="tile ).)*?>Reproduced</s);
     assert.ok(tile, 'a Reproduced tile');
     assert.equal(tile[1], 'unknown');
   });

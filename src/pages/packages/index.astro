@@ -59,7 +59,7 @@ const { known, unknown } = report.summary.packages;
 
   <section aria-labelledby="list">
     <h2 id="list">All packages</h2>
-    <p><input class="filter" type="search" placeholder="Filter by name or type, e.g. openssl" aria-label="Filter packages" data-filter /></p>
+    <p><input class="filter" type="search" placeholder="Filter by name or type, e.g. openssl" aria-label="Filter packages" data-filter data-filter-noun="packages" /></p>
     <p class="small dim" data-count aria-live="polite"></p>
     <div class="table-wrap">
       <table>
@@ -81,18 +81,4 @@ const { known, unknown } = report.summary.packages;
 
 <script src="../../scripts/package-search.ts"></script>
 
-<script>
-  const input = document.querySelector<HTMLInputElement>('[data-filter]');
-  const count = document.querySelector<HTMLElement>('[data-count]');
-  const rows = [...document.querySelectorAll<HTMLElement>('tr[data-text]')];
-  const apply = () => {
-    const q = input!.value.trim().toLowerCase();
-    let shown = 0;
-    for (const row of rows) {
-      row.hidden = q !== '' && !row.dataset.text!.includes(q);
-      if (!row.hidden) shown++;
-    }
-    count!.textContent = q === '' ? '' : `${shown} of ${rows.length} packages match.`;
-  };
-  input?.addEventListener('input', apply);
-</script>
+<script src="../../scripts/filter-rows.ts"></script>

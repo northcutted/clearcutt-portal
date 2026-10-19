@@ -1,0 +1,24 @@
+---
+// A headline number. With `path` it is a link to the list of what it counts,
+// so every number on the overview opens the images behind it.
+import { TONE_GLYPH, type Tone } from '../lib/present.ts';
+import { href } from '../lib/site.ts';
+
+interface Props {
+  value: string | number;
+  label: string;
+  note?: string;
+  tone: Tone;
+  /** Show the tone's glyph before the label. */
+  glyph?: boolean;
+  /** A page of this site that lists what the tile counts. */
+  path?: string;
+}
+const { value, label, note, tone, glyph = false, path } = Astro.props;
+const Tag = path ? 'a' : 'div';
+---
+<Tag class={`tile tone-${tone}${path ? ' tile-link' : ''}`} href={path ? href(path) : undefined}>
+  <span class="tile-value">{value}</span>
+  <span class="tile-label">{glyph && <span class="chip-glyph" aria-hidden="true">{TONE_GLYPH[tone]} </span>}{label}</span>
+  {note && <span class="tile-note">{note}</span>}
+</Tag>

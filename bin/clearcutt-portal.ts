@@ -2,6 +2,7 @@
 // clearcutt-portal turns a clearcutt-verify bundle into a static website.
 //
 //   clearcutt-portal build --bundle DIR [--out DIR] [--site URL] [--base PATH] [--title TEXT]
+//                          [--scan-age-days N]
 //   clearcutt-portal check --bundle DIR
 //
 // build validates the bundle against the vendored contract, then renders the
@@ -14,11 +15,15 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { BUNDLE_ENV, BundleError, readBundle } from '../src/lib/bundle.ts';
-import { TITLE_ENV } from '../src/lib/site-env.ts';
+import { SCAN_AGE_ENV, TITLE_ENV } from '../src/lib/site-env.ts';
 
 const usage = `usage:
   clearcutt-portal build --bundle DIR [--out DIR] [--site URL] [--base PATH] [--title TEXT]
-  clearcutt-portal check --bundle DIR`;
+                         [--scan-age-days N]
+  clearcutt-portal check --bundle DIR
+
+  --scan-age-days N   flag vulnerability scans older than N days on the overview
+                      (default: the policy's maxScanAgeDays, or 7)`;
 
 function fail(message: string, code: number): never {
   console.error(message);
@@ -69,7 +74,15 @@ function within(inner: string, outer: string): boolean {
 }
 
 const [command, ...rest] = process.argv.slice(2);
-let values: { bundle?: string; out?: string; site?: string; base?: string; title?: string; help?: boolean };
+let values: {
+  bundle?: string;
+  out?: string;
+  site?: string;
+  base?: string;
+  title?: string;
+  'scan-age-days'?: string;
+  help?: boolean;
+};
 try {
   ({ values } = parseArgs({
     args: rest,
@@ -79,6 +92,7 @@ try {
       site: { type: 'string' },
       base: { type: 'string', default: '/' },
       title: { type: 'string' },
+      'scan-age-days': { type: 'string' },
       help: { type: 'boolean', short: 'h' },
     },
   }));
@@ -91,6 +105,14 @@ if (values.help || command === 'help' || command === '--help' || command === '-h
 }
 if (command !== 'build' && command !== 'check') fail(usage, 2);
 if (!values.bundle) fail(`--bundle is required\n${usage}`, 2);
+
+/** A whole number of at least `min` from a flag, or a usage error. */
+function count(flag: string, raw: string | undefined, min: number): number | undefined {
+  if (raw === undefined) return undefined;
+  if (!/^\d+$/.test(raw) || Number(raw) < min) fail(`--${flag} ${raw}: must be a whole number, at least ${min}\n${usage}`, 2);
+  return Number(raw);
+}
+const scanAgeDays = count('scan-age-days', values['scan-age-days'], 1);
 
 const bundleDir = path.resolve(values.bundle);
 let images: number;
@@ -140,6 +162,7 @@ if (existsSync(outDir)) {
 
 process.env[BUNDLE_ENV] = bundleDir;
 if (values.title) process.env[TITLE_ENV] = values.title;
+if (scanAgeDays !== undefined) process.env[SCAN_AGE_ENV] = String(scanAgeDays);
 // Astro's anonymous usage telemetry is on by default; a build in someone
 // else's CI shouldn't phone home.
 process.env.ASTRO_TELEMETRY_DISABLED = '1';

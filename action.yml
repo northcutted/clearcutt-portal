@@ -1,17 +1,21 @@
 # Builds a ClearCutt portal: a static website for an image estate, from the
 # bundle clearcutt-verify writes (estate-report.json, and optionally
-# estate-history.json).
+# estate-history.json): a directory, or the signed OCI artifact
+# `clearcutt-verify estate push` stores, which is verified before it is read.
 #
-#   - uses: northcutted/clearcutt-portal@v0.1.0
+#   - uses: northcutted/clearcutt-portal@<commit of a release tag> # vX.Y.Z
 #     with:
-#       bundle: verify-out
+#       bundle-ref: ghcr.io/acme/estate:latest
+#       certificate-identity-regexp: ^https://github\.com/acme/estate/\.github/workflows/estate\.yml@refs/heads/main$
+#       certificate-oidc-issuer: https://token.actions.githubusercontent.com
 #
-# At a release tag, the action downloads that release's source archive and
-# verifies its Sigstore signature (made by this repository's release workflow
-# at that tag) before installing its locked dependencies and building. At any
-# other ref, or as a local action (uses: ./), it builds from the action's own
-# source. Either way the build reads only the bundle: nothing contacts a
-# registry, and the site loads nothing from another origin.
+# Pin it by commit, like any other action. At a release (a vX.Y.Z tag, or
+# the commit one names) the action downloads that release's source archive
+# and verifies its Sigstore signature (made by this repository's release
+# workflow at that tag) before installing its locked dependencies and
+# building. At any other ref, or as a local action (uses: ./), it builds from
+# the action's own source. Either way the build reads only the bundle, and
+# the site loads nothing from another origin.
 name: ClearCutt Portal
 description: Build a static website for an image estate from clearcutt-verify's estate report
 author: northcutted
@@ -20,8 +24,29 @@ branding:
   color: purple
 inputs:
   bundle:
-    description: Directory with estate-report.json (and optionally estate-history.json), as clearcutt-verify writes it.
-    required: true
+    description: Directory with estate-report.json (and optionally estate-history.json), as clearcutt-verify writes it. Give this or bundle-ref.
+    required: false
+    default: ""
+  bundle-ref:
+    description: The bundle as an OCI artifact, as `clearcutt-verify estate push` stores it (registry/repository:tag, or @sha256:… to pin it). Its cosign signature must verify against certificate-identity-regexp and certificate-oidc-issuer before anything of it is read; otherwise the action fails. Give this or bundle.
+    required: false
+    default: ""
+  certificate-identity-regexp:
+    description: With bundle-ref, who must have signed the bundle, as cosign's --certificate-identity-regexp (and clearcutt-verify estate pull's), anchored with ^ and $, e.g. ^https://github\.com/acme/estate/\.github/workflows/estate\.yml@refs/heads/main$. Required with bundle-ref.
+    required: false
+    default: ""
+  certificate-oidc-issuer:
+    description: With bundle-ref, the signer's OIDC issuer, as cosign's --certificate-oidc-issuer, e.g. https://token.actions.githubusercontent.com. Required with bundle-ref.
+    required: false
+    default: ""
+  registry-username:
+    description: With bundle-ref, a user to log in to its registry as. Without it, the docker config (an earlier docker/login-action) is used, or no login, which works for a public bundle.
+    required: false
+    default: ""
+  registry-password:
+    description: With registry-username, the password or token, e.g. secrets.GITHUB_TOKEN with packages read for ghcr.io.
+    required: false
+    default: ""
   output:
     description: Directory to write the site to.
     required: false
@@ -38,8 +63,16 @@ inputs:
     description: Site title. Default is the estate's name from the report.
     required: false
     default: ""
+  history-runs:
+    description: How many of the latest runs the history, comparison, and image pages show. Default 50; 0 shows every run.
+    required: false
+    default: ""
+  scan-age-days:
+    description: Flag vulnerability scans older than this many days on the overview. Default is the policy's maxScanAgeDays, or 7.
+    required: false
+    default: ""
   version:
-    description: Release to use, e.g. v0.1.0. Default is the release tag this action was used at; "source" (or any ref that isn't a vX.Y.Z tag) builds from the action's source.
+    description: Rarely needed. The release to use, e.g. v0.2.0; default is the release this action was used at (its tag, or the commit a release tag names). "source" (or any ref that isn't a vX.Y.Z tag) builds from the action's source.
     required: false
     default: ""
 outputs:
@@ -49,29 +82,75 @@ outputs:
   version:
     description: The portal version used ("source" when built from source).
     value: ${{ steps.version.outputs.version }}
+  bundle-digest:
+    description: With bundle-ref, the digest of the bundle that was verified and built (sha256:…).
+    value: ${{ steps.pull.outputs.digest }}
 runs:
   using: composite
   steps:
+    - name: Check the inputs
+      shell: bash
+      env:
+        BUNDLE: ${{ inputs.bundle }}
+        BUNDLE_REF: ${{ inputs.bundle-ref }}
+      run: |
+        if [ -n "$BUNDLE" ] && [ -n "$BUNDLE_REF" ]; then
+          echo "::error title=clearcutt-portal::give bundle or bundle-ref, not both"; exit 1
+        fi
+        if [ -z "$BUNDLE" ] && [ -z "$BUNDLE_REF" ]; then
+          echo "::error title=clearcutt-portal::give bundle (a directory) or bundle-ref (a signed OCI artifact)"; exit 1
+        fi
+
     - name: Choose the version
       id: version
       shell: bash
       env:
         INPUT: ${{ inputs.version }}
         ACTION_REF: ${{ github.action_ref }}
+        REPO: northcutted/clearcutt-portal
       run: |
         # A release is a tag scripts/release.sh cut (vX.Y.Z); anything else,
         # even a ref starting with v, builds from the action's own source.
         release='^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$'
         v=$INPUT
         if [ -z "$v" ] && [[ "$ACTION_REF" =~ $release ]]; then v=$ACTION_REF; fi
+        # Pinned by commit: the release tag that names that commit, if one
+        # does, so its signed archive is what builds.
+        if [ -z "$v" ] && [[ "$ACTION_REF" =~ ^[0-9a-f]{40}$ ]]; then
+          v=$(git ls-remote --tags "https://github.com/$REPO" 'v*' | sed 's/\^{}$//' |
+            awk -v c="$ACTION_REF" '$1 == c { sub("refs/tags/", "", $2); print $2 }' |
+            grep -E "$release" | sort -V | tail -n 1 || true)
+        fi
         if [ -z "$v" ] || ! [[ "$v" =~ $release ]]; then v=source; fi
         echo "version=$v" >> "$GITHUB_OUTPUT"
 
     - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
       with:
         node-version: 24
-    - if: steps.version.outputs.version != 'source'
+    - if: steps.version.outputs.version != 'source' || inputs.bundle-ref != ''
       uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+    - if: inputs.bundle-ref != ''
+      uses: oras-project/setup-oras@005458ad77f1c8facd38a094e4af2e69e5607ff4 # v2.0.2
+
+    # Verified before anything reads it: the signature against the signer
+    # given, then only that digest, and only an estate bundle.
+    - name: Pull the bundle and verify its signature
+      id: pull
+      if: inputs.bundle-ref != ''
+      shell: bash
+      env:
+        REF: ${{ inputs.bundle-ref }}
+        CERTIFICATE_IDENTITY_REGEXP: ${{ inputs.certificate-identity-regexp }}
+        CERTIFICATE_OIDC_ISSUER: ${{ inputs.certificate-oidc-issuer }}
+        REGISTRY_USERNAME: ${{ inputs.registry-username }}
+        REGISTRY_PASSWORD: ${{ inputs.registry-password }}
+        SCRIPT: ${{ github.action_path }}/scripts/pull-bundle.sh
+      run: |
+        set -euo pipefail
+        dir="$RUNNER_TEMP/clearcutt-portal-bundle"
+        rm -rf "$dir"
+        bash "$SCRIPT" "$REF" "$dir"
+        echo "dir=$dir" >> "$GITHUB_OUTPUT"
 
     - name: Install clearcutt-portal
       id: install
@@ -103,8 +182,8 @@ runs:
           label=$VERSION
         fi
         # The lockfile pins every dependency by integrity hash; install
-        # scripts don't run.
-        (cd "$dir" && npm ci --ignore-scripts --no-audit --no-fund)
+        # scripts don't run, and the build needs no development dependency.
+        (cd "$dir" && npm ci --ignore-scripts --omit=dev --no-audit --no-fund)
         echo "dir=$dir" >> "$GITHUB_OUTPUT"
         echo "label=$label" >> "$GITHUB_OUTPUT"
 
@@ -114,15 +193,19 @@ runs:
       env:
         PORTAL: ${{ steps.install.outputs.dir }}
         CLEARCUTT_PORTAL_VERSION: ${{ steps.install.outputs.label }}
-        BUNDLE: ${{ inputs.bundle }}
+        BUNDLE: ${{ inputs.bundle || steps.pull.outputs.dir }}
         OUTPUT: ${{ inputs.output }}
         SITE_URL: ${{ inputs.site-url }}
         BASE_PATH: ${{ inputs.base-path }}
         TITLE: ${{ inputs.title }}
+        HISTORY_RUNS: ${{ inputs.history-runs }}
+        SCAN_AGE_DAYS: ${{ inputs.scan-age-days }}
       run: |
         set -euo pipefail
         args=(build --bundle "$BUNDLE" --out "$OUTPUT" --base "${BASE_PATH:-/}")
         if [ -n "$SITE_URL" ]; then args+=(--site "$SITE_URL"); fi
         if [ -n "$TITLE" ]; then args+=(--title "$TITLE"); fi
+        if [ -n "$HISTORY_RUNS" ]; then args+=("--history-runs=$HISTORY_RUNS"); fi
+        if [ -n "$SCAN_AGE_DAYS" ]; then args+=("--scan-age-days=$SCAN_AGE_DAYS"); fi
         node "$PORTAL/bin/clearcutt-portal.ts" "${args[@]}"
         echo "dir=$(cd "$OUTPUT" && pwd)" >> "$GITHUB_OUTPUT"

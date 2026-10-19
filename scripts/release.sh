@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Cuts a release: sets package.json's version, points the reusable workflow,
-# the action examples, and the docs at VERSION, commits that, and tags it.
+# Cuts a release: sets package.json's version, points any tag-pinned
+# reference to this repository (and the version comment of a commit-pinned
+# example) at VERSION, commits that, and tags it.
 # Pushing the tag runs .github/workflows/release.yml, which tests, packages,
 # signs, and publishes.
 #
@@ -13,10 +14,12 @@ grep -q "^## $version" CHANGELOG.md || { echo "CHANGELOG.md has no '## $version'
 [ -z "$(git status --porcelain)" ] || { echo "working tree is not clean" >&2; exit 1; }
 
 npm version --no-git-tag-version --allow-same-version "${version#v}" >/dev/null
-# The reusable workflow's portal-version default (its only version-shaped
-# default) and every pinned reference to this repository.
-perl -pi -e 's/^(\s+default: )v\d+\.\d+\.\d+(-[0-9A-Za-z.]+)?$/${1}'"$version"'/' .github/workflows/portal.yml
-perl -pi -e 's#(northcutted/clearcutt-portal(?:/\.github/workflows/[a-z-]+\.yml)?)\@v\d+\.\d+\.\d+(-[0-9A-Za-z.]+)?#$1\@'"$version"'#g' \
+# Every tag-pinned reference to this repository, and the "# vX.Y.Z" of a
+# commit-pinned one in the docs (whose commit is the tag's, known only
+# after this commit).
+perl -pi -e 's#(northcutted/clearcutt-portal(?:/\.github/workflows/[a-z-]+\.yml)?)\@v\d+\.\d+\.\d+(-[0-9A-Za-z.]+)?#$1\@'"$version"'#g;
+  s#(northcutted/clearcutt-portal(?:/\.github/workflows/[a-z-]+\.yml)?\@<[^>]+> \# )v\d+\.\d+\.\d+(-[0-9A-Za-z.]+)?#$1'"$version"'#g;
+  s#(clearcutt-portal \x27refs/tags/)v\d+\.\d+\.\d+(-[0-9A-Za-z.]+)?(\^\{\}\x27)#$1'"$version"'$3#g' \
   .github/workflows/*.yml action.yml README.md docs/*.md
 
 npm test >/dev/null

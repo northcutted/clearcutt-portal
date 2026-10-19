@@ -45,27 +45,29 @@ status carries a glyph as well as a color, and every page links the raw
 
 ## Publishing a fleet's portal
 
-In a GitHub repository whose Pages source is "GitHub Actions", run
-clearcutt-verify in one job and hand its output to the reusable workflow:
+In a GitHub repository whose Pages source is "GitHub Actions", call the
+reusable workflow with the bundle clearcutt-verify pushed and signed
+(`clearcutt-verify estate push`, then `cosign sign`), and who must have
+signed it. The workflow verifies the signature before it reads anything, and
+fails when it doesn't verify:
 
 ```yaml
 jobs:
-  verify:
-    runs-on: ubuntu-latest
-    steps:
-      # ...run clearcutt-verify estate verify --out estate ...
-      - uses: actions/upload-artifact@v7
-        with:
-          name: estate-bundle
-          path: estate/
   portal:
-    needs: verify
-    uses: northcutted/clearcutt-portal/.github/workflows/portal.yml@v0.1.0
+    needs: verify   # the job that ran estate verify, estate push, and cosign sign
+    # Pin by commit, like every other action; the comment is for you and Dependabot.
+    uses: northcutted/clearcutt-portal/.github/workflows/portal.yml@<commit of the release tag> # v0.1.0
     permissions: {contents: read, pages: write, id-token: write}
     with:
-      bundle-artifact: estate-bundle
+      bundle-ref: ghcr.io/acme/estate:latest
+      certificate-identity-regexp: ^https://github\.com/acme/estate/\.github/workflows/estate\.yml@refs/heads/main$
+      certificate-oidc-issuer: https://token.actions.githubusercontent.com
 ```
 
+`git ls-remote https://github.com/northcutted/clearcutt-portal 'refs/tags/v0.1.0^{}'`
+prints the commit to pin. The workflow builds the version it is called at:
+pinned to a release's commit (or tag), it verifies and builds that release's
+signed archive. An artifact of the same run (`bundle-artifact`) works too.
 [docs/adopting.md](docs/adopting.md) covers the workflow's inputs, building
 with the action in your own job, other hosts, and building locally.
 
@@ -177,7 +179,10 @@ Changes to the contract are proposed as issues on
 
 Releases are signed: each is the `git archive` of its tag, signed keylessly by
 [`release.yml`](.github/workflows/release.yml) with SLSA provenance, and the
-action verifies that signature before building. See [CHANGELOG.md](CHANGELOG.md).
+action verifies that signature before building. Pin the action and the
+reusable workflow by the release's commit, as you pin any other action; at a
+commit a release tag names they still build the signed release. See
+[CHANGELOG.md](CHANGELOG.md).
 
 ## Development
 

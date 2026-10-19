@@ -89,6 +89,42 @@ between minor releases, with notes here.
   `@playwright/test` and `@axe-core/playwright` are development dependencies;
   the build doesn't use them.
 
+### Added: signed bundles, and one version input
+
+- The action and the reusable workflow take `bundle-ref`: the bundle as the
+  OCI artifact `clearcutt-verify estate push` stores. Its cosign signature
+  must verify against the new `certificate-identity-regexp` (anchored with
+  `^` and `$`) and `certificate-oidc-issuer` inputs before anything of it is
+  read, and it must be an estate bundle (config media type
+  `application/vnd.clearcutt.estate.v1+json`); only the verified digest is
+  pulled. Without a signer, with one that doesn't match, or with another kind
+  of artifact, the build fails and nothing is built. The inputs are named
+  after cosign's flags, which clearcutt-verify's `estate pull` mirrors.
+  `registry-username` and `registry-password` (a secret, for the workflow) log
+  in to a private bundle's registry. The new output `bundle-digest` names the
+  digest that was verified. `bundle` (the action) and `bundle-artifact` (the
+  workflow) are no longer required: give one of them or `bundle-ref`.
+- The action and the workflow take `history-runs` and `scan-age-days`.
+- The reusable workflow builds the version it is called at, from the commit
+  it was called at (`job.workflow_sha`): a release's signed archive when that
+  is a release tag or the commit one names, that commit's source otherwise.
+  The action does the same for a commit pin. A new output, `portal-version`,
+  says which.
+- The deploy job runs in the concurrency group `clearcutt-portal-pages-deploy`
+  (one deploy at a time, the newest waiting), named so a caller's own group
+  can't deadlock with it.
+- The README and the adoption guide pin the action and the workflow by the
+  release's commit, like every other action, and show `bundle-ref`.
+
+### Changed
+
+- `portal-version` is deprecated. It still works, and the workflow warns that
+  it is no longer needed (and when it differs from the ref the workflow is
+  called at); remove it from callers. Without it, a caller at a branch or a
+  commit now builds that ref instead of the default release.
+- The action installs the portal with `npm ci --omit=dev`: the build needs no
+  development dependency.
+
 ### Fixed
 
 - Light-theme secondary text (`--ink-300`) and links were 4.1–4.4:1 on cards

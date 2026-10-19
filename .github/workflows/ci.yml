@@ -125,6 +125,57 @@ jobs:
           node bin/clearcutt-portal.ts build --bundle "$GITHUB_WORKSPACE/contract/fixtures/northcutted-images" --out "$RUNNER_TEMP/site"
           test -f "$RUNNER_TEMP/site/images/platform-tools/index.html"
 
+  # The action with a signed bundle-ref: the showcase's estate bundle,
+  # pinned by digest, signed by its estate workflow. It builds with the right
+  # signer, and stops before reading anything with any other.
+  action-bundle-ref:
+    runs-on: ubuntu-latest
+    env:
+      BUNDLE_REF: ghcr.io/northcutted/clearcutt-showcase/estate@sha256:811b0f92375cb23490a9e4a4697a9c5db7ac470cf0c1132ac7ceffaa118862ef
+      ISSUER: https://token.actions.githubusercontent.com
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - id: portal
+        uses: ./
+        with:
+          bundle-ref: ${{ env.BUNDLE_REF }}
+          certificate-identity-regexp: ^https://github\.com/northcutted/clearcutt-showcase/\.github/workflows/estate\.yml@refs/heads/main$
+          certificate-oidc-issuer: ${{ env.ISSUER }}
+          output: verified-site
+      - name: The site is built from the bundle that was verified
+        env:
+          DIR: ${{ steps.portal.outputs.dir }}
+          DIGEST: ${{ steps.portal.outputs.bundle-digest }}
+        run: |
+          test -f "$DIR/index.html"
+          test -f "$DIR/estate-report.json"
+          test "$DIGEST" = "${BUNDLE_REF#*@}"
+      - id: wrong-signer
+        continue-on-error: true
+        uses: ./
+        with:
+          bundle-ref: ${{ env.BUNDLE_REF }}
+          certificate-identity-regexp: ^https://github\.com/northcutted/someone-else/.*$
+          certificate-oidc-issuer: ${{ env.ISSUER }}
+          output: wrong-signer-site
+      - id: no-signer
+        continue-on-error: true
+        uses: ./
+        with:
+          bundle-ref: ${{ env.BUNDLE_REF }}
+          output: no-signer-site
+      - name: Without the right signer, nothing is built
+        env:
+          WRONG: ${{ steps.wrong-signer.outcome }}
+          NONE: ${{ steps.no-signer.outcome }}
+        run: |
+          test "$WRONG" = failure
+          test "$NONE" = failure
+          test ! -e wrong-signer-site
+          test ! -e no-signer-site
+
   actionlint:
     runs-on: ubuntu-latest
     steps:
@@ -149,7 +200,8 @@ jobs:
           path: contract/examples/minimal/
   # GitHub requires the caller to grant what every job in portal.yml asks
   # for, including the deploy job that deploy: false skips. Only main may
-  # deploy to the github-pages environment, so this can't publish.
+  # deploy to the github-pages environment, so this can't publish. No
+  # portal-version: the workflow builds the commit it is called at.
   workflow:
     needs: workflow-bundle
     uses: ./.github/workflows/portal.yml
@@ -160,4 +212,12 @@ jobs:
     with:
       bundle-artifact: ci-bundle
       deploy: false
-      portal-version: ${{ github.event.pull_request.head.sha || github.sha }}
+  workflow-version:
+    needs: workflow
+    runs-on: ubuntu-latest
+    steps:
+      - name: The workflow built this commit, from source
+        env:
+          VERSION: ${{ needs.workflow.outputs.portal-version }}
+          SHA: ${{ github.sha }}
+        run: test "$VERSION" = "source@$SHA"

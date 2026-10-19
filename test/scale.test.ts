@@ -13,10 +13,11 @@ import { root, scratch } from './helpers.ts';
 
 const IMAGES = 500;
 const RUNS = 1000;
-// About 11 s on an Apple M-series laptop and ~35 s on a GitHub-hosted runner;
-// the budget leaves room for a slow runner without hiding a return to the
-// quadratic build (110 s here before the history was windowed and indexed).
-const BUDGET_S = Number(process.env.CLEARCUTT_PORTAL_SCALE_BUDGET_S ?? 120);
+// About 8 s on an Apple M-series laptop and 15 s on a GitHub-hosted runner;
+// the budget is three times that, room for a slow runner without hiding a
+// return to the quadratic build (110 s on the laptop before the history was
+// windowed and indexed).
+const BUDGET_S = Number(process.env.CLEARCUTT_PORTAL_SCALE_BUDGET_S ?? 45);
 
 const run = (...args: string[]) => spawnSync(process.execPath, args, { cwd: root, encoding: 'utf8', maxBuffer: 64 << 20 });
 

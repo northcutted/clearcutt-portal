@@ -1003,7 +1003,8 @@ describe('the CLI', () => {
 
   test('warns about fields beyond the contract, on stderr and as workflow annotations', () => {
     const dir = editedBundle(MINIMAL, (r) => (r.images[0].evidence.signature.newDetail = 'later'));
-    const plain = cli('check', '--bundle', dir);
+    const { GITHUB_ACTIONS: _, ...outside } = process.env;
+    const plain = spawnSync(process.execPath, [path.join(root, 'bin/clearcutt-portal.ts'), 'check', '--bundle', dir], { cwd: root, encoding: 'utf8', env: outside });
     assert.equal(plain.status, 0);
     assert.match(plain.stderr, /^warning: estate-report\.json has a field this portal's contract doesn't define, so no page shows it: images\[\]\.evidence\.signature\.newDetail\.$/m);
     assert.doesNotMatch(plain.stdout, /::warning/);

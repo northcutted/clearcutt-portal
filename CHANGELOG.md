@@ -73,8 +73,8 @@ between minor releases, with notes here.
   An image page used to scan every history row of every run.
 - `scripts/gen-fixture.ts` writes a synthetic estate (500 images and 1,000
   runs by default) valid against the contract, and a CI job builds it within
-  a time budget (`test/scale.test.ts`; about 8 s on a laptop, 110 s before
-  these changes).
+  a 45-second budget (`test/scale.test.ts`; about 15 s on a GitHub-hosted
+  runner and 8 s on a laptop, where it took 110 s before these changes).
 - The tests remove the temporary bundles and sites they build.
 
 ### Added: browser tests

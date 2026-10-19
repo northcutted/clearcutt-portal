@@ -25,6 +25,17 @@
   --tone-unknown: 124 127 147; /* Overlay2 */
   --tone-muted: 156 160 176; /* Overlay0 */
 
+  /* Status glyphs are text, so each tone has a glyph color with at least
+     4.5:1 contrast on every surface a glyph sits on (the page, cards, table
+     headers and hovered rows, and a status cell's own tint); the tones above
+     stay for borders and tints. test/contrast.test.ts checks every pair. */
+  --glyph-good: 44 110 30;
+  --glyph-claim: 25 86 206;
+  --glyph-warn: 165 65 7;
+  --glyph-bad: 183 13 50;
+  --glyph-unknown: 94 96 111;
+  --glyph-muted: 97 99 109;
+
   --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
 }
@@ -52,6 +63,13 @@
   --tone-bad: 243 139 168;
   --tone-unknown: 166 173 200;
   --tone-muted: 127 132 156;
+
+  --glyph-good: 166 227 161;
+  --glyph-claim: 137 180 250;
+  --glyph-warn: 250 179 135;
+  --glyph-bad: 243 139 168;
+  --glyph-unknown: 166 173 200;
+  --glyph-muted: 154 158 177;
 }
 
 *,
@@ -391,21 +409,27 @@ section > * + * {
 /* Tones. Each has a glyph as well as a color; see TONE_GLYPH. */
 .tone-good {
   --tone: var(--tone-good);
+  --glyph: var(--glyph-good);
 }
 .tone-claim {
   --tone: var(--tone-claim);
+  --glyph: var(--glyph-claim);
 }
 .tone-warn {
   --tone: var(--tone-warn);
+  --glyph: var(--glyph-warn);
 }
 .tone-bad {
   --tone: var(--tone-bad);
+  --glyph: var(--glyph-bad);
 }
 .tone-unknown {
   --tone: var(--tone-unknown);
+  --glyph: var(--glyph-unknown);
 }
 .tone-muted {
   --tone: var(--tone-muted);
+  --glyph: var(--glyph-muted);
 }
 
 .chip {
@@ -460,7 +484,7 @@ button.chip:hover {
   }
 }
 .chip-glyph {
-  color: rgb(var(--tone, var(--ink-300)));
+  color: rgb(var(--glyph, var(--ink-300)));
   font-weight: 800;
 }
 .chip.tone-unknown {
@@ -472,9 +496,11 @@ button.chip:hover {
   color: rgb(var(--ink-300));
 }
 
-/* A status as a single glyph, for dense tables; the label is in title and
-   for screen readers. */
+/* A status as a single glyph, for dense tables. It takes keyboard focus,
+   and its label (title for a mouse, aria-label for screen readers) shows
+   above it while it has focus. */
 .cell-status {
+  position: relative;
   display: inline-flex;
   width: 1.45rem;
   height: 1.45rem;
@@ -483,9 +509,29 @@ button.chip:hover {
   border-radius: 0.35rem;
   border: 1px solid rgb(var(--tone) / 0.6);
   background: rgb(var(--tone) / 0.12);
-  color: rgb(var(--tone));
+  color: rgb(var(--glyph));
   font-weight: 800;
   font-size: 0.8rem;
+}
+.cell-status:focus-visible::after {
+  content: attr(data-label);
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 0.3rem);
+  z-index: 5;
+  width: max-content;
+  max-width: 18rem;
+  padding: 0.35rem 0.55rem;
+  border: 1px solid rgb(var(--ink-700));
+  border-radius: 0.4rem;
+  background: rgb(var(--ink-900));
+  color: rgb(var(--ink-100));
+  font-size: 0.78rem;
+  font-weight: 500;
+  line-height: 1.4;
+  text-align: left;
+  white-space: normal;
+  box-shadow: 0 0.35rem 1rem rgb(0 0 0 / 0.2);
 }
 .cell-status.tone-unknown {
   border-style: dashed;

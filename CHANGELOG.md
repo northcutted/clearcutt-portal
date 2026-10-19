@@ -18,6 +18,19 @@ between minor releases, with notes here.
 - The overview's "Reproduced" tile is green only when every image with a
   recipe or rebase record reproduced. With none reproduced it reads as
   unknown, and with nothing to rebuild as not applicable.
+- Comparison links are stable. A run's name in URLs depends only on its own
+  time (with milliseconds when it has them; a hash of the text when it doesn't
+  parse), so a new run never renames an older one. "Since" a run is now
+  `history/changes/<run>--latest/`, which keeps its address as runs arrive
+  (it used to name the latest run's time, so every new run broke it); a run
+  with the one before it is still `<older>--<newer>`, and always shows those
+  two runs.
+- Status glyphs have at least 4.5:1 contrast on every surface in both themes
+  (the light theme's were 2.1–3.8:1, and the dark theme's "not applicable"
+  3.4:1). Glyphs take their own color (`--glyph-*`); tones keep the tints.
+- The glyph-per-cell status tables (evidence and rebuild) are keyboard
+  reachable: each cell takes focus, is named for screen readers by what it
+  says ("SBOM: Unknown. …"), and shows that label while focused.
 
 ## v0.1.0
 

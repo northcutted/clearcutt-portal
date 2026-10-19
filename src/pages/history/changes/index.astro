@@ -4,7 +4,7 @@
 import Layout from '../../../layouts/Layout.astro';
 import RunComparison from '../../../components/RunComparison.astro';
 import { loadBundle } from '../../../lib/bundle.ts';
-import { historyRuns } from '../../../lib/timeline.ts';
+import { comparisonSlug, historyRuns } from '../../../lib/timeline.ts';
 import { href } from '../../../lib/site.ts';
 
 const { history } = loadBundle();
@@ -14,7 +14,7 @@ const older = runs.at(-2);
 ---
 <Layout title="Changes between runs" description="What changed for each image between two runs, and how.">
   {older && newer ? (
-    <RunComparison older={older} newer={newer} runs={runs} />
+    <RunComparison older={older} newer={newer} runs={runs} slug={comparisonSlug(older, newer)} />
   ) : (
     <header class="page-head">
       <p class="eyebrow">History · changes between runs</p>

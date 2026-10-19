@@ -280,6 +280,21 @@ describe('the example site', () => {
     assert.match(text(page), /Present, unverified\. Found, but not checked/);
   });
 
+  test('every status cell takes keyboard focus and is named for what it says', () => {
+    const html = read(site, 'index.html');
+    const cells = [...html.matchAll(/<span class="cell-status tone-[a-z]+"([^>]*)>/g)].map((m) => m[1]);
+    assert.ok(cells.length >= 4 * 8, 'a status cell per evidence kind and rebuild, per image');
+    for (const attrs of cells) {
+      assert.match(attrs, /\stabindex="0"/);
+      assert.match(attrs, /\srole="img"/);
+      const label = attrs.match(/\saria-label="([^"]+)"/)?.[1];
+      assert.ok(label, attrs);
+      assert.match(label, /^(Signature|SBOM|Vulnerability report|SLSA provenance|Recipe|Rebase record|Tests|Rebuild): /);
+      assert.ok(attrs.includes(`data-label="${label}"`), 'the label shown on focus is the accessible name');
+    }
+    assert.match(html, /aria-label="SBOM: Unknown/);
+  });
+
   test('charts hold nothing focusable, and every charted value is in the table of runs', () => {
     const html = read(site, 'history/index.html');
     const charts = [...html.matchAll(/<svg\b[^>]*role="img"[^>]*>[\s\S]*?<\/svg>/g)].map((m) => m[0]);
@@ -498,7 +513,8 @@ describe('a report using everything clearcutt-verify v0.15 writes', () => {
     assert.equal(shown(read(site, `history/changes/${pair}/index.html`)).replace(/Changes from \S+ \S+ \S+ to \S+ \S+ \S+ · /, ''), page.replace(/Changes between runs · /, ''));
     const html = read(site, 'history/changes/index.html');
     assert.match(html, /<a href="\/history\/changes\/20261006T231441Z--20261006T233046Z\/">/);
-    assert.match(html, /<a href="\/history\/changes\/20261006T231441Z--20261010T165146Z\/">/);
+    assert.match(html, /<a href="\/history\/changes\/20261006T231441Z--latest\/">Since 2026-10-06 23:14 UTC<\/a>/);
+    assert.match(shown(read(site, 'history/changes/20261006T231441Z--latest/index.html')), /From 2026-10-06 23:14 UTC to 2026-10-10 16:51 UTC/);
     assert.match(shown(read(site, 'history/changes/20261006T231441Z--20261006T233046Z/index.html')), /The older run recorded no per-image rows/);
     assert.match(read(site, 'history/index.html'), /<a href="\/history\/changes\/20261006T233046Z--20261010T165146Z\/"[^>]*>What changed<\/a>/);
     assert.match(shown(read(site, 'history/index.html')), /Compare the two runs image by image ?: each image before and after/);

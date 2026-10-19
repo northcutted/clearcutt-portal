@@ -11,6 +11,7 @@ import { formatTime, plural } from '../lib/format.ts';
 import { SEVERITIES, drift, verdict } from '../lib/present.ts';
 import { href, imageHref } from '../lib/site.ts';
 import {
+  LATEST,
   changed,
   comparisonSlug,
   countHows,
@@ -28,8 +29,10 @@ interface Props {
   newer: Run;
   /** Every run, oldest first. */
   runs: Run[];
+  /** This page's comparison slug, so the table of comparisons can mark it. */
+  slug: string;
 }
-const { older, newer, runs } = Astro.props;
+const { older, newer, runs, slug: here } = Astro.props;
 const { report } = loadBundle();
 const byId = imagesById(report);
 const latest = runs.at(-1)!;
@@ -43,8 +46,7 @@ const drill = diffs ? findingsDrill(diffs) : [];
 const detailed = recordsIds(older.entry) && recordsIds(newer.entry);
 const idDrill = diffs && detailed ? fixableDrill(diffs) : null;
 const label = (id: string) => (byId.has(id) ? imageLabel(byId.get(id)!) : id);
-const pageFor = (o: Run, n: Run) => href(`history/changes/${comparisonSlug(o, n)}/`);
-const here = comparisonSlug(older, newer);
+const pageFor = (slug: string) => href(`history/changes/${slug}/`);
 const newestFirst = [...runs].reverse();
 const count = (n: number | null) => (n === null ? '?' : String(n));
 const baseOf = (row: HistoryImage | undefined) => row?.base;
@@ -302,6 +304,10 @@ const hasRows = (run: Run) => run.entry.images !== undefined;
 
 <section aria-labelledby="runs">
   <h2 id="runs">Compare other runs</h2>
+  <p class="small dim">
+    A run with the one before it always shows those two runs. "Since" a run compares it with whichever run is the latest,
+    so its address stays the same as new runs arrive.
+  </p>
   <div class="table-wrap">
     <table>
       <caption class="sr-only">Every run, newest first, with the comparisons this site has</caption>
@@ -309,13 +315,13 @@ const hasRows = (run: Run) => run.entry.images !== undefined;
       <tbody>
         {newestFirst.map((run, i) => {
           const before = newestFirst[i + 1];
-          const link = (o: Run, n: Run) =>
-            comparisonSlug(o, n) === here ? <span aria-current="page"><strong>this page</strong></span> : <a href={pageFor(o, n)}>{formatTime(o.at)} → {formatTime(n.at)}</a>;
+          const link = (slug: string, text: string) =>
+            slug === here ? <span aria-current="page"><strong>this page</strong></span> : <a href={pageFor(slug)}>{text}</a>;
           return (
             <tr>
               <td class="nowrap">{formatTime(run.at)}{!hasRows(run) && <div class="dim small">no per-image rows</div>}</td>
-              <td>{before ? link(before, run) : <span class="dim">the first run</span>}</td>
-              <td>{run === latest ? <span class="dim">the latest run</span> : link(run, latest)}</td>
+              <td>{before ? link(comparisonSlug(before, run), `${formatTime(before.at)} → ${formatTime(run.at)}`) : <span class="dim">the first run</span>}</td>
+              <td>{run === latest ? <span class="dim">the latest run</span> : link(comparisonSlug(run, LATEST), `Since ${formatTime(run.at)}`)}</td>
             </tr>
           );
         })}

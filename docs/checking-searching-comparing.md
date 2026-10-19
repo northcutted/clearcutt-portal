@@ -198,10 +198,17 @@ nothing is called fixed or introduced and packages are unknown, rather than
 everything reading as fixed.
 
 `history/changes/` compares the latest run with the one before it. The site
-also renders a page for each run with the one before it and each run with the
-latest (`history/changes/<older>--<newer>/`, runs named by their time, such as
-`20261010T165146Z`), which is twice the number of runs at most; the history
-page and every comparison link to them. Other pairs aren't rendered.
+also renders a page for each run with the one before it
+(`history/changes/<older>--<newer>/`) and one for what changed since each run
+(`history/changes/<run>--latest/`), about twice the number of runs; the
+history page and every comparison link to them. Other pairs aren't rendered.
+
+The addresses are stable. A run is named by its time alone, such as
+`20261010T165146Z` (with milliseconds when it has them, such as
+`20261010T165146.500Z`; a time that doesn't parse is `run-` and a hash of its
+text), so a new run never renames an older one. `<older>--<newer>` always
+shows those two runs; `<run>--latest` keeps its address as new runs arrive
+and compares with whichever run is the latest.
 
 A package-set digest says that something changed, not what; and findings other
 than fixable high and critical ones are only counted. The latest run's image

@@ -2,7 +2,10 @@
 # Vendors clearcutt-verify's estate report contract (schemas, examples, and
 # fixtures) into contract/, pinned to a commit, and regenerates the types the
 # pages use from it. The portal builds only against this copy;
-# contract/UPSTREAM records where it came from.
+# contract/UPSTREAM records where it came from: the repository, the commit,
+# and the newest clearcutt-verify release at or before that commit (the
+# version the portal is built against: a report from a newer release gets a
+# warning at build time).
 #
 # Usage:
 #   scripts/sync-contract.sh [REF]
@@ -48,7 +51,18 @@ git -C "$tmp" fetch -q --depth 1 "$repo" "$ref"
 git -C "$tmp" checkout -q FETCH_HEAD
 full=$(git -C "$tmp" rev-parse HEAD)
 [ -d "$tmp/contract" ] || { echo "clearcutt-verify $ref ($full) has no contract/" >&2; exit 1; }
-printf 'repository: %s\ncommit: %s\n' "$repo" "$full" > "$tmp/contract/UPSTREAM"
+
+# The release: a vX.Y.Z tag on the commit itself, or else the newest one
+# before it (which needs the commit's history, without its trees).
+release=$(git ls-remote --tags --refs "$repo" 'v*' | sed 's#\^{}$##' |
+  awk -v c="$full" '$1 == c { sub("refs/tags/", "", $2); print $2 }' |
+  grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1 || true)
+if [ -z "$release" ]; then
+  git clone -q --bare --filter=tree:0 "$repo" "$tmp/history"
+  release=$(git -C "$tmp/history" describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*' "$full" 2>/dev/null || echo none)
+  rm -rf "$tmp/history"
+fi
+printf 'repository: %s\ncommit: %s\nrelease: %s\n' "$repo" "$full" "$release" > "$tmp/contract/UPSTREAM"
 
 case $mode in
   check)

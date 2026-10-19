@@ -633,6 +633,7 @@ describe('a report from a newer clearcutt-verify', () => {
       Object.assign(image('platform-tools').base, { drift: 'stale', versionsBehind: 1, daysBehind: 0, daysBehindUnknown: true });
       image('platform-tools').evidence.signature.someLaterField = 'ignored';
       r.someLaterSection = [{ anything: true }];
+      r.metadata.generator = { name: 'clearcutt-verify', version: 'v99.0.0' };
       const bare = image('debian-tools');
       bare.verdict = { status: 'unverified', reasons: ['sbom is present but not from a trusted signer'] };
       for (const key of ['vulnerabilities', 'packages', 'packagesSource', 'factory']) delete bare[key];
@@ -647,6 +648,16 @@ describe('a report from a newer clearcutt-verify', () => {
       };
     });
     site = build(bundle);
+  });
+
+  test("what this portal's contract doesn't cover is in every page's footer and on the about page", () => {
+    for (const page of ['index.html', 'images/platform-tools/index.html', 'about/index.html']) {
+      const text = shown(read(site, page));
+      assert.match(text, /This report goes beyond what this portal knows\./, page);
+      assert.match(text, /estate-report\.json has 2 fields this portal's contract doesn't define, so no page shows them: images\[\]\.evidence\.signature\.someLaterField, someLaterSection\./, page);
+      assert.match(text, /written by clearcutt-verify v99\.0\.0, newer than v\d+\.\d+\.\d+, whose contract this portal was built against/, page);
+    }
+    assert.match(shown(read(site, 'about/index.html')), /This portal was built against the contract of clearcutt-verify v\d+\.\d+\.\d+\./);
   });
 
   test('a stale base whose age is unknown says so, never 0 days', () => {
@@ -971,6 +982,21 @@ describe('the CLI', () => {
     assert.match(run.stderr, /image id "\.\.\/\.\.\/escape" can't name a page/);
     assert.doesNotMatch(run.stderr, /\n\s+at /, 'no stack trace');
     assert.deepEqual(readdirSync(out), []);
+  });
+
+  test('warns about fields beyond the contract, on stderr and as workflow annotations', () => {
+    const dir = editedBundle(MINIMAL, (r) => (r.images[0].evidence.signature.newDetail = 'later'));
+    const plain = cli('check', '--bundle', dir);
+    assert.equal(plain.status, 0);
+    assert.match(plain.stderr, /^warning: estate-report\.json has a field this portal's contract doesn't define, so no page shows it: images\[\]\.evidence\.signature\.newDetail\.$/m);
+    assert.doesNotMatch(plain.stdout, /::warning/);
+    const inActions = spawnSync(process.execPath, [path.join(root, 'bin/clearcutt-portal.ts'), 'check', '--bundle', dir], {
+      cwd: root,
+      encoding: 'utf8',
+      env: { ...process.env, GITHUB_ACTIONS: 'true' },
+    });
+    assert.match(inActions.stdout, /^::warning title=Report beyond this portal's contract::estate-report\.json has a field/m);
+    assert.equal(cli('check', '--bundle', MINIMAL).stderr, '', 'nothing to say about a covered bundle');
   });
 
   test('usage errors exit 2', () => {

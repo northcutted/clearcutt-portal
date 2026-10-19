@@ -42,6 +42,23 @@ between minor releases, with notes here.
   whichever way it sorts. Without script it is the same table, in verdict
   order. It also shows each image's scan age.
 
+### Added: the contract gate
+
+- The build warns when a report or history has fields the vendored contract
+  doesn't define, naming each (`images[].evidence.signature.newField`), and
+  when the report was written by a clearcutt-verify release newer than the
+  one the contract is from. The warnings go to stderr (and to GitHub Actions
+  annotations in a workflow), and into every page's footer and the About
+  page; nothing is dropped silently. The build still succeeds: v1 only grows.
+- `contract/UPSTREAM` records the clearcutt-verify release the pinned commit
+  is, or the newest before it (`release:`), which `scripts/sync-contract.sh`
+  writes and `--check` verifies. The contract is now pinned to
+  clearcutt-verify v0.16.0's commit, whose contract is the same as before.
+- CI fails when a schema in `contract/` changed since the last release and
+  the CHANGELOG's Unreleased section doesn't mention the contract.
+- The README says how clearcutt-verify's CI can build its output with a
+  released portal.
+
 ### Fixed
 
 - A history whose `entries` is empty no longer crashes the build: the history,

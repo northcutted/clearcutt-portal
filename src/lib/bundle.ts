@@ -8,7 +8,8 @@ import path from 'node:path';
 import Ajv2020, { type ErrorObject, type ValidateFunction } from 'ajv/dist/2020.js';
 import reportSchema from '../../contract/estate-report.v1.schema.json' with { type: 'json' };
 import historySchema from '../../contract/estate-history.v1.schema.json' with { type: 'json' };
-import type { EstateHistory, EstateReport } from './contract.gen.ts';
+import { CONTRACT_UPSTREAM, type EstateHistory, type EstateReport } from './contract.gen.ts';
+import { compareVersions } from './versions.ts';
 
 export const API_VERSION = 'clearcutt.dev/v1';
 export const REPORT_FILE = 'estate-report.json';
@@ -19,6 +20,21 @@ export interface Bundle {
   report: EstateReport;
   /** Null when the bundle has no history file. */
   history: EstateHistory | null;
+  /** What in the bundle this portal's contract doesn't cover. */
+  notes: ContractNotes;
+}
+
+/**
+ * What a bundle holds that the vendored contract doesn't describe. v1 grows
+ * only by adding fields, so a newer report still validates, but the pages
+ * can't show what this portal doesn't know: the build says so (on the
+ * console, and in every page's footer) instead of dropping it silently.
+ */
+export interface ContractNotes {
+  /** Fields the contract doesn't define, per file, as paths like images[].evidence.signature.newField. */
+  unknownFields: { file: string; paths: string[] }[];
+  /** Set when the report was written by a clearcutt-verify release newer than the one the contract is from. */
+  newerGenerator?: { version: string; builtAgainst: string };
 }
 
 export class BundleError extends Error {
@@ -51,6 +67,86 @@ function getValidators() {
     };
   }
   return validators;
+}
+
+// The schemas as published, which reject unknown fields: run on a document
+// that already passed the lenient copy, their only errors are fields the
+// contract doesn't define.
+let strict: { report: ValidateFunction; history: ValidateFunction } | null = null;
+
+function getStrict() {
+  if (!strict) {
+    const ajv = new Ajv2020({ allErrors: true, strict: true });
+    strict = { report: ajv.compile(reportSchema as object), history: ajv.compile(historySchema as object) };
+  }
+  return strict;
+}
+
+/**
+ * /images/3/evidence/signature/newField → images[].evidence.signature.newField.
+ * A name that isn't a plain identifier is quoted as JSON, so one from a
+ * hostile report can't break a log line (or start a workflow command) where
+ * the build prints it.
+ */
+function fieldPath(pointer: string, name: string): string {
+  const parts = [...pointer.split('/').slice(1), name].map((p) => p.replace(/~1/g, '/').replace(/~0/g, '~'));
+  const plain = (p: string) => (/^[A-Za-z_$][A-Za-z0-9_$-]*$/.test(p) ? p : JSON.stringify(p));
+  return parts.reduce((out, p) => (/^\d+$/.test(p) ? `${out}[]` : out ? `${out}.${plain(p)}` : plain(p)), '');
+}
+
+/** The fields of a document its published schema doesn't define, each path once, sorted. */
+export function unknownFields(doc: unknown, validate: ValidateFunction): string[] {
+  if (validate(doc)) return [];
+  const paths = new Set<string>();
+  for (const e of validate.errors ?? []) {
+    if (e.keyword === 'additionalProperties') paths.add(fieldPath(e.instancePath, String(e.params.additionalProperty)));
+  }
+  return [...paths].sort();
+}
+
+/**
+ * Whether a clearcutt-verify version is newer than `release`: a later
+ * release, or a build after it (git describe's v0.16.0-3-gabc1234). A
+ * version that isn't vX.Y.Z-shaped (a "dev" build) can't be compared and
+ * isn't called newer; unknown fields still are.
+ */
+export function newerThan(version: string, release: string): boolean {
+  if (!/^v\d+\.\d+\.\d+$/.test(release)) return false;
+  const described = version.match(/^(v?\d+\.\d+\.\d+)-\d+-g[0-9a-f]+$/);
+  if (described) return compareVersions(described[1], release, 'semver') >= 0;
+  if (!/^v?\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$/.test(version)) return false;
+  return compareVersions(version, release, 'semver') > 0;
+}
+
+function contractNotes(files: { file: string; doc: unknown; validate: ValidateFunction }[], report: EstateReport): ContractNotes {
+  const notes: ContractNotes = {
+    unknownFields: files
+      .map(({ file, doc, validate }) => ({ file, paths: unknownFields(doc, validate) }))
+      .filter((f) => f.paths.length > 0),
+  };
+  const generator = report.metadata.generator;
+  if (generator.name === 'clearcutt-verify' && newerThan(generator.version, CONTRACT_UPSTREAM.release)) {
+    notes.newerGenerator = { version: generator.version, builtAgainst: CONTRACT_UPSTREAM.release };
+  }
+  return notes;
+}
+
+/** The notes in a sentence each, for the console and the footer; none when the contract covers the bundle. */
+export function describeNotes(notes: ContractNotes, max = 8): string[] {
+  const out: string[] = [];
+  for (const { file, paths } of notes.unknownFields) {
+    const shown = paths.slice(0, max).join(', ');
+    const more = paths.length > max ? `, and ${paths.length - max} more` : '';
+    out.push(
+      `${file} has ${paths.length === 1 ? 'a field' : `${paths.length} fields`} this portal's contract doesn't define, so no page shows ${paths.length === 1 ? 'it' : 'them'}: ${shown}${more}.`,
+    );
+  }
+  if (notes.newerGenerator) {
+    out.push(
+      `The report was written by clearcutt-verify ${notes.newerGenerator.version}, newer than ${notes.newerGenerator.builtAgainst}, whose contract this portal was built against.`,
+    );
+  }
+  return out;
 }
 
 function describe(errors: ErrorObject[] | null | undefined): string {
@@ -157,7 +253,9 @@ export function readBundle(dir: string): Bundle {
   const history = existsSync(historyFile)
     ? readDocument<EstateHistory>(historyFile, 'EstateHistory', validateHistory)
     : null;
-  return { dir, report, history };
+  const files = [{ file: REPORT_FILE, doc: report as unknown, validate: getStrict().report }];
+  if (history) files.push({ file: HISTORY_FILE, doc: history, validate: getStrict().history });
+  return { dir, report, history, notes: contractNotes(files, report) };
 }
 
 /** The environment variable that tells the site which bundle to render. */

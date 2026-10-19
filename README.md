@@ -108,8 +108,12 @@ how runs are compared.
 The bundle format belongs to clearcutt-verify: `apiVersion: clearcutt.dev/v1`,
 described by JSON Schemas in its [`contract/`](https://github.com/northcutted/clearcutt-verify/tree/main/contract).
 This repository builds only against a copy of that directory, pinned to a
-commit in [`contract/UPSTREAM`](contract/UPSTREAM); CI checks the copy still
-matches. The TypeScript types the pages use are generated from those schemas.
+commit in [`contract/UPSTREAM`](contract/UPSTREAM), which also records the
+clearcutt-verify release that commit is (or the newest one before it); CI
+checks the copy still matches. The TypeScript types the pages use are
+generated from those schemas. CI also fails when a schema changed since the
+portal's last release and `CHANGELOG.md`'s Unreleased section doesn't mention
+the contract ([`scripts/check-contract-changelog.sh`](scripts/check-contract-changelog.sh)).
 A weekly job ([`contract-upstream.yml`](.github/workflows/contract-upstream.yml))
 fails when the copy differs from clearcutt-verify's latest release, without
 ever gating a pull request.
@@ -122,7 +126,44 @@ When reading a bundle, the portal:
 - refuses a report whose image IDs repeat or can't name a page (each must be
   one path segment of letters, digits, `.`, `_`, and `-`), or whose bases and
   packages name images that aren't in it;
-- shows enum values it doesn't know as they are, marked unknown.
+- shows enum values it doesn't know as they are, marked unknown;
+- warns, and says so in every page's footer and on the About page, when the
+  report or history has fields the vendored schemas don't define (naming
+  them, like `images[].evidence.signature.newField`), or was written by a
+  clearcutt-verify release newer than the contract's. The build doesn't fail:
+  the pages show what the portal knows and the raw files keep everything. The
+  warnings go to stderr, and in GitHub Actions also to annotations.
+
+### Checking clearcutt-verify's output against a released portal
+
+clearcutt-verify's CI can check that a released portal still reads what it
+writes, before a release ships: build the site from a fresh bundle (and from
+the previous release's fixtures) with the action, pinned by commit. The build
+fails (exit 1) on anything the contract the release was built against
+rejects, and prints a warning annotation for each field it doesn't know:
+
+```yaml
+- run: clearcutt-verify estate verify --refs refs.txt --policy policy.yaml --name ci --out "$RUNNER_TEMP/estate"
+- uses: northcutted/clearcutt-portal@<commit of a release tag> # vX.Y.Z
+  with:
+    bundle: ${{ runner.temp }}/estate
+    output: ${{ runner.temp }}/portal-site
+```
+
+Without the action, the release archive does the same with Node 22.18 or
+newer (`check` validates without building; `build` also renders every page):
+
+```sh
+v=vX.Y.Z asset=clearcutt-portal-$v.tar.gz
+curl -fsSLO https://github.com/northcutted/clearcutt-portal/releases/download/$v/$asset
+curl -fsSLO https://github.com/northcutted/clearcutt-portal/releases/download/$v/$asset.sigstore.json
+cosign verify-blob --bundle $asset.sigstore.json \
+  --certificate-identity https://github.com/northcutted/clearcutt-portal/.github/workflows/release.yml@refs/tags/$v \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com $asset
+tar -xzf $asset && cd clearcutt-portal-$v && npm ci --ignore-scripts --omit=dev
+node bin/clearcutt-portal.ts check --bundle ../estate
+node bin/clearcutt-portal.ts build --bundle ../estate --out ../portal-site
+```
 
 Changes to the contract are proposed as issues on
 [clearcutt-verify](https://github.com/northcutted/clearcutt-verify/issues).

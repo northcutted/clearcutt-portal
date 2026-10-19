@@ -9,12 +9,16 @@
 // site into --out (default _site), replacing what is there. --out must be
 // empty, missing, or a site an earlier build wrote (it has a SITE_MARKER
 // file), and must not overlap the bundle. check only validates. Both exit 1
-// when the bundle doesn't match the contract, and 2 on a usage error.
+// when the bundle doesn't match the contract, and 2 on a usage error. Both
+// warn (on stderr, and as GitHub Actions annotations in a workflow) when the
+// bundle has fields the vendored contract doesn't define, or was written by a
+// newer clearcutt-verify release than the contract is from; the site's
+// footer says so too.
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
-import { BUNDLE_ENV, BundleError, readBundle } from '../src/lib/bundle.ts';
+import { BUNDLE_ENV, BundleError, describeNotes, readBundle } from '../src/lib/bundle.ts';
 import { SCAN_AGE_ENV, TITLE_ENV } from '../src/lib/site-env.ts';
 
 const usage = `usage:
@@ -123,6 +127,14 @@ try {
     `${bundleDir}: ${bundle.report.apiVersion} report of ${images} images` +
       (bundle.history ? ` with ${bundle.history.entries.length} history entries` : ', no history'),
   );
+  for (const line of describeNotes(bundle.notes, 20)) {
+    console.error(`warning: ${line}`);
+    // A workflow command's message escapes %, CR, and LF; the line holds
+    // nothing else a runner reads (field names are quoted when not plain).
+    if (process.env.GITHUB_ACTIONS === 'true') {
+      console.log(`::warning title=Report beyond this portal's contract::${line.replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A')}`);
+    }
+  }
 } catch (err) {
   if (err instanceof BundleError) fail(err.message, 1);
   throw err;

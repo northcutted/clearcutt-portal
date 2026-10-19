@@ -974,3 +974,17 @@ th[aria-sort='descending'] .sort-arrow::after {
   content: '↓';
   opacity: 1;
 }
+
+/* What a report holds beyond this portal's contract, in the footer. */
+.contract-notes {
+  margin: 0.5rem 0;
+  border: 1px solid rgb(var(--tone-warn) / 0.6);
+  border-radius: 0.5rem;
+  padding: 0.55rem 0.8rem;
+  color: rgb(var(--ink-100));
+}
+.contract-notes ul {
+  margin: 0.3rem 0 0;
+  padding-left: 1.1rem;
+  overflow-wrap: anywhere;
+}

@@ -3,7 +3,8 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import { BundleError, readBundle } from '../src/lib/bundle.ts';
+import { BundleError, describeNotes, newerThan, readBundle } from '../src/lib/bundle.ts';
+import { CONTRACT_UPSTREAM } from '../src/lib/contract.gen.ts';
 import { FIXTURE, MINIMAL, editedBundle, v015Bundle } from './helpers.ts';
 
 test('the vendored fixture and example are valid bundles', () => {
@@ -41,12 +42,60 @@ test('a missing required field fails validation', () => {
   assert.throws(() => readBundle(dir), /must have required property 'verdict'/);
 });
 
-test('fields from a newer v1 are ignored, as the contract requires', () => {
-  const dir = editedBundle(MINIMAL, (r) => {
-    r.newTopLevelField = { anything: true };
-    r.images[0].evidence.signature.newDetail = 'later';
-  });
-  assert.equal(readBundle(dir).report.images.length, 4);
+test('fields from a newer v1 are accepted, as the contract requires, and named, never dropped silently', () => {
+  const dir = editedBundle(
+    MINIMAL,
+    (r) => {
+      r.newTopLevelField = { anything: true };
+      r.images[0].evidence.signature.newDetail = 'later';
+      r.images[2].evidence.signature.newDetail = 'later';
+      r.images[1]['odd\n::stop-commands::x'] = 1;
+    },
+    (h) => {
+      h.entries[0].newEntryField = 1;
+    },
+  );
+  const bundle = readBundle(dir);
+  assert.equal(bundle.report.images.length, 4);
+  assert.deepEqual(bundle.notes.unknownFields, [
+    { file: 'estate-report.json', paths: ['images[]."odd\\n::stop-commands::x"', 'images[].evidence.signature.newDetail', 'newTopLevelField'] },
+    { file: 'estate-history.json', paths: ['entries[].newEntryField'] },
+  ]);
+  const lines = describeNotes(bundle.notes);
+  assert.equal(lines.length, 2);
+  assert.match(lines[0], /^estate-report\.json has 3 fields this portal's contract doesn't define, so no page shows them: /);
+  for (const line of lines) assert.doesNotMatch(line, /[\n\r]/, 'one line each, whatever the field names');
+});
+
+test('the vendored bundles are covered by the contract, with nothing to say', () => {
+  for (const dir of [FIXTURE, MINIMAL]) assert.deepEqual(readBundle(dir).notes, { unknownFields: [] });
+});
+
+test('a report from a newer clearcutt-verify release is called so', () => {
+  const release = CONTRACT_UPSTREAM.release;
+  assert.match(release, /^v\d+\.\d+\.\d+$/);
+  const cases: [string, boolean][] = [
+    ['v0.17.0', true],
+    ['0.16.1', true],
+    ['v1.0.0', true],
+    ['v0.17.0-rc.1', true],
+    ['v0.16.0-3-gabc1234', true],
+    ['v0.16.0', false],
+    ['v0.15.9', false],
+    ['v0.16.0-rc.1', false],
+    ['v0.15.0-28-gdde0145', false],
+    ['dev', false],
+    ['', false],
+    ['v0.17', false],
+  ];
+  for (const [version, newer] of cases) assert.equal(newerThan(version, 'v0.16.0'), newer, version);
+  assert.equal(newerThan('v9.0.0', 'none'), false, 'nothing to compare with');
+  const dir = editedBundle(MINIMAL, (r) => (r.metadata.generator = { name: 'clearcutt-verify', version: 'v99.0.0' }));
+  assert.deepEqual(readBundle(dir).notes.newerGenerator, { version: 'v99.0.0', builtAgainst: release });
+  assert.match(describeNotes(readBundle(dir).notes)[0], new RegExp(`written by clearcutt-verify v99\\.0\\.0, newer than ${release.replace(/\./g, '\\.')}`));
+  // Another tool's version says nothing about verify's contract.
+  const other = editedBundle(MINIMAL, (r) => (r.metadata.generator = { name: 'something-else', version: 'v99.0.0' }));
+  assert.equal(readBundle(other).notes.newerGenerator, undefined);
 });
 
 test('duplicate image IDs are refused, since they are URLs', () => {

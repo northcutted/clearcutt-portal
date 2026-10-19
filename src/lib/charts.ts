@@ -1,5 +1,6 @@
 // Geometry for the history charts, drawn as SVG when the site is built. A
 // value of null is unknown: it leaves a gap in a line, never a zero.
+import { compareTimes } from './format.ts';
 
 export interface Point {
   /** RFC 3339 time of the run. */
@@ -39,7 +40,7 @@ export function lineGeometry(
   points: Point[],
   box: { x0: number; x1: number; y0: number; y1: number },
 ): LineGeometry {
-  const sorted = [...points].sort((a, b) => a.at.localeCompare(b.at));
+  const sorted = [...points].sort((a, b) => compareTimes(a.at, b.at));
   const x = timeScale(sorted.map((p) => p.at), box.x0, box.x1);
   const known = sorted.filter((p): p is Point & { value: number } => p.value !== null);
   // Headroom above the largest value, so a line at the maximum doesn't sit on

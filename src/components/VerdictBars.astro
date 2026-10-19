@@ -3,13 +3,14 @@
 // carries its count when it fits; the table below the chart has every value.
 import type { HistoryEntry } from '../lib/contract.gen.ts';
 import { stack } from '../lib/charts.ts';
-import { formatTime } from '../lib/format.ts';
+import { compareTimes, formatTime } from '../lib/format.ts';
 import { TONE_GLYPH } from '../lib/present.ts';
 
 interface Props {
   entries: HistoryEntry[];
 }
-const entries = [...Astro.props.entries].sort((a, b) => b.generatedAt.localeCompare(a.generatedAt));
+// Newest first, by the time each names (the entries come oldest first).
+const entries = [...Astro.props.entries].reverse().sort((a, b) => compareTimes(b.generatedAt, a.generatedAt));
 const W = 1100;
 const LABEL = 170;
 const BAR = 16;

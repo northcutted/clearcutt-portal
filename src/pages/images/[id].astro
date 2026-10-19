@@ -21,7 +21,7 @@ import {
   stackAnchor,
   stackOf,
 } from '../../lib/estate.ts';
-import { bytes, daysBetween, formatDay, formatTime, plural } from '../../lib/format.ts';
+import { bytes, daysBetween, formatEpochDay, formatTime, plural } from '../../lib/format.ts';
 import {
   EVIDENCE_KINDS,
   SEVERITIES,
@@ -124,7 +124,9 @@ const showTrend = recorded.filter((run) => run.row?.vulnerabilities).length >= 2
               image.factory.inputs &&
                 `pins ${plural(image.factory.inputs.packages, 'package')}, ${plural(image.factory.inputs.tools, 'tool')}, ${plural(image.factory.inputs.images, 'image')}`,
               image.factory.sourceDateEpoch !== undefined &&
-                `files clamped to ${formatDay(new Date(image.factory.sourceDateEpoch * 1000).toISOString())}`,
+                (formatEpochDay(image.factory.sourceDateEpoch)
+                  ? `files clamped to ${formatEpochDay(image.factory.sourceDateEpoch)}`
+                  : `files clamped to SOURCE_DATE_EPOCH ${image.factory.sourceDateEpoch}, which is not a date this site can show`),
             ]
               .filter(Boolean)
               .join('; ')}
@@ -388,6 +390,8 @@ const showTrend = recorded.filter((run) => run.row?.vulnerabilities).length >= 2
     <h2 id="over-time">This image over time</h2>
     {!history ? (
       <p class="dim">This bundle has no history, so there is only this run.</p>
+    ) : runs.length === 0 ? (
+      <p class="dim">The history lists no runs, so there is only this run.</p>
     ) : recorded.length === 0 ? (
       <p class="dim">
         The history has {plural(runs.length, 'run')}, but none of them recorded per-image rows (clearcutt-verify writes

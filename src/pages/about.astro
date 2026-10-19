@@ -3,7 +3,7 @@ import Layout from '../layouts/Layout.astro';
 import Chip from '../components/Chip.astro';
 import PolicySummary from '../components/PolicySummary.astro';
 import { API_VERSION, loadBundle } from '../lib/bundle.ts';
-import { formatTime } from '../lib/format.ts';
+import { formatTime, plural } from '../lib/format.ts';
 import { DECLARED_TEST, drift, evidenceStatus, reproducibility, stackVersionTerm, strength, verdict } from '../lib/present.ts';
 import { href, portalVersion } from '../lib/site.ts';
 
@@ -129,7 +129,7 @@ const sources = metadata.sources.map((s) =>
       <dt>Finished</dt><dd>{formatTime(metadata.generatedAt)}</dd>
       <dt>Read from</dt><dd>{sources.join('; ')}</dd>
       <dt>Format</dt><dd><code>{report.apiVersion}</code> (this portal reads <code>{API_VERSION}</code>)</dd>
-      <dt>History</dt><dd>{history ? `${history.entries.length} runs` : 'none in this bundle'}</dd>
+      <dt>History</dt><dd>{history ? plural(history.entries.length, 'run') : 'none in this bundle'}</dd>
       <dt>Raw data</dt><dd><a href={href('estate-report.json')}>estate-report.json</a>{history && <>, <a href={href('estate-history.json')}>estate-history.json</a></>}</dd>
       <dt>Rendered by</dt><dd><a href="https://github.com/northcutted/clearcutt-portal">clearcutt-portal</a> {portalVersion()}</dd>
     </dl>

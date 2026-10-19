@@ -673,6 +673,50 @@ describe('a rebased image with per-image history', () => {
   });
 });
 
+describe('a report at the edges of what the schema allows', () => {
+  let site: string;
+  before(() => {
+    site = build(
+      editedBundle(
+        FIXTURE,
+        (r) => {
+          // A SOURCE_DATE_EPOCH past what a date can hold.
+          r.images.find((i: any) => i.id === 'hello-app').factory.sourceDateEpoch = 1e20;
+          // Nothing was rebuilt: no image reproduced.
+          for (const image of r.images) {
+            if (image.reproducibility.status === 'reproduced') {
+              image.reproducibility = { status: 'not-checked', method: 'recipe-rebuild', detail: 'this run did not rebuild it' };
+            }
+          }
+          r.summary.reproducibility = { reproduced: 0, notReproduced: 0, notChecked: 4, noRecipe: 4 };
+          r.policy.reproduce = false;
+        },
+        // A history file that lists no runs.
+        (h) => {
+          h.entries = [];
+        },
+      ),
+    );
+  });
+
+  test('a history with no runs says so on every page that shows history', () => {
+    assert.match(shown(read(site, 'history/index.html')), /No runs in the history/);
+    assert.match(shown(read(site, 'history/changes/index.html')), /The history lists no runs, so there is nothing to compare/);
+    assert.match(shown(read(site, 'images/hello-app/index.html')), /The history lists no runs, so there is only this run/);
+  });
+
+  test('a SOURCE_DATE_EPOCH no date can hold is shown as the number it is', () => {
+    assert.match(shown(read(site, 'images/hello-app/index.html')), /files clamped to SOURCE_DATE_EPOCH 100000000000000000000, which is not a date this site can show/);
+  });
+
+  test('the Reproduced tile is not green when nothing reproduced', () => {
+    const html = read(site, 'index.html');
+    const tile = html.match(/class="tile tone-([a-z]+)"(?:(?!class="tile ).)*?>Reproduced</s);
+    assert.ok(tile, 'a Reproduced tile');
+    assert.equal(tile[1], 'unknown');
+  });
+});
+
 describe('the CLI', () => {
   test('refuses a bundle that does not match the contract', () => {
     const bad = editedBundle(MINIMAL, (r) => (r.images[0].verdict.status = 'fine'));

@@ -14,6 +14,7 @@ import {
   TONE_GLYPH,
   drift,
   evidenceStatus,
+  reproducedTone,
   reproducibility,
   strength,
   verdict,
@@ -66,7 +67,7 @@ const otherTiles: { label: string; value: number; tone: Tone; note: string }[] =
   {
     label: 'Reproduced',
     value: summary.reproducibility.reproduced,
-    tone: summary.reproducibility.notReproduced > 0 ? 'bad' : 'good',
+    tone: reproducedTone(summary.reproducibility),
     note: `of ${plural(recipes, 'image')} with a recipe or rebase record${policy.reproduce ? '' : ' (this run did not rebuild)'}`,
   },
   ...(stacks.length > 0

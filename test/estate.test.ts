@@ -142,3 +142,25 @@ test("an app's registry stack is found by the version it is pinned to", () => {
   assert.equal(stackAnchor(found.stack), 'stack-ghcr-io-northcutted-stacks-go');
   assert.equal(stackOf(fixture, fixture.images.find((i) => i.id === 'hello-app')!), undefined);
 });
+
+test('runs are in the order of the times they name, and the latest is the latest', () => {
+  const summary = minimal.summary;
+  const history = {
+    apiVersion: 'clearcutt.dev/v1' as const,
+    kind: 'EstateHistory' as const,
+    name: 'x',
+    // Newest first, as the file lists them; by text, 18:00+02:00 would be the
+    // newest and 46Z newer than 46.5Z.
+    entries: ['2026-10-10T17:00:00Z', '2026-10-10T18:00:00+02:00', '2026-10-10T15:51:46.5Z', '2026-10-10T15:51:46Z'].map(
+      (generatedAt) => ({ generatedAt, summary }),
+    ),
+  };
+  assert.deepEqual(
+    chronological(history).map((e) => e.generatedAt),
+    ['2026-10-10T15:51:46Z', '2026-10-10T15:51:46.5Z', '2026-10-10T18:00:00+02:00', '2026-10-10T17:00:00Z'],
+  );
+  // Two runs at the same instant: the one the file lists first is the later.
+  const tie = { ...history, entries: [{ generatedAt: '2026-10-10T16:00:00Z', ref: 'second', summary }, { generatedAt: '2026-10-10T18:00:00+02:00', ref: 'first', summary }] };
+  assert.deepEqual(chronological(tie).map((e) => e.ref), ['first', 'second']);
+  assert.deepEqual(chronological({ ...history, entries: [] }), []);
+});

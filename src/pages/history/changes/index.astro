@@ -20,9 +20,11 @@ const older = runs.at(-2);
       <p class="eyebrow">History · changes between runs</p>
       <h1>Changes between runs</h1>
       <p class="lede">
-        {history
-          ? 'The history has one run so far, so there is nothing to compare it with yet.'
-          : 'This bundle has no history, so there is only this run: nothing to compare, and nothing here should be read as "no change".'}
+        {!history
+          ? 'This bundle has no history, so there is only this run: nothing to compare, and nothing here should be read as "no change".'
+          : runs.length === 0
+            ? 'The history lists no runs, so there is nothing to compare, and nothing here should be read as "no change".'
+            : 'The history has one run so far, so there is nothing to compare it with yet.'}
       </p>
       <p class="small"><a href={href('history/')}>Back to the history</a></p>
     </header>

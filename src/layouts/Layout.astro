@@ -3,7 +3,7 @@ import '../styles/global.css';
 import ThemeToggle from '../components/ThemeToggle.astro';
 import { loadBundle } from '../lib/bundle.ts';
 import { stackApps } from '../lib/estate.ts';
-import { formatTime } from '../lib/format.ts';
+import { formatTime, plural } from '../lib/format.ts';
 import { href, portalVersion, siteTitle } from '../lib/site.ts';
 
 interface Props {
@@ -77,7 +77,7 @@ const generator = report.metadata.generator;
       <div class="wrap">
         <p>
           Built from the estate report <code>{generator.name} {generator.version}</code> wrote at {formatTime(report.metadata.generatedAt)}
-          {history ? ` with ${history.entries.length} history entries` : ' (no history)'}.
+          {history ? ` with ${plural(history.entries.length, 'history entry', 'history entries')}` : ' (no history)'}.
           The site shows what that report says and nothing more.
         </p>
         <p>

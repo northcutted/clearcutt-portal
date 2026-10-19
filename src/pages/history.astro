@@ -77,6 +77,14 @@ const count = (n: number | null) => (n === null ? '?' : String(n));
         earlier runs; until then there is no trend to show, and nothing here should be read as "no change".
       </p>
     </section>
+  ) : !latest ? (
+    <section class="card">
+      <h2>No runs in the history</h2>
+      <p>
+        This bundle's <code>estate-history.json</code> lists no runs, so there is no trend to show, and nothing here
+        should be read as "no change".
+      </p>
+    </section>
   ) : (
     <>
       <section aria-labelledby="latest">

@@ -4,6 +4,21 @@ ClearCutt Portal is pre-1.0. The bundle format it reads is clearcutt-verify's
 `clearcutt.dev/v1` contract; the portal's own inputs and pages may change
 between minor releases, with notes here.
 
+## Unreleased
+
+### Fixed
+
+- A history whose `entries` is empty no longer crashes the build: the history,
+  comparison, and image pages say the history lists no runs.
+- A `factory.sourceDateEpoch` too large for a date no longer stops the build
+  with a RangeError; the image page shows the number as it is.
+- Runs are ordered by the time they name, not by the text of their timestamp,
+  so an offset (`18:00+02:00` is before `17:00Z`) or a fractional second no
+  longer misorders the history or picks the wrong run as the latest.
+- The overview's "Reproduced" tile is green only when every image with a
+  recipe or rebase record reproduced. With none reproduced it reads as
+  unknown, and with nothing to rebuild as not applicable.
+
 ## v0.1.0
 
 The first version of ClearCutt Portal: a static website generated from

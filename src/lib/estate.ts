@@ -12,7 +12,7 @@ import type {
   Stack,
   StackVersion,
 } from './contract.gen.ts';
-import { repoName, shortDigest } from './format.ts';
+import { compareTimes, repoName, shortDigest } from './format.ts';
 import { compareVersions, schemeOf } from './versions.ts';
 
 /** billing:latest, or billing@sha256:0123… when untagged. */
@@ -216,10 +216,15 @@ export function packagesPartial(report: EstateReport): Image[] {
 
 // ── History ─────────────────────────────────────────────────────────────
 
-/** History entries oldest first, for drawing a series left to right. */
+/**
+ * History entries oldest first, for drawing a series left to right, ordered
+ * by the time each names (compareTimes), not its text. The file lists them
+ * newest first, so of two runs at the same instant the one listed first
+ * stays the later.
+ */
 export function chronological(history: EstateHistory | null): HistoryEntry[] {
   if (!history) return [];
-  return [...history.entries].sort((a, b) => a.generatedAt.localeCompare(b.generatedAt));
+  return [...history.entries].reverse().sort((a, b) => compareTimes(a.generatedAt, b.generatedAt));
 }
 
 /** One run of the history, as one image saw it. */

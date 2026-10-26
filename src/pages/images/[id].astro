@@ -3,7 +3,7 @@ import Layout from '../../layouts/Layout.astro';
 import Chip from '../../components/Chip.astro';
 import Digest from '../../components/Digest.astro';
 import ExternalLink from '../../components/ExternalLink.astro';
-import Findings from '../../components/Findings.astro';
+import ImageScans from '../../components/ImageScans.astro';
 import LineChart from '../../components/LineChart.astro';
 import StatusText from '../../components/StatusText.astro';
 import VerifyCommands from '../../components/VerifyCommands.astro';
@@ -21,10 +21,9 @@ import {
   stackAnchor,
   stackOf,
 } from '../../lib/estate.ts';
-import { bytes, daysBetween, formatEpochDay, formatTime, plural } from '../../lib/format.ts';
+import { bytes, formatEpochDay, formatTime, plural } from '../../lib/format.ts';
 import {
   EVIDENCE_KINDS,
-  SEVERITIES,
   drift,
   evidenceKindLabel,
   evidenceSource,
@@ -38,7 +37,6 @@ import {
   stackVersionTerm,
   strength,
   verdict,
-  vulnSource,
 } from '../../lib/present.ts';
 import { reasonKind } from '../../lib/overview.ts';
 import { historyWindow, href, imageHref } from '../../lib/site.ts';
@@ -54,8 +52,6 @@ const byId = imagesById(report);
 const baseImage = image.base?.imageId ? byId.get(image.base.imageId) : undefined;
 const consumers = consumersOf(report, image);
 const packages = image.packages === undefined ? [] : packagesOf(report, image);
-const v = image.vulnerabilities;
-const scanAge = daysBetween(v?.scannedAt, report.metadata.generatedAt);
 const repro = image.reproducibility;
 const rebasedFrom = image.factory?.rebasedFrom;
 const rebasedFromImage = rebasedFrom
@@ -63,7 +59,6 @@ const rebasedFromImage = rebasedFrom
   : undefined;
 const signerText = (s: NonNullable<Image['evidence']['signature']['signer']>) =>
   s.identity ?? s.identityRegexp ?? s.key ?? s.sourceRepository ?? 'unknown signer';
-const maxScanAge = report.policy.maxScanAgeDays ?? 0;
 const factory = image.factory;
 const onStack = stackOf(report, image);
 const packagesSource = image.packagesSource;
@@ -282,41 +277,7 @@ const reasonLists = [
 
   <VerifyCommands report={report} image={image} />
 
-  <section aria-labelledby="vulns">
-    <h2 id="vulns">Vulnerabilities</h2>
-    {v ? (
-      <>
-        <p>
-          From {vulnSource(v.source)}{v.scanner && <> ({v.scanner})</>}, made {formatTime(v.scannedAt) ?? 'at an unknown time'}
-          {scanAge !== undefined && scanAge > 0 && <>, {plural(scanAge, 'day')} before this report</>}. The findings describe that day
-          {maxScanAge > 0 &&
-            (scanAge === undefined
-              ? `; with no scan date, the policy's limit of ${plural(maxScanAge, 'day')} can't be met`
-              : scanAge > maxScanAge
-                ? `, which is older than the policy's limit of ${plural(maxScanAge, 'day')}`
-                : `, within the policy's limit of ${plural(maxScanAge, 'day')}`)}.
-          {v.source === 'attestation' && (
-            <> The report itself is <Chip term={evidenceStatus(image.evidence.vulnerabilityScan.status)} />.</>
-          )}
-        </p>
-        <div class="table-wrap">
-          <table>
-            <thead><tr><th></th>{SEVERITIES.map((s) => <th class="num">{s}</th>)}</tr></thead>
-            <tbody>
-              <tr><td>Findings</td>{SEVERITIES.map((s) => <td class="num">{v.counts[s]}</td>)}</tr>
-              <tr><td>With a fix</td>{SEVERITIES.map((s) => <td class="num">{v.fixable[s]}</td>)}</tr>
-            </tbody>
-          </table>
-        </div>
-        <Findings findings={v.findings} />
-      </>
-    ) : (
-      <p>
-        <Chip term={{ label: 'Unknown', tone: 'unknown', meaning: 'No vulnerability data.' }} /> This image has no vulnerability
-        data, so how many vulnerabilities it has is unknown. {image.evidence.vulnerabilityScan.detail}
-      </p>
-    )}
-  </section>
+  <ImageScans report={report} image={image} />
 
   <section aria-labelledby="tests">
     <h2 id="tests">Tests and rebuilds</h2>

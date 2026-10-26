@@ -34,10 +34,17 @@ const baseKey = (image: Image) => {
   // Stale ones by how far behind, those whose days couldn't be measured last.
   return `${DRIFT_RANK[b.drift] ?? 1} ${b.drift === 'stale' ? (days === null ? 1 : -days) : 0} ${-b.versionsBehind}`;
 };
+// The worse of the two scans when the run rescanned, severity by severity;
+// unknown only when neither scan has counts.
 const vulnKey = (image: Image) => {
-  const c = image.vulnerabilities?.counts;
-  return c ? `${c.critical} ${c.high} ${c.medium} ${c.low}` : '';
+  const scans = [image.vulnerabilities?.counts, image.rescan?.status === 'scanned' ? image.rescan.vulnerabilities?.counts : undefined].filter(
+    (c) => c !== undefined,
+  );
+  if (scans.length === 0) return '';
+  const worst = (k: 'critical' | 'high' | 'medium' | 'low') => Math.max(...scans.map((c) => c[k]));
+  return `${worst('critical')} ${worst('high')} ${worst('medium')} ${worst('low')}`;
 };
+const rescanned = report.policy.rescan === true;
 ---
 <div data-sort-root>
 <div class="table-wrap">
@@ -81,7 +88,7 @@ const vulnKey = (image: Image) => {
               )}
             </td>
             <EvidenceCells image={image} rank={EVIDENCE_RANK} />
-            <td data-sort-value={vulnKey(image)}><VulnSummary vulnerabilities={image.vulnerabilities} /></td>
+            <td data-sort-value={vulnKey(image)}><VulnSummary vulnerabilities={image.vulnerabilities} rescan={image.rescan} rescanned={rescanned} /></td>
             <td class="num nowrap" data-sort-value={age === undefined ? '' : String(age)}>
               {age !== undefined ? formatAge(age) : image.vulnerabilities ? <span class="dim">no date</span> : <span class="dim">no data</span>}
             </td>

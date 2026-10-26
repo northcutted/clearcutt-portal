@@ -1,24 +1,47 @@
 ---
 // An image's vulnerability counts in one line, or "unknown" when the image
-// has no vulnerability data: never zero.
-import type { Vulnerabilities } from '../lib/contract.gen.ts';
+// has no vulnerability data: never zero. When the run rescanned, a second
+// line gives this run's scan the same way, or says it couldn't check.
+import type { Rescan, Vulnerabilities } from '../lib/contract.gen.ts';
 import Chip from './Chip.astro';
 
 interface Props {
   vulnerabilities: Vulnerabilities | undefined;
+  /** This run's scan of the image; with `rescanned`, its absence is unknown too. */
+  rescan?: Rescan;
+  /** Whether the run rescanned images (policy.rescan). */
+  rescanned?: boolean;
 }
-const { vulnerabilities: v } = Astro.props;
+const { vulnerabilities: v, rescan, rescanned = false } = Astro.props;
 const unknown = { label: 'Unknown', tone: 'unknown' as const, meaning: 'No vulnerability data: unknown, not clean.' };
-const total = v ? Object.values(v.counts).reduce((a, b) => a + b, 0) : 0;
+const notNow = {
+  label: "now: couldn't check",
+  tone: 'unknown' as const,
+  meaning: "This run couldn't scan the image's verified SBOMs, so its current vulnerabilities are unknown: not clean.",
+};
+const total = (s: Vulnerabilities) => Object.values(s.counts).reduce((a, b) => a + b, 0);
+const title = (s: Vulnerabilities, what: string) =>
+  `${what}: ${total(s)} findings: ${s.counts.critical} critical, ${s.counts.high} high, ${s.counts.medium} medium, ${s.counts.low} low, ${s.counts.negligible} negligible, ${s.counts.unknown} unknown severity`;
+const now = rescan?.status === 'scanned' ? rescan.vulnerabilities : undefined;
+const showNow = rescan !== undefined || rescanned;
 ---
 {v ? (
-  total === 0 ? (
+  total(v) === 0 ? (
     <span title={`No findings in a report from ${v.scannedAt ?? 'an unknown date'}`}>0 findings</span>
   ) : (
-    <span class="mono nowrap" title={`${total} findings: ${v.counts.critical} critical, ${v.counts.high} high, ${v.counts.medium} medium, ${v.counts.low} low, ${v.counts.negligible} negligible, ${v.counts.unknown} unknown severity`}>
+    <span class="mono nowrap" title={title(v, "The publisher's scan")}>
       <strong>{v.counts.critical}</strong> C · <strong>{v.counts.high}</strong> H
     </span>
   )
 ) : (
   <Chip term={unknown} />
+)}
+{showNow && (
+  <div class="small">
+    {now ? (
+      <span class="mono nowrap" title={title(now, "This run's scan")}>now <strong>{now.counts.critical}</strong> C · <strong>{now.counts.high}</strong> H</span>
+    ) : (
+      <Chip term={notNow} />
+    )}
+  </div>
 )}

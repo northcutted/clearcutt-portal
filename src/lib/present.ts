@@ -13,8 +13,11 @@ import type {
   BaseLink,
   Evidence,
   EvidenceItem,
+  Finding,
+  Policy,
   Reproducibility,
   ReproducibilityCounts,
+  Rescan,
   Verdict,
   Vulnerabilities,
 } from './contract.gen.ts';
@@ -267,11 +270,75 @@ export function reproMethod(value: string | undefined): string | undefined {
 
 const VULN_SOURCE: Record<Vulnerabilities['source'], string> = {
   attestation: "the publisher's signed report",
-  scan: 'scanned by this run',
+  scan: "this run's own scan",
 };
 
 export function vulnSource(value: string): string {
   return VULN_SOURCE[value as Vulnerabilities['source']] ?? value;
+}
+
+const RESCAN: Record<Rescan['status'], Term> = {
+  scanned: {
+    label: 'Scanned',
+    tone: 'good',
+    meaning: "This run scanned the verified SBOM of every platform image itself, against a vulnerability database of its day.",
+  },
+  unknown: {
+    label: "Couldn't check",
+    tone: 'unknown',
+    meaning:
+      "This run couldn't scan every platform image's verified SBOM (one has none, a platform image couldn't be read, or the scanner failed), so the image's current vulnerabilities are unknown. Not clean, and not a pass.",
+  },
+};
+
+/** This run's own scan of an image (images[].rescan.status, and its per-platform statuses). */
+export function rescanStatus(status: string): Term {
+  return RESCAN[status as Rescan['status']] ?? asIs(status);
+}
+
+const SCAN_SOURCE: Record<NonNullable<Policy['scanSource']>, string> = {
+  attestation: "the publisher's scan, attested when the image was built",
+  rescan: "this run's own scan",
+  worst: "both scans: an image fails when either finds enough, and is unverified when either is unknown",
+};
+
+/** Which scan the policy's failOn gated on (policy.scanSource), in words; unknown values as they are. */
+export function scanSourceWords(value: string): string {
+  return SCAN_SOURCE[value as NonNullable<Policy['scanSource']>] ?? `"${value}", which this version of the portal doesn't know`;
+}
+
+/**
+ * The scan whose findings policy.failOn gated on: the policy's scanSource,
+ * else what clearcutt-verify defaults to (worst with a rescan, the
+ * publisher's scan without one).
+ */
+export function gatingScan(policy: Policy): string {
+  return policy.scanSource ?? (policy.rescan ? 'worst' : 'attestation');
+}
+
+/** A suppressed finding: what suppressed it, as a statement someone wrote, not a check. */
+export const SUPPRESSED: Term = {
+  label: 'Suppressed',
+  tone: 'claim',
+  meaning:
+    "A VEX statement, or a rule of the scanner's own, says this finding doesn't apply, so the report doesn't count it. It is a statement someone made, not a check: the finding stays listed.",
+};
+
+/** What suppressed a finding, in a sentence. */
+export function suppressionWords(finding: Finding): string {
+  const by = finding.suppressedBy;
+  if (!by) {
+    return "The publisher's scan suppressed it, with a statement this run didn't see.";
+  }
+  if (by.source === 'scanner') {
+    return `A rule of the scanner's own${by.justification ? `: ${by.justification}` : ''}.`;
+  }
+  const doc = [by.file, by.document && by.document !== by.file ? `(${by.document})` : undefined].filter(Boolean).join(' ');
+  const statement = [by.status, by.justification].filter(Boolean).join(', ');
+  if (by.source === 'vex') {
+    return `A VEX statement${doc ? ` in ${doc}` : ''}${statement ? `: ${statement}` : ''}${by.product ? `, about ${by.product}` : ''}.`;
+  }
+  return `${by.source}${doc ? ` ${doc}` : ''}${statement ? `: ${statement}` : ''}.`;
 }
 
 export const SEVERITIES = ['critical', 'high', 'medium', 'low', 'negligible', 'unknown'] as const;

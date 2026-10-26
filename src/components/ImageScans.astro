@@ -1,0 +1,219 @@
+---
+// An image's vulnerabilities. Without a rescan: the publisher's scan,
+// attested when the image was built. When the run rescanned (estate verify
+// --rescan): that scan and the run's own, of the image's verified SBOMs
+// against a vulnerability database of the run's day, side by side, each with
+// the day its database describes. A rescan that couldn't run is "couldn't
+// check", never clean; no scan at all is unknown, never zero.
+import Chip from './Chip.astro';
+import Findings from './Findings.astro';
+import type { EstateReport, Finding, Image, Vulnerabilities } from '../lib/contract.gen.ts';
+import { daysBetween, formatTime, plural } from '../lib/format.ts';
+import {
+  SEVERITIES,
+  evidenceStatus,
+  gatingScan,
+  rescanStatus,
+  scanSourceWords,
+  vulnSource,
+} from '../lib/present.ts';
+
+interface Props {
+  report: EstateReport;
+  image: Image;
+}
+const { report, image } = Astro.props;
+const { policy } = report;
+const generatedAt = report.metadata.generatedAt;
+const v = image.vulnerabilities;
+const rescan = image.rescan;
+const now = rescan?.status === 'scanned' ? rescan.vulnerabilities : undefined;
+// Two scans to show whenever the run rescanned: an image it didn't rescan
+// still has a "now" that is unknown.
+const twoScans = rescan !== undefined || policy.rescan === true;
+const maxScanAge = policy.maxScanAgeDays ?? 0;
+const scanAge = daysBetween(v?.scannedAt, generatedAt);
+const unknownTerm = { label: 'Unknown', tone: 'unknown' as const, meaning: 'No vulnerability data: unknown, not clean.' };
+const notRescanned = {
+  label: "Couldn't check",
+  tone: 'unknown' as const,
+  meaning: "This run rescanned images, but not this one, so its current vulnerabilities are unknown. Not clean, and not a pass.",
+};
+
+/** How old a scan's findings were when the report was made: by its database's build time, else when it ran. */
+const ageOf = (s: Vulnerabilities) => daysBetween(s.database?.built ?? s.scannedAt, generatedAt);
+const limitWords = (age: number | undefined) =>
+  maxScanAge <= 0
+    ? ''
+    : age === undefined
+      ? `; with no date, the policy's limit of ${plural(maxScanAge, 'day')} can't be met`
+      : age > maxScanAge
+        ? `, older than the policy's limit of ${plural(maxScanAge, 'day')}`
+        : `, within the policy's limit of ${plural(maxScanAge, 'day')}`;
+
+// Which counted findings one scan has and the other doesn't, by advisory,
+// package, and version.
+const key = (f: Finding) => `${f.id}\u0000${f.package}\u0000${f.version}`;
+const onlyIn = (a: Finding[], b: Finding[]) => {
+  const other = new Set(b.filter((f) => !f.suppressed).map(key));
+  return [...new Set(a.filter((f) => !f.suppressed && !other.has(key(f))).map((f) => f.id))].sort();
+};
+const added = v && now ? onlyIn(now.findings, v.findings) : [];
+const gone = v && now ? onlyIn(v.findings, now.findings) : [];
+const few = (ids: string[]) => (ids.length <= 6 ? ids.join(', ') : `${ids.slice(0, 6).join(', ')}, and ${ids.length - 6} more`);
+
+const rows: { scan: string; s: Vulnerabilities | undefined }[] = [
+  { scan: 'At build time', s: v },
+  { scan: 'Now', s: now },
+];
+---
+<section aria-labelledby="vulns">
+  <h2 id="vulns">Vulnerabilities</h2>
+  {!twoScans ? (
+    v ? (
+      <>
+        <p>
+          From {vulnSource(v.source)}{v.scanner && <> ({v.scanner})</>}, made {formatTime(v.scannedAt) ?? 'at an unknown time'}
+          {scanAge !== undefined && scanAge > 0 && <>, {plural(scanAge, 'day')} before this report</>}. The findings describe that day
+          {limitWords(scanAge)}.
+          {v.source === 'attestation' && (
+            <> The report itself is <Chip term={evidenceStatus(image.evidence.vulnerabilityScan.status)} />.</>
+          )}
+          {v.database?.built && <> Its vulnerability database was built {formatTime(v.database.built)}{v.database.schema && <> (schema {v.database.schema})</>}.</>}
+        </p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th></th>{SEVERITIES.map((s) => <th class="num">{s}</th>)}</tr></thead>
+            <tbody>
+              <tr><td>Findings</td>{SEVERITIES.map((s) => <td class="num">{v.counts[s]}</td>)}</tr>
+              <tr><td>With a fix</td>{SEVERITIES.map((s) => <td class="num">{v.fixable[s]}</td>)}</tr>
+            </tbody>
+          </table>
+        </div>
+        <Findings findings={v.findings} />
+      </>
+    ) : (
+      <p>
+        <Chip term={unknownTerm} /> This image has no vulnerability data, so how many vulnerabilities it has is unknown.
+        {' '}{image.evidence.vulnerabilityScan.detail}
+      </p>
+    )
+  ) : (
+    <>
+      <p class="lede small">
+        Two scans of the image's packages, side by side: the publisher's, attested when the image was built, and this run's
+        own, of the image's verified SBOMs against a vulnerability database of this run's day. A scan knows nothing published
+        after its database was built.{policy.failOn && <> The policy's limit ({policy.failOn}{policy.onlyFixed ? ', fixable only' : ''}) gated on {scanSourceWords(gatingScan(policy))}.</>}
+      </p>
+      <div class="scans">
+        <article class="card" aria-labelledby="scan-build">
+          <h3 id="scan-build">At build time <span class="dim small">· the publisher's scan</span></h3>
+          {v ? (
+            <dl class="kv">
+              <dt>Report</dt>
+              <dd>
+                {v.source === 'attestation' ? <Chip term={evidenceStatus(image.evidence.vulnerabilityScan.status)} /> : vulnSource(v.source)}
+                {v.scanner && <> <span class="small">{v.scanner}</span></>}
+              </dd>
+              <dt>Scanned</dt>
+              <dd>
+                {formatTime(v.scannedAt) ?? <span class="dim">at an unknown time</span>}
+                {scanAge !== undefined && scanAge > 0 && <span class="small">, {plural(scanAge, 'day')} before this report</span>}
+              </dd>
+              <dt>Database</dt>
+              <dd>
+                {v.database?.built ? (
+                  <>built {formatTime(v.database.built)}{v.database.schema && <span class="dim small"> (schema {v.database.schema})</span>}</>
+                ) : (
+                  <span class="dim">its build time isn't recorded; the findings describe the day of the scan</span>
+                )}
+              </dd>
+            </dl>
+          ) : (
+            <p>
+              <Chip term={unknownTerm} /> No vulnerability data from the publisher, so what the build-time scan found is unknown.
+              {' '}{image.evidence.vulnerabilityScan.detail}
+            </p>
+          )}
+        </article>
+        <article class="card" aria-labelledby="scan-now">
+          <h3 id="scan-now">Now <span class="dim small">· this run's scan</span></h3>
+          {rescan ? (
+            <>
+              <p><Chip term={rescanStatus(rescan.status)} />{rescan.detail && <> <span class="small">{rescan.detail}</span></>}</p>
+              {Object.keys(rescan.platforms ?? {}).length > 0 && (
+                <ul class="inline-list" aria-label="Each platform image">
+                  {Object.entries(rescan.platforms!).map(([p, s]) => (
+                    <li><Chip term={rescanStatus(s)} label={`${p}: ${rescanStatus(s).label}`} /></li>
+                  ))}
+                </ul>
+              )}
+              {now && (
+                <dl class="kv">
+                  {now.scanner && <><dt>Scanner</dt><dd class="small">{now.scanner}</dd></>}
+                  <dt>Scanned</dt>
+                  <dd>{formatTime(now.scannedAt) ?? <span class="dim">at an unknown time</span>}</dd>
+                  <dt>Database</dt>
+                  <dd>
+                    {now.database?.built ? (
+                      <>built {formatTime(now.database.built)}{now.database.schema && <span class="dim small"> (schema {now.database.schema})</span>}</>
+                    ) : (
+                      <span class="dim">its build time isn't recorded</span>
+                    )}
+                    <span class="small">{limitWords(ageOf(now))}</span>
+                  </dd>
+                </dl>
+              )}
+              {rescan.status === 'scanned' && !now && (
+                <p class="small">The report says this run scanned the image, but gives no findings, so they are unknown.</p>
+              )}
+            </>
+          ) : (
+            <p><Chip term={notRescanned} /> This run rescanned images, but not this one, so its current vulnerabilities are unknown.</p>
+          )}
+        </article>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <caption class="sr-only">Findings by severity in each scan</caption>
+          <thead><tr><th>Scan</th><th></th>{SEVERITIES.map((s) => <th class="num">{s}</th>)}</tr></thead>
+          <tbody>
+            {rows.map(({ scan, s }) => (
+              <>
+                <tr><th scope="rowgroup" rowspan="2">{scan}</th><td>Findings</td>{SEVERITIES.map((sev) => <td class="num">{s ? s.counts[sev] : '?'}</td>)}</tr>
+                <tr><td>With a fix</td>{SEVERITIES.map((sev) => <td class="num">{s ? s.fixable[sev] : '?'}</td>)}</tr>
+              </>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {(!v || !now) && <p class="small dim">? means unknown: there are no findings from that scan to count, which isn't zero.</p>}
+      {v && now && (added.length > 0 || gone.length > 0) && (
+        <p class="small">
+          {added.length > 0 && <>This run's scan counts {plural(added.length, 'advisory', 'advisories')} the publisher's doesn't: {few(added)}. </>}
+          {gone.length > 0 && <>The publisher's scan counts {plural(gone.length, 'advisory', 'advisories')} this run's doesn't: {few(gone)}.</>}
+        </p>
+      )}
+      {v && (
+        <>
+          <h3>At build time</h3>
+          <Findings findings={v.findings} scan="in the publisher's scan" />
+        </>
+      )}
+      {now && (
+        <>
+          <h3>Now</h3>
+          <Findings findings={now.findings} scan="in this run's scan" />
+        </>
+      )}
+    </>
+  )}
+</section>
+
+<style>
+  .scans {
+    display: grid;
+    gap: 0.85rem;
+    grid-template-columns: repeat(auto-fit, minmax(19rem, 1fr));
+  }
+</style>

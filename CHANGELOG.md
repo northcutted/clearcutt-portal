@@ -29,6 +29,27 @@ between minor releases, with notes here.
   and fixture bundles are v0.17's, with its image IDs, and the tests follow
   them.
 
+### Added: rescans and suppressions
+
+- When the run rescanned (`policy.rescan`, `images[].rescan`), an image's
+  page shows both scans side by side: the publisher's, attested when the
+  image was built, and the run's own, of the image's verified SBOMs, each
+  with its scanner, when it ran, and when its vulnerability database was
+  built (`database.built`, with its schema); the findings of each by
+  severity; which advisories one counts and the other doesn't; and which scan
+  the policy's limit gated on (`policy.scanSource`, else clearcutt-verify's
+  default). A rescan that is `unknown`, or an image the run didn't rescan, is
+  "couldn't check", with the reason and each platform's status, and its
+  counts are `?`: never clean, never zero. The images table gives this run's
+  counts under the publisher's ("now 1 C · 1 H", or "now: couldn't check"),
+  and sorts by the worse of the two. A run that didn't rescan shows one scan,
+  as before.
+- A suppressed finding stays listed, in a group that is open, marked
+  Suppressed, with what suppressed it (`suppressedBy`): the VEX document's
+  file and `@id`, the statement's status, justification, and product; or the
+  scanner's own rule. One suppressed with no `suppressedBy` says the
+  publisher's scan suppressed it with a statement this run didn't see.
+
 ### Changed: "couldn't be checked" apart from "failed"
 
 - The overview's "Not verified, and why" puts the requirements images

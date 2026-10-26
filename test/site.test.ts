@@ -127,8 +127,19 @@ describe('the example site', () => {
 
   test('an image with no vulnerability data says unknown, never zero', () => {
     const page = text(read(site, 'images/docker-io-library-redis-7/index.html'));
-    assert.match(page, /how many vulnerabilities it has is unknown/);
+    assert.match(page, /No vulnerability data from the publisher, so what the build-time scan found is unknown/);
     assert.doesNotMatch(page, /0 findings|No findings/);
+    // From a run that didn't rescan, it says so in one scan's words.
+    const norescan = build(editedBundle(MINIMAL, (r) => {
+      delete r.policy.rescan;
+      delete r.policy.scanSource;
+      delete r.summary.rescan;
+      for (const image of r.images) delete image.rescan;
+    }));
+    const single = text(read(norescan, 'images/docker-io-library-redis-7/index.html'));
+    assert.match(single, /This image has no vulnerability data, so how many vulnerabilities it has is unknown/);
+    assert.doesNotMatch(single, /0 findings|No findings|At build time|this run's scan/);
+    assert.match(text(read(norescan, 'images/ghcr-io-acme-images-billing-1-4-2/index.html')), /From the publisher's signed report \(grype 0\.118\.0\), made 2026-10-06 05:41 UTC\. The findings describe that day\./);
   });
 
   test('an image whose base is unknown says so, with the reasons', () => {
@@ -140,6 +151,61 @@ describe('the example site', () => {
   test('unknown evidence is shown as unknown', () => {
     const page = text(read(site, 'images/docker-io-library-redis-7/index.html'));
     assert.match(page, /SBOM \? Unknown/);
+  });
+
+  const vulnsOf = (page: string) => page.slice(page.indexOf('Vulnerabilities Two scans'), page.indexOf('Tests and rebuilds'));
+
+  test("an image's page shows both scans side by side, each with its database's day", () => {
+    const vulns = vulnsOf(shown(read(site, 'images/ghcr-io-acme-images-billing-1-4-2/index.html')));
+    assert.match(vulns, /At build time · the publisher's scan Report ✓ Verified grype 0\.118\.0 Scanned 2026-10-06 05:41 UTC Database its build time isn't recorded/);
+    assert.match(vulns, /Now · this run's scan ✓ Scanned ✓ linux\/amd64: Scanned Scanner grype 0\.121\.0 Scanned 2026-10-06 06:00 UTC Database built 2026-10-06 06:00 UTC \(schema v6\.1\.10\)/);
+    assert.match(vulns, /The policy's limit \(critical, fixable only\) gated on both scans: an image fails when either finds enough/);
+    assert.match(vulns, /At build time Findings 0 1 2 0 0 0 With a fix 0 0 1 0 0 0 Now Findings 1 1 1 0 0 0 With a fix 1 1 1 0 0 0/);
+    assert.match(vulns, /This run's scan counts 1 advisory the publisher's doesn't: CVE-2026-2000\./);
+    assert.match(vulns, /At build time 2 findings in the publisher's scan, fix first .* Now 3 findings in this run's scan, fix first/);
+  });
+
+  test("a rescan that couldn't run is couldn't check, never clean", () => {
+    for (const id of ['docker-io-library-redis-7', 'cgr-dev-chainguard-static']) {
+      const vulns = vulnsOf(shown(read(site, `images/${id}/index.html`)));
+      assert.match(vulns, /Now · this run's scan \? Couldn't check/, id);
+      assert.match(vulns, /Now Findings \? \? \? \? \? \? With a fix \? \? \? \? \? \?/, id);
+      assert.match(vulns, /\? means unknown: there are no findings from that scan to count, which isn't zero\./, id);
+      assert.doesNotMatch(vulns, /No findings|0 findings|in this run's scan, fix first/, id);
+    }
+    assert.match(
+      shown(read(site, 'images/cgr-dev-chainguard-static/index.html')),
+      /\? Couldn't check The image's current vulnerabilities are unknown: linux\/amd64: no verified SBOM .* \? linux\/amd64: Couldn't check \? linux\/arm64: Couldn't check/,
+    );
+    // A run that rescanned, but not this image: unknown too.
+    const skipped = build(editedBundle(MINIMAL, (r) => delete r.images.find((i: any) => i.id === 'ghcr-io-acme-images-hello-app').rescan));
+    const vulns = vulnsOf(shown(read(skipped, 'images/ghcr-io-acme-images-hello-app/index.html')));
+    assert.match(vulns, /Now · this run's scan \? Couldn't check This run rescanned images, but not this one, so its current vulnerabilities are unknown\./);
+    assert.match(vulns, /Now Findings \? \? \? \? \? \?/);
+  });
+
+  test("the images table gives this run's scan beside the publisher's, or says it couldn't check", () => {
+    const html = read(site, 'index.html');
+    const table = html.slice(html.indexOf('<table class="images"'), html.indexOf('</table>', html.indexOf('<table class="images"')));
+    const row = (id: string) => shown(table.slice(table.indexOf(`/images/${id}/`), table.indexOf('</tr>', table.indexOf(`/images/${id}/`))));
+    assert.match(row('ghcr-io-acme-images-billing-1-4-2'), /0 C · 1 H now 1 C · 1 H/);
+    assert.match(row('docker-io-library-redis-7'), /\? Unknown \? now: couldn't check/);
+    assert.match(row('ghcr-io-acme-images-hello-app'), /0 findings now 0 C · 0 H/);
+    // Sorted worst first by the worse of the two scans.
+    assert.match(table, /data-sort-value="1 1 2 0"/);
+  });
+
+  test('a suppressed finding stays listed, open, with the statement that suppressed it', () => {
+    const html = read(site, 'images/ghcr-io-acme-images-billing-1-4-2/index.html');
+    const page = shown(html);
+    assert.match(page, /2 suppressed in this run's scan by a VEX statement or the scanner \(not counted\)/);
+    assert.match(
+      page,
+      /CVE-2026-9999 CVE record .*? github\.com\/acme\/lib v1\.2\.0 medium no fix known linux\/amd64 ○ Suppressed A VEX statement in vex\/acme\.openvex\.json \(https:\/\/acme\.example\/vex\/2026-10\): not_affected, vulnerable_code_not_in_execute_path, about pkg:oci\/billing\?repository_url=ghcr\.io\/acme\/images\/billing\./,
+    );
+    assert.match(page, /CVE-2026-0042 CVE record .*? linux-headers 6\.12 low no fix known linux\/amd64 ○ Suppressed A rule of the scanner's own: ignored by grype's own rules \(exact-indirect-match\)\./);
+    assert.match(page, /1 suppressed in the publisher's scan .* ○ Suppressed The publisher's scan suppressed it, with a statement this run didn't see\./);
+    assert.match(html, /<details open class="findings"[^>]*>\s*<summary>2 suppressed in this run&#39;s scan/);
   });
 
   test("an image's page lists what it failed apart from what couldn't be checked", () => {
@@ -484,7 +550,7 @@ describe('the fixture site', () => {
     const first = rows.findIndex((r) => r.endsWith(' critical'));
     const fixableHigh = rows.findIndex((r) => r.startsWith('go-2026-6603 '));
     assert.ok(fixableHigh >= 0 && fixableHigh < first, 'a fixable high comes before a critical with no fix');
-    assert.match(html, /<a class="mono" href="\/findings\/cve-2026-10536\/">CVE-2026-10536<\/a>/);
+    assert.match(html, /<a class="mono nowrap" href="\/findings\/cve-2026-10536\/">CVE-2026-10536<\/a>/);
   });
 
   test('the images table reads in verdict order without script, and says how to sort with it', () => {

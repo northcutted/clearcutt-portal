@@ -34,8 +34,10 @@ import {
   reproMethod,
   reproSource,
   reproducibility,
+  provenanceBuilder,
   sourceBasis,
   stackVersionTerm,
+  testsInRebaseRecord,
   strength,
   verdict,
 } from '../../lib/present.ts';
@@ -143,6 +145,26 @@ const reasonLists = [
           <span class="dim">not recorded</span>
         )}
       </dd>
+      {(image.provenance || (image.evidence.provenance.status === 'failed' && report.policy.provenanceBuilders?.length)) && (
+        <>
+          <dt>Provenance</dt>
+          <dd>
+            {image.provenance ? (
+              <>
+                <Chip term={provenanceBuilder(image.provenance)} />
+                {image.provenance.builderId && <> builder <code>{image.provenance.builderId}</code></>}
+                {image.provenance.buildType && <div class="small">build type <code>{image.provenance.buildType}</code></div>}
+                <div class="dim small">{provenanceBuilder(image.provenance).meaning}</div>
+              </>
+            ) : (
+              <span class="small">
+                Nothing was read from it: the provenance failed verification (the policy requires it to name one of its
+                builders, and one that names another, or none, fails), so neither its builder nor its source is taken from it.
+              </span>
+            )}
+          </dd>
+        </>
+      )}
       {image.factory && (
         <>
           <dt>clearcutt-factory</dt>
@@ -284,7 +306,11 @@ const reasonLists = [
                     <span class="dim">—</span>
                   )}
                 </td>
-                <td class="small">{item.source ? evidenceSource(item.source) : <span class="dim">—</span>}</td>
+                <td class="small">
+                  {kind.key === 'tests' && testsInRebaseRecord(image.evidence)
+                    ? <>in the rebase record{item.source && <> ({evidenceSource(item.source)})</>}</>
+                    : item.source ? evidenceSource(item.source) : <span class="dim">—</span>}
+                </td>
                 <td class="small nowrap">{formatTime(item.timestamp) ?? <span class="dim">—</span>}</td>
                 <td class="small">
                   {item.detail}

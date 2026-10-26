@@ -496,6 +496,35 @@ describe("an image's commands", () => {
     assert.ok(titles.includes('Rebase record'));
   });
 
+  test("a smoke test read from the rebase record is checked by the record's command, not one of its own", () => {
+    for (const status of ['verified', 'failed', 'present'] as const) {
+      const billing = structuredClone(image(minimal, 'ghcr-io-acme-images-billing-1-4-2'));
+      const rebase = billing.evidence.rebase;
+      // As clearcutt-verify v0.17.0 writes it: pointing at the verified record.
+      billing.evidence.tests = {
+        status,
+        source: rebase.source,
+        predicateType: rebase.predicateType,
+        ref: rebase.ref,
+        signer: rebase.signer,
+        timestamp: rebase.timestamp,
+        detail: 'The verified rebase record says the smoke test (GET :8080/) passed on linux/amd64 before clearcutt-factory published the rebased image.',
+      };
+      const { commands, unverified } = verifyCommands(minimal, billing);
+      assert.ok(!commands.some((c) => c.title.startsWith('Tests')), status);
+      assert.ok(!unverified.includes('tests'), `${status}: the record's signer vouched for it`);
+      const record = commands.find((c) => c.title === 'Rebase record')!;
+      assert.match(record.purpose, /Its test field is the smoke test the Tests row reads/, status);
+      assert.match(record.text, /--type=https:\/\/github\.com\/northcutted\/clearcutt-factory\/rebase\/v1/);
+    }
+    // A test attestation of its own still gets its own command.
+    const own = structuredClone(image(minimal, 'ghcr-io-acme-images-billing-1-4-2'));
+    own.evidence.tests = { ...own.evidence.rebase, status: 'verified', predicateType: 'https://in-toto.io/attestation/test-result/v0.1' };
+    const titles = verifyCommands(minimal, own).commands;
+    assert.ok(titles.some((c) => c.title === 'Tests' && /--type=https:\/\/in-toto\.io\/attestation\/test-result\/v0\.1/.test(c.text)));
+    assert.doesNotMatch(titles.find((c) => c.title === 'Rebase record')!.purpose, /test field/);
+  });
+
   test("a policy that can't be written as printable ASCII drops only the verdict command", () => {
     const report = structuredClone(fixture);
     report.policy.trustedSigners.push({ identity: 'https://github.com/acmé/x', issuer: 'https://token.actions.githubusercontent.com' });

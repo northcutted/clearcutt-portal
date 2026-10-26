@@ -1154,6 +1154,47 @@ describe("a run that read only some platforms, and an image whose platforms coul
   });
 });
 
+describe('what a v0.17.0 report reads from provenance and rebase records', () => {
+  let site: string;
+  before(() => {
+    site = build(
+      editedBundle(MINIMAL, (r) => {
+        const byId = (id: string) => r.images.find((i: any) => i.id === id);
+        r.policy.provenanceBuilders = ['https://github.com/northcutted/clearcutt-factory/.github/workflows/images.yml@refs/tags/v0.3.0'];
+        byId('ghcr-io-acme-images-hello-app').provenance.builderChecked = true;
+        // A builder check that failed: nothing is read from that provenance.
+        const redis = byId('docker-io-library-redis-7');
+        redis.evidence.provenance = { status: 'failed', detail: 'The provenance names builder https://example.test/other, which policy.provenanceBuilders does not list.' };
+        // A smoke test the verified rebase record says passed.
+        const billing = byId('ghcr-io-acme-images-billing-1-4-2');
+        const { status, ...record } = billing.evidence.rebase;
+        billing.evidence.tests = { ...record, status: 'verified', detail: 'The verified rebase record says the smoke test (GET :8080/) passed on linux/amd64 before clearcutt-factory published the rebased image.' };
+      }),
+    );
+  });
+
+  test('provenance says whether its builder was checked or only read', () => {
+    const hello = shown(read(site, 'images/ghcr-io-acme-images-hello-app/index.html'));
+    assert.match(hello, /Provenance ✓ Builder checked builder https:\/\/github\.com\/northcutted\/clearcutt-factory\/\.github\/workflows\/images\.yml@refs\/tags\/v0\.3\.0 build type https:\/\/github\.com\/northcutted\/clearcutt-factory\/build\/v1/);
+    const billing = shown(read(site, 'images/ghcr-io-acme-images-billing-1-4-2/index.html'));
+    assert.match(billing, /Provenance ○ Builder read, not checked builder \S+ build type \S+ Read from provenance whose signature verified, but not evaluated/);
+    const redis = shown(read(site, 'images/docker-io-library-redis-7/index.html'));
+    assert.match(redis, /Provenance Nothing was read from it: the provenance failed verification \(the policy requires it to name one of its builders/);
+    assert.match(shown(read(site, 'about/index.html')), /Provenance builders .* https:\/\/github\.com\/northcutted\/clearcutt-factory\/\.github\/workflows\/images\.yml@refs\/tags\/v0\.3\.0/);
+    // An older report, with no provenance details, shows no such row.
+    assert.doesNotMatch(shown(read(build(FIXTURE), 'images/ghcr-io-northcutted-images-debian-tools/index.html')), /Builder (checked|read)/);
+  });
+
+  test("a smoke test read from the rebase record says where it was found, and the record's command checks it", () => {
+    const html = read(site, 'images/ghcr-io-acme-images-billing-1-4-2/index.html');
+    const page = shown(html);
+    assert.match(page, /Tests ✓ Verified https:\/\/github\.com\/acme\/images\/\S+ issuer \S+ in the rebase record \(cosign attestation\)/);
+    assert.match(page, /Rebase record\. Checks the clearcutt-factory rebase record was signed by the trusted signer, and prints it\. Its test field is the smoke test the Tests row reads/);
+    assert.doesNotMatch(page, /No command for [^.]*Tests/);
+    assert.doesNotMatch(html, /aria-label="Copy the Tests command"/);
+  });
+});
+
 describe('the CLI', () => {
   test('refuses a bundle that does not match the contract', () => {
     const bad = editedBundle(MINIMAL, (r) => (r.images[0].verdict.status = 'fine'));

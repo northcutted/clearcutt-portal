@@ -18,7 +18,7 @@
 //   a lookalike letter, a bidirectional override) can't be shown as exactly
 //   what runs, so the command isn't shown at all, and the page says why.
 import type { EstateReport, EvidenceItem, Image, Policy, Signer } from './contract.gen.ts';
-import { EVIDENCE_KINDS, type EvidenceKind } from './present.ts';
+import { EVIDENCE_KINDS, testsInRebaseRecord, type EvidenceKind } from './present.ts';
 
 /** Why a command isn't shown. */
 export class NoCommand extends Error {
@@ -210,6 +210,8 @@ const label = (kind: EvidenceKind) => EVIDENCE_KINDS.find((k) => k.key === kind)
 
 const ATTESTATION_KINDS: EvidenceKind[] = ['sbom', 'vulnerabilityScan', 'provenance', 'recipe', 'rebase', 'tests'];
 
+const TESTS_IN_RECORD = " Its test field is the smoke test the Tests row reads: each platform's result, as clearcutt-factory recorded it before it published the rebase.";
+
 const ATTESTATION_PURPOSE: Record<string, string> = {
   sbom: 'Checks the SBOM attestation was signed by the trusted signer, and prints it.',
   vulnerabilityScan: "Checks the vulnerability report was signed by the trusted signer, and prints it: the findings as of the day it was made.",
@@ -274,7 +276,13 @@ const PLATFORM = /^[a-z0-9]+(?:\/[a-z0-9._-]+){1,2}$/;
 export function verifyCommands(report: EstateReport, image: Image): Commands {
   const commands: Command[] = [];
   const skipped: Skipped[] = [];
-  const unverified = EVIDENCE_KINDS.map((k) => k.key).filter((k) => ['present', 'failed', 'unknown'].includes(image.evidence[k].status));
+  // A smoke test read from the rebase record is checked by checking the
+  // record: it gets no command of its own, and is never "unverified" for
+  // want of a signer when the record verified.
+  const testsInRecord = testsInRebaseRecord(image.evidence) && image.evidence.rebase.status === 'verified';
+  const unverified = EVIDENCE_KINDS.map((k) => k.key).filter(
+    (k) => ['present', 'failed', 'unknown'].includes(image.evidence[k].status) && !(k === 'tests' && testsInRecord),
+  );
   let ref: string;
   try {
     ref = pinnedRef(image.repository, image.digest);
@@ -310,14 +318,14 @@ export function verifyCommands(report: EstateReport, image: Image): Commands {
   // Each attestation, on the image or on each platform image it is attached to.
   for (const kind of ATTESTATION_KINDS) {
     const item = image.evidence[kind];
-    if (item.status !== 'verified' || (kind === 'tests' && item.source === 'recipe')) continue;
+    if (item.status !== 'verified' || (kind === 'tests' && (item.source === 'recipe' || testsInRecord))) continue;
     attempt(label(kind), () => {
       if (!item.predicateType) throw new UnsafeValue("the report doesn't say which predicate type it is");
       const identity = identityFor(policy, item.signer);
       const type = flag('--type', item.predicateType, 'the predicate type');
       return targets(image, item).map((t) => ({
         title: t.platform ? `${label(kind)} (${t.platform})` : label(kind),
-        purpose: `${ATTESTATION_PURPOSE[kind]}${signerNote(identity)}`,
+        purpose: `${ATTESTATION_PURPOSE[kind]}${kind === 'rebase' && testsInRecord ? TESTS_IN_RECORD : ''}${signerNote(identity)}`,
         text: shellLine(['cosign', 'verify-attestation'], [type, ...identityArgs(identity), t.ref]),
       }));
     });
@@ -326,7 +334,7 @@ export function verifyCommands(report: EstateReport, image: Image): Commands {
   // GitHub's artifact attestations, with GitHub's own verifier too.
   for (const kind of ATTESTATION_KINDS) {
     const item = image.evidence[kind];
-    if (item.status !== 'verified' || item.source !== 'github-attestation') continue;
+    if (item.status !== 'verified' || item.source !== 'github-attestation' || (kind === 'tests' && testsInRecord)) continue;
     const title = `${label(kind)} (GitHub)`;
     attempt(title, () => {
       const identity = identityFor(policy, item.signer);

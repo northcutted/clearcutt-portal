@@ -28,6 +28,20 @@ between minor releases, with notes here.
   and fixture bundles are v0.17's, with its image IDs, and the tests follow
   them.
 
+### Added: provenance, and a rebase record's smoke test
+
+- An image's page says what was done with the builder its verified SLSA
+  provenance names (`images[].provenance`): "Builder checked" when the
+  policy's `provenanceBuilders` named it, otherwise "Builder read, not
+  checked", with the builder ID and build type as read. When the policy
+  names builders and the provenance failed, the page says nothing was read
+  from it.
+- Test evidence that clearcutt-verify v0.17.0 reads from a verified rebase
+  record (the smoke test clearcutt-factory ran before publishing the rebase)
+  says it was found in the rebase record, and is checked by the record's
+  own command, whose description says its test field holds the result; it
+  gets no command of its own, and isn't listed as having no trusted signer.
+
 ### Added: which platforms a run read
 
 - A run that read only some platforms (`metadata.platforms`, from

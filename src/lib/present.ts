@@ -71,7 +71,12 @@ export const EVIDENCE_KINDS: { key: EvidenceKind; label: string; short: string; 
     short: 'Rebase',
     meaning: "A clearcutt-factory rebase record: the image's layers were moved onto a newer base without a rebuild.",
   },
-  { key: 'tests', label: 'Tests', short: 'Tests', meaning: 'Evidence that the image was tested (a smoke test or test attestation).' },
+  {
+    key: 'tests',
+    label: 'Tests',
+    short: 'Tests',
+    meaning: 'Evidence that the image was tested: a test attestation, the smoke test a verified rebase record says passed, or one a recipe declares.',
+  },
 ];
 
 const EVIDENCE_STATUS: Record<EvidenceItem['status'], Term> = {
@@ -115,6 +120,39 @@ export const DECLARED_TEST: Term = {
   meaning:
     "The image's verified recipe declares a smoke test, which clearcutt-factory runs on every platform before it pushes, and it pushes nothing that fails. Nothing attests that the test ran, so it is a claim, not proof.",
 };
+
+const BUILDER_CHECKED: Term = {
+  label: 'Builder checked',
+  tone: 'good',
+  meaning: "The policy names the builders provenance must come from (provenanceBuilders), and this verified provenance names one of them.",
+};
+const BUILDER_READ: Term = {
+  label: 'Builder read, not checked',
+  tone: 'claim',
+  meaning:
+    "Read from provenance whose signature verified, but not evaluated: the policy names no builders it must come from. The signature proves who signed the provenance and that it is about this image, not which builder ran or how.",
+};
+
+/** What a run did with the builder its verified provenance names (images[].provenance.builderChecked). */
+export function provenanceBuilder(provenance: { builderChecked?: boolean }): Term {
+  return provenance.builderChecked === true ? BUILDER_CHECKED : BUILDER_READ;
+}
+
+/** The predicate types of a clearcutt-factory rebase record (and its earlier name). */
+const REBASE_PREDICATES = new Set([
+  'https://github.com/northcutted/clearcutt-factory/rebase/v1',
+  'https://github.com/northcutted/declarative-image-factory/rebase/v1',
+]);
+
+/**
+ * Whether an image's test evidence is the smoke test its rebase record
+ * says ran (clearcutt-verify v0.17.0): it points at the record, so checking
+ * the record checks it.
+ */
+export function testsInRebaseRecord(evidence: Evidence): boolean {
+  const type = evidence.tests.predicateType;
+  return type !== undefined && (REBASE_PREDICATES.has(type) || type === evidence.rebase.predicateType);
+}
 
 /** An evidence item's status, said for what the item is. */
 export function evidenceTerm(kind: EvidenceKind, item: EvidenceItem): Term {

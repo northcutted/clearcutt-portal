@@ -1,7 +1,16 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import type { Finding, Policy } from '../src/lib/contract.gen.ts';
-import { gatingScan, reproducedTone, rescanStatus, scanSourceWords, suppressionWords, type Tone } from '../src/lib/present.ts';
+import type { Evidence, EvidenceItem, Finding, Policy } from '../src/lib/contract.gen.ts';
+import {
+  gatingScan,
+  provenanceBuilder,
+  reproducedTone,
+  rescanStatus,
+  scanSourceWords,
+  suppressionWords,
+  testsInRebaseRecord,
+  type Tone,
+} from '../src/lib/present.ts';
 
 test('the Reproduced count is green only when every image with a recipe reproduced', () => {
   const cases: [string, { reproduced: number; notReproduced: number; notChecked: number; noRecipe: number }, Tone][] = [
@@ -58,4 +67,25 @@ test('the scan the policy gated on: as the policy says, else what clearcutt-veri
   assert.equal(gatingScan(policy({ scanSource: 'attestation' })), 'attestation');
   assert.match(scanSourceWords('worst'), /^both scans/);
   assert.match(scanSourceWords('newest'), /"newest", which this version of the portal doesn't know/);
+});
+
+test('a builder read from provenance is checked only when the policy named it', () => {
+  assert.deepEqual([provenanceBuilder({ builderChecked: true }).label, provenanceBuilder({ builderChecked: true }).tone], ['Builder checked', 'good']);
+  for (const p of [{}, { builderChecked: false }]) {
+    assert.deepEqual([provenanceBuilder(p).label, provenanceBuilder(p).tone], ['Builder read, not checked', 'claim']);
+  }
+});
+
+test('test evidence read from a rebase record is told apart from a test attestation', () => {
+  const item = (predicateType?: string, status: EvidenceItem['status'] = 'verified'): EvidenceItem => ({ status, ...(predicateType ? { predicateType } : {}) });
+  const evidence = (tests: EvidenceItem, rebaseType = 'https://github.com/northcutted/clearcutt-factory/rebase/v1') =>
+    ({ tests, rebase: item(rebaseType) }) as unknown as Evidence;
+  const cases: [string, Evidence, boolean][] = [
+    ['the rebase predicate', evidence(item('https://github.com/northcutted/clearcutt-factory/rebase/v1')), true],
+    ['its earlier name', evidence(item('https://github.com/northcutted/declarative-image-factory/rebase/v1'), 'x'), true],
+    ["the record's own type", evidence(item('https://example.test/rebase'), 'https://example.test/rebase'), true],
+    ['a test-result attestation', evidence(item('https://in-toto.io/attestation/test-result/v0.1')), false],
+    ['a smoke test the recipe declares', evidence(item(undefined, 'present')), false],
+  ];
+  for (const [name, e, want] of cases) assert.equal(testsInRebaseRecord(e), want, name);
 });

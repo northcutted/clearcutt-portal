@@ -9,9 +9,9 @@ import VerdictChip from '../../components/VerdictChip.astro';
 import type { Image } from '../../lib/contract.gen.ts';
 import { loadBundle } from '../../lib/bundle.ts';
 import { imageLabel, imagesById, packageVersions } from '../../lib/estate.ts';
-import { affectedImages, findingGroups, hasFix, type FindingGroup } from '../../lib/findings.ts';
+import { affectedImages, findingGroups, gatedScans, hasFix, scanOf, scansMissing, type FindingGroup, type Occurrence } from '../../lib/findings.ts';
 import { formatTime, plural } from '../../lib/format.ts';
-import { formatAge, listPath, scanAges } from '../../lib/overview.ts';
+import { formatAge, listPath, rescannedRun, scanAges } from '../../lib/overview.ts';
 import { href, imageHref } from '../../lib/site.ts';
 
 export function getStaticPaths() {
@@ -25,26 +25,38 @@ const ages = new Map(scanAges(report).dated.map((s) => [s.image.id, s.ms]));
 const affected = affectedImages(group);
 const fixes = [...new Set(group.counted.flatMap((o) => o.finding.fixedIn ?? []))];
 const unfixed = new Set(group.counted.filter((o) => !hasFix(o.finding)).map((o) => o.image.id));
-// Images the report has no vulnerability data for, but whose package list
-// has a package version this finding is in: whether they have it is unknown.
+// Images a scan the policy gated on has no findings for (the publisher's,
+// or this run's when it rescanned), but whose package list has a package
+// version this finding is in: whether they have it is unknown.
+const rescanned = rescannedRun(report);
+const twoScans = gatedScans(report.policy).length > 1 || gatedScans(report.policy)[0] === 'rescan';
+const unknownIds = new Set(report.images.filter((i) => scansMissing(report, i).length > 0).map((i) => i.id));
+const has = new Set([...group.counted, ...group.suppressed].map((o) => o.image.id));
 const versions = [...new Map([...group.counted, ...group.suppressed].map((o) => [`${o.finding.package}\u0000${o.finding.version}`, o.finding])).values()];
 const unscannedShipping = new Map<string, { image: Image; packages: string[] }>();
 for (const f of versions) {
   for (const pkg of packageVersions(report, f.package, f.version)) {
     for (const id of pkg.images) {
       const image = byId.get(id);
-      if (!image || image.vulnerabilities) continue;
+      if (!image || !unknownIds.has(id) || has.has(id)) continue;
       const entry = unscannedShipping.get(id) ?? { image, packages: [] };
       entry.packages.push(`${pkg.name} ${pkg.version}`);
       unscannedShipping.set(id, entry);
     }
   }
 }
-const otherUnscanned = report.summary.vulnerabilities.notScanned - unscannedShipping.size;
-const scan = (image: Image) => {
-  const ms = ages.get(image.id);
-  return image.vulnerabilities?.scannedAt ? `${formatTime(image.vulnerabilities.scannedAt)}${ms !== undefined ? `, ${formatAge(ms)} before the report` : ''}` : 'no date';
+const otherUnscanned = [...unknownIds].filter((id) => !has.has(id) && !unscannedShipping.has(id)).length;
+// When the occurrence's scan ran: the publisher's, with its age; this run's, with its database's build time.
+const scan = (o: Occurrence) => {
+  if (o.scan === 'rescan') {
+    const now = scanOf(o.image, 'rescan');
+    const built = now?.database?.built;
+    return built ? `database built ${formatTime(built)}` : (formatTime(now?.scannedAt) ?? 'no date');
+  }
+  const ms = ages.get(o.image.id);
+  return o.image.vulnerabilities?.scannedAt ? `${formatTime(o.image.vulnerabilities.scannedAt)}${ms !== undefined ? `, ${formatAge(ms)} before the report` : ''}` : 'no date';
 };
+const scanName = (o: Occurrence) => (o.scan === 'rescan' ? "this run's" : "the publisher's");
 ---
 <Layout title={group.id} description={`The images in this estate that have ${group.id}.`}>
   <header class="page-head">
@@ -71,7 +83,7 @@ const scan = (image: Image) => {
       <h2 id="affected">Images that have it</h2>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>Image</th><th>Package</th><th>Version</th><th>Fixed in</th><th>Severity</th><th>Platforms</th><th>Scanned</th></tr></thead>
+          <thead><tr><th>Image</th><th>Package</th><th>Version</th><th>Fixed in</th><th>Severity</th><th>Platforms</th>{twoScans && <th>Scan</th>}<th>Scanned</th></tr></thead>
           <tbody>
           {group.counted.map((o) => (
             <tr>
@@ -81,13 +93,14 @@ const scan = (image: Image) => {
               <td class="mono">{hasFix(o.finding) ? o.finding.fixedIn!.join(', ') : <span class="dim">no fix known</span>}</td>
               <td>{o.finding.severity}</td>
               <td class="small">{o.finding.platforms.join(', ')}</td>
-              <td class="small nowrap">{scan(o.image)}</td>
+              {twoScans && <td class="small nowrap">{scanName(o)}</td>}
+              <td class="small nowrap">{scan(o)}</td>
             </tr>
           ))}
           </tbody>
         </table>
       </div>
-      <p class="small dim">Each image's findings describe the day its scan was made; a newer scan may have more, or fewer.</p>
+      <p class="small dim">Each image's findings describe the day its scan was made{rescanned && ", or the day this run's vulnerability database was built"}; a newer scan may have more, or fewer.</p>
     </section>
   )}
 
@@ -97,7 +110,7 @@ const scan = (image: Image) => {
       <p class="lede small">These images have it, and a VEX statement says it doesn't apply to them, so the report doesn't count it there.</p>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>Image</th><th>Package</th><th>Version</th><th>Fixed in</th><th>Severity</th><th>Platforms</th><th>Scanned</th></tr></thead>
+          <thead><tr><th>Image</th><th>Package</th><th>Version</th><th>Fixed in</th><th>Severity</th><th>Platforms</th>{twoScans && <th>Scan</th>}<th>Scanned</th></tr></thead>
           <tbody>
           {group.suppressed.map((o) => (
             <tr>
@@ -107,7 +120,8 @@ const scan = (image: Image) => {
               <td class="mono">{hasFix(o.finding) ? o.finding.fixedIn!.join(', ') : <span class="dim">no fix known</span>}</td>
               <td>{o.finding.severity}</td>
               <td class="small">{o.finding.platforms.join(', ')}</td>
-              <td class="small nowrap">{scan(o.image)}</td>
+              {twoScans && <td class="small nowrap">{scanName(o)}</td>}
+              <td class="small nowrap">{scan(o)}</td>
             </tr>
           ))}
           </tbody>
@@ -116,13 +130,13 @@ const scan = (image: Image) => {
     </section>
   )}
 
-  {report.summary.vulnerabilities.notScanned > 0 && (
+  {unknownIds.size - [...unknownIds].filter((id) => has.has(id)).length > 0 && (
     <section aria-labelledby="unknown">
       <h2 id="unknown">Where it is unknown</h2>
       {unscannedShipping.size > 0 && (
         <>
           <p>
-            {plural(unscannedShipping.size, 'image has', 'images have')} no vulnerability data, but {unscannedShipping.size === 1 ? 'its' : 'their'} package
+            {plural(unscannedShipping.size, 'image has', 'images have')} {rescanned ? 'no data from a scan the policy gated on' : 'no vulnerability data'}, but {unscannedShipping.size === 1 ? 'its' : 'their'} package
             list has a package version this finding is in, so {unscannedShipping.size === 1 ? 'it' : 'they'} may have it too:
           </p>
           <ul>
@@ -134,8 +148,9 @@ const scan = (image: Image) => {
       )}
       {otherUnscanned > 0 && (
         <p>
-          {unscannedShipping.size > 0 ? `${plural(otherUnscanned, 'more image has', 'more images have')}` : plural(otherUnscanned, 'image has', 'images have')} no
-          vulnerability data, so whether {otherUnscanned === 1 ? 'it has' : 'they have'} it is unknown: <a href={href(listPath('not-scanned'))}>the images with no data</a>.
+          {unscannedShipping.size > 0 ? `${plural(otherUnscanned, 'more image has', 'more images have')}` : plural(otherUnscanned, 'image has', 'images have')}{' '}
+          {rescanned ? 'no data from a scan the policy gated on' : 'no vulnerability data'}, so whether {otherUnscanned === 1 ? 'it has' : 'they have'} it is unknown:{' '}
+          <a href={href(listPath('not-scanned'))}>the images with no data</a>{rescanned && <>, <a href={href(listPath('not-rescanned'))}>the images this run couldn't rescan</a></>}.
         </p>
       )}
     </section>

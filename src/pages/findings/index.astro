@@ -5,10 +5,10 @@
 import Layout from '../../layouts/Layout.astro';
 import AdvisoryLinks from '../../components/AdvisoryLinks.astro';
 import { loadBundle } from '../../lib/bundle.ts';
-import { affectedImages, findingGroups, fixFirstTier } from '../../lib/findings.ts';
+import { affectedImages, findingGroups, fixFirstTier, gatedScans, scanOf, scansMissing, type FindingGroup } from '../../lib/findings.ts';
 import { plural } from '../../lib/format.ts';
-import { listPath, scanAges } from '../../lib/overview.ts';
-import { SEVERITIES } from '../../lib/present.ts';
+import { listPath, rescannedRun, scanAges } from '../../lib/overview.ts';
+import { SEVERITIES, gatingScan, scanSourceShort } from '../../lib/present.ts';
 import { href } from '../../lib/site.ts';
 
 const { report } = loadBundle();
@@ -24,25 +24,36 @@ const fixes = (g: (typeof groups)[number]) => [...new Set(g.counted.flatMap((o) 
 const page = (slug: string) => href(`findings/${encodeURIComponent(slug)}/`);
 const severeFixable = counted.filter((g) => g.fixable && fixFirstTier(g.severity, true) < 2).length;
 const oldest = scanAges(report).dated[0];
+// With a rescan, the findings are those of the scans the policy gated on, and
+// each advisory says which scan found it.
+const rescanned = rescannedRun(report);
+const scans = gatedScans(report.policy);
+const twoScans = scans.length > 1 || scans[0] === 'rescan';
+const withData = report.images.filter((i) => scans.some((k) => scanOf(i, k) !== undefined)).length;
+const lacking = report.images.filter((i) => scansMissing(report, i).length > 0).length;
+const foundBy = (g: FindingGroup) => {
+  const kinds = new Set(g.counted.map((o) => o.scan));
+  return kinds.size > 1 ? 'both' : kinds.has('rescan') ? "this run's" : "the publisher's";
+};
 ---
 <Layout title="Findings" description="Every vulnerability finding in the estate, by advisory, in the order to fix them.">
   <header class="page-head">
     <p class="eyebrow">Vulnerabilities</p>
     <h1>Findings, in the order to fix them</h1>
     <p class="lede">
-      {plural(counted.length, 'advisory', 'advisories')} in the {plural(vulns.scanned, 'image')} with vulnerability data:
+      {plural(counted.length, 'advisory', 'advisories')} in the {plural(rescanned ? withData : vulns.scanned, 'image')} with vulnerability data{rescanned && <> from {scanSourceShort(gatingScan(report.policy))}, the scans the policy gated on</>}:
       critical and high findings with a fixed version first ({severeFixable} of them), then critical and high with no
       fix known, then the rest by severity. Each advisory's page lists the images that have it, in which package and
       version, and the version that fixes it.
     </p>
-    {vulns.notScanned > 0 && (
+    {lacking > 0 && (
       <p class="callout small">
-        {plural(vulns.notScanned, 'image has', 'images have')} no vulnerability data, so whether {vulns.notScanned === 1 ? 'it has' : 'they have'} any
-        of these is unknown, and this list is a floor for the estate, not its total: <a href={href(listPath('not-scanned'))}>the images with no data</a>.
+        {plural(lacking, 'image has', 'images have')} {rescanned ? 'no data from a scan the policy gated on' : 'no vulnerability data'}, so whether {lacking === 1 ? 'it has' : 'they have'} any
+        of these is unknown, and this list is a floor for the estate, not its total: <a href={href(listPath('not-scanned'))}>the images with no data</a>{rescanned && <>, <a href={href(listPath('not-rescanned'))}>the images this run couldn't rescan</a></>}.
       </p>
     )}
     <p class="small dim">
-      Findings describe the day each image's scan was made{oldest && <>; the oldest scan here is {oldest.at.slice(0, 10)}</>}. Newer advisories aren't in them.
+      Findings describe the day each image's scan was made{oldest && <>; the oldest {rescanned && "publisher's "}scan here is {oldest.at.slice(0, 10)}</>}{rescanned && report.summary.rescan?.database?.built && <>, and this run's database was built {report.summary.rescan.database.built.slice(0, 10)}</>}. Newer advisories aren't in them.
     </p>
   </header>
 
@@ -69,6 +80,7 @@ const oldest = scanAges(report).dated[0];
                 <th>Fixed in</th>
                 <th data-sort="text" data-sort-asc="A to Z" data-sort-desc="Z to A">Package</th>
                 <th class="num" data-sort="number" data-sort-first="descending" data-sort-asc="fewest first" data-sort-desc="most first">Images</th>
+                {twoScans && <th data-sort="text" data-sort-asc="A to Z" data-sort-desc="Z to A">Found by</th>}
               </tr>
             </thead>
             <tbody>
@@ -82,6 +94,7 @@ const oldest = scanAges(report).dated[0];
                     <td class="mono small">{fixed.length > 0 ? fixed.join(', ') : <span class="dim">no fix known</span>}</td>
                     <td class="mono small" data-sort-value={g.packages[0]}>{g.packages.join(', ')}</td>
                     <td class="num" data-sort-value={String(affectedImages(g).length)}>{affectedImages(g).length}</td>
+                    {twoScans && <td class="small nowrap">{foundBy(g)}</td>}
                   </tr>
                 );
               })}

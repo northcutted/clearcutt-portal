@@ -85,6 +85,21 @@ between minor releases, with notes here.
   counts under the publisher's ("now 1 C · 1 H", or "now: couldn't check"),
   and sorts by the worse of the two. A run that didn't rescan shows one scan,
   as before.
+- The estate's findings are those of the scans the policy gated on
+  (`policy.scanSource`: the publisher's, this run's, or both), each
+  occurrence saying which scan found it. "Findings to fix first" puts first
+  what fails the gate (in the example, the rescan's fixable critical); the
+  findings index says which scan found each advisory; an advisory's page
+  gives each image's scan and when it ran (or when its database was built);
+  and an image a gated scan has no findings for is unknown there. Package
+  pages list the advisories the gated scans found in each version.
+- The overview counts both scans: "Critical and high, at build time" and
+  "Critical and high, now" (with the database's build day), how many images
+  were rescanned and how many couldn't be (a new list,
+  `lists/not-rescanned/`), how many findings this run's scan suppressed,
+  this run's critical and high findings among what is outstanding, and a
+  table with both scans' totals, the scanner, and the database. A run
+  without a rescan reads as before.
 - A suppressed finding stays listed, in a group that is open, marked
   Suppressed, with what suppressed it (`suppressedBy`): the VEX document's
   file and `@id`, the statement's status, justification, and product; or the

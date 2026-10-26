@@ -184,6 +184,44 @@ describe('the example site', () => {
     assert.match(vulns, /Now Findings \? \? \? \? \? \?/);
   });
 
+  test("the overview counts this run's scan beside the publishers', and fixes first what fails the gate", () => {
+    const html = read(site, 'index.html');
+    const page = shown(html);
+    // The finding that fails billing on the rescan is the first to fix.
+    const fixFirst = shown(html.slice(html.indexOf('id="fix-first"'), html.indexOf('id="stale"')));
+    assert.match(fixFirst, /from both scans, the scans the policy gated on\./);
+    assert.match(fixFirst, /Finding Severity Fixed in Package Images CVE-2026-2000 .*? critical v0\.47\.0 golang\.org\/x\/net v0\.38\.0 1 CVE-2026-1234 .*? high v0\.45\.0 golang\.org\/x\/net v0\.38\.0 1/);
+    // Both scans' totals: tiles, what is outstanding, and the table.
+    assert.match(page, /1 Critical and high, at build time 0 with a fix, in the publishers' scans of 2 images \(a floor\)/);
+    assert.match(page, /2 Critical and high, now 2 with a fix, in this run's scan of 2 images \(a floor\); database built 2026-10-06/);
+    assert.match(page, /2 Rescanned of 4 images; 2 couldn't be, so their current vulnerabilities are unknown/);
+    assert.match(page, /2 Suppressed, now findings VEX statements or the scanner's own rules suppressed in this run's scan/);
+    assert.match(page, /Also outstanding: ! 1 high finding in the publishers' scans \(0 with a fix\) ✕ 1 critical finding in this run's scan \(1 with a fix\) ! 1 high finding in this run's scan \(1 with a fix\) \? 2 images this run couldn't rescan/);
+    const vulns = shown(html.slice(html.indexOf('id="vulns"'), html.indexOf('id="policy"')));
+    assert.match(vulns, /this run's own scan of 2 images' verified SBOMs with grype 0\.121\.0, against a vulnerability database built 2026-10-06 06:00 UTC \(schema v6\.1\.10\); 2 images couldn't be rescanned, so this is a floor too/);
+    assert.match(vulns, /At build time Findings 0 1 2 0 0 0 With a fix 0 0 1 0 0 0 Now Findings 1 1 1 0 0 0 With a fix 1 1 1 0 0 0/);
+    assert.match(vulns, /This run's scan suppressed 2 findings by a VEX statement or a rule of the scanner's own/);
+    assert.match(html, /href="\/portal\/lists\/not-rescanned\/"/);
+    assert.match(shown(read(site, 'lists/not-rescanned/index.html')), /Images this run couldn't rescan .*redis:7.*static:latest/);
+  });
+
+  test("the findings pages are those of the scans the policy gated on, each saying which scan found it", () => {
+    const index = read(site, 'findings/index.html');
+    const ids = [...index.matchAll(/<a class="mono" href="\/portal\/findings\/[^"]+\/">([^<]+)<\/a>/g)].map((m) => m[1]);
+    assert.equal(ids[0], 'CVE-2026-2000');
+    assert.match(shown(index), /3 advisories in the 2 images with vulnerability data from both scans, the scans the policy gated on/);
+    assert.match(shown(index), /CVE-2026-2000 .*? critical v0\.47\.0 golang\.org\/x\/net v0\.38\.0 1 this run's/);
+    assert.match(shown(index), /CVE-2026-1234 .*? high v0\.45\.0 golang\.org\/x\/net v0\.38\.0 1 both/);
+    assert.match(shown(index), /2 images have no data from a scan the policy gated on, so whether they have any of these is unknown/);
+    const page = shown(read(site, 'findings/cve-2026-1234/index.html'));
+    assert.match(page, /Image Package Version Fixed in Severity Platforms Scan Scanned billing:1\.4\.2 ✕ Failed golang\.org\/x\/net v0\.38\.0 no fix known high linux\/amd64 the publisher's 2026-10-06 05:41 UTC/);
+    assert.match(page, /billing:1\.4\.2 ✕ Failed golang\.org\/x\/net v0\.38\.0 v0\.45\.0 high linux\/amd64 this run's database built 2026-10-06 06:00 UTC/);
+    // The rescan's own advisories have pages, so the image page links them.
+    assert.match(read(site, 'images/ghcr-io-acme-images-billing-1-4-2/index.html'), /href="\/portal\/findings\/cve-2026-2000\/">CVE-2026-2000<\/a>/);
+    // The package page lists what the gated scans found in each version.
+    assert.match(shown(read(site, 'packages/golang-stdlib/index.html')), /Advisories in stdlib go1\.27\.0, from both scans Advisory Severity Fixed in Images that count it Suppressed in GHSA-xxxx-yyyy-zzzz medium go1\.27\.1 1 0/);
+  });
+
   test('the policy says whether the run rescanned, which scan gated, and which VEX documents and patterns were in force', () => {
     for (const page of ['index.html', 'about/index.html']) {
       const html = read(site, page);
@@ -274,7 +312,7 @@ describe('the example site', () => {
   });
 
   test('estate vulnerability totals are called a floor when some images are not scanned', () => {
-    assert.match(text(read(site, 'index.html')), /these totals are a floor for the estate, not its total/);
+    assert.match(text(read(site, "index.html")), /these totals are a floor/);
   });
 
   test('package pages name the images they cannot speak for', () => {

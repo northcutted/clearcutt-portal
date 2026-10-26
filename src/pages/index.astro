@@ -7,16 +7,19 @@ import StatusText from '../components/StatusText.astro';
 import Tile from '../components/Tile.astro';
 import { loadBundle } from '../lib/bundle.ts';
 import { byVerdict, daysBehind, imageLabel, isObserveOnly, staleImages } from '../lib/estate.ts';
-import { affectedImages, gatingGroups, isSevere } from '../lib/findings.ts';
-import { formatTime, plural } from '../lib/format.ts';
-import { formatAge, listPath, oldScans, outstanding, reasonGroups, scanAges } from '../lib/overview.ts';
+import { affectedImages, gatedScans, gatingGroups, isSevere, scanOf, scansMissing } from '../lib/findings.ts';
+import { formatDay, formatTime, plural } from '../lib/format.ts';
+import { formatAge, listPath, oldScans, outstanding, reasonGroups, rescannedRun, scanAges } from '../lib/overview.ts';
 import {
   EVIDENCE_KINDS,
   OBSERVE_ONLY,
   SEVERITIES,
   TONE_GLYPH,
   evidenceStatus,
+  gatingScan,
   reproducedTone,
+  scanSourceShort,
+  scanSourceWords,
   strength,
   verdict,
   type Tone,
@@ -70,6 +73,9 @@ const gated = observeOnly > 0 ? 'gating ' : '';
 // The findings to fix first: fixable critical and high, then critical and
 // high with no fix known, in the images the policy gates on.
 const fixFirst = gatingGroups(report).filter((g) => g.counted.length > 0 && isSevere(g.severity));
+// Images with findings from some scan the policy gated on, and those lacking one.
+const anyFindingData = report.images.some((i) => gatedScans(policy).some((k) => scanOf(i, k) !== undefined));
+const lacking = report.images.filter((i) => scansMissing(report, i).length > 0).length;
 const SHOW = 10;
 // A reason's images: a few inline, the rest a click away.
 const INLINE = 12;
@@ -93,17 +99,61 @@ const verdictTiles = [
 ];
 
 const severe = vulns.counts.critical + vulns.counts.high;
+// This run's own scans, when it rescanned (estate verify --rescan).
+const rescan = summary.rescan;
+const rescanned = rescannedRun(report);
+const rescanDb = rescan?.database?.built;
+const rescanTiles: { label: string; value: string | number; tone: Tone; note: string; path: string }[] = rescanned
+  ? rescan
+    ? [
+        {
+          label: 'Critical and high, now',
+          value: rescan.scanned > 0 ? rescan.counts.critical + rescan.counts.high : '?',
+          tone:
+            rescan.scanned === 0 ? 'unknown' : rescan.counts.critical > 0 ? 'bad' : rescan.counts.high > 0 ? 'warn' : rescan.unknown > 0 ? 'unknown' : 'good',
+          note:
+            rescan.scanned === 0
+              ? "unknown: this run couldn't rescan any image"
+              : `${rescan.fixable.critical + rescan.fixable.high} with a fix, in this run's scan of ${plural(rescan.scanned, 'image')}${rescan.unknown > 0 ? ' (a floor)' : ''}${rescanDb ? `; database built ${formatDay(rescanDb)}` : ''}`,
+          path: 'findings/',
+        },
+        {
+          label: 'Rescanned',
+          value: rescan.scanned,
+          tone: rescan.unknown > 0 ? 'unknown' : 'good',
+          note: `of ${plural(rescan.scanned + rescan.unknown, 'image')}; ${rescan.unknown > 0 ? `${rescan.unknown} couldn't be, so their current vulnerabilities are unknown` : 'every one'}`,
+          path: listPath('not-rescanned'),
+        },
+        {
+          label: 'Suppressed, now',
+          value: rescan.suppressed,
+          tone: 'claim',
+          note: "findings VEX statements or the scanner's own rules suppressed in this run's scan: listed on each image's page, not counted",
+          path: 'findings/',
+        },
+      ]
+    : [
+        {
+          label: 'Rescanned',
+          value: '?',
+          tone: 'unknown',
+          note: "the policy says this run rescanned, but the report has no totals for it",
+          path: listPath('not-rescanned'),
+        },
+      ]
+  : [];
 const otherTiles: { label: string; value: string | number; tone: Tone; note: string; path: string }[] = [
   {
-    label: 'Critical and high findings',
+    label: rescanned ? 'Critical and high, at build time' : 'Critical and high findings',
     value: vulns.scanned > 0 ? severe : '?',
     tone: vulns.scanned === 0 ? 'unknown' : vulns.counts.critical > 0 ? 'bad' : vulns.counts.high > 0 ? 'warn' : 'good',
     note:
       vulns.scanned === 0
         ? 'unknown: no image has vulnerability data'
-        : `${vulns.fixable.critical + vulns.fixable.high} with a fix, in ${plural(vulns.scanned, 'scanned image')}${vulns.notScanned > 0 ? ' (a floor)' : ''}`,
+        : `${vulns.fixable.critical + vulns.fixable.high} with a fix, in ${rescanned ? "the publishers' scans of " : ''}${plural(vulns.scanned, rescanned ? 'image' : 'scanned image')}${vulns.notScanned > 0 ? ' (a floor)' : ''}`,
     path: 'findings/',
   },
+  ...rescanTiles,
   {
     label: 'On a stale base',
     value: summary.bases.stale,
@@ -301,18 +351,22 @@ const capital = (s: string) => `${s[0].toUpperCase()}${s.slice(1)}`;
 
   <section aria-labelledby="fix-first">
     <h2 id="fix-first">Findings to fix first</h2>
-    {vulns.scanned === 0 ? (
-      <p>No image has vulnerability data, so what there is to fix is unknown.</p>
+    {!anyFindingData ? (
+      <p>No image has vulnerability data{rescanned && ' from the scans the policy gated on'}, so what there is to fix is unknown.</p>
     ) : fixFirst.length === 0 ? (
       <p>
-        No {observeOnly > 0 ? 'image the policy gates on' : 'image'} with vulnerability data has a critical or high finding.{vulns.notScanned > 0 && <> {plural(vulns.notScanned, 'image has', 'images have')} none, so {vulns.notScanned === 1 ? 'its findings are' : 'theirs are'} unknown.</>}{' '}
+        No {observeOnly > 0 ? 'image the policy gates on' : 'image'} with vulnerability data has a critical or high finding{rescanned && <> in {scanSourceShort(gatingScan(policy))}</>}.{lacking > 0 && (rescanned
+          ? <> {plural(lacking, 'image lacks', 'images lack')} data from a scan the policy gated on, so {lacking === 1 ? 'its findings are' : 'theirs are'} unknown.</>
+          : <> {plural(lacking, 'image has', 'images have')} none, so {lacking === 1 ? 'its findings are' : 'theirs are'} unknown.</>)}{' '}
         <a href={href('findings/')}>Every finding</a>.
       </p>
     ) : (
       <>
         <p class="lede small">
           Critical and high findings with a fixed version first, then those with no fix known, each with the images that have
-          it.{observeOnly > 0 && <> Only the images the policy gates on: observe-only images' findings are on the findings pages.</>}{' '}{vulns.notScanned > 0 && <>{plural(vulns.notScanned, 'image has', 'images have')} no vulnerability data, so this is a floor. </>}
+          it{rescanned && <>, from {scanSourceShort(gatingScan(policy))}, the scans the policy gated on</>}.{observeOnly > 0 && <> Only the images the policy gates on: observe-only images' findings are on the findings pages.</>}{' '}{lacking > 0 && (rescanned
+            ? <>{plural(lacking, 'image lacks', 'images lack')} data from a scan the policy gated on, so this is a floor. </>
+            : <>{plural(lacking, 'image has', 'images have')} no vulnerability data, so this is a floor. </>)}
           <a href={href('findings/')}>Every finding</a>, by advisory.
         </p>
         <div class="table-wrap">
@@ -431,22 +485,57 @@ const capital = (s: string) => `${s[0].toUpperCase()}${s.slice(1)}`;
 
   <section aria-labelledby="vulns">
     <h2 id="vulns">Vulnerabilities</h2>
-    <p class="lede small">
-      Totals over the {plural(vulns.scanned, 'image')} with vulnerability data.
-      {vulns.notScanned > 0
-        ? ` ${plural(vulns.notScanned, 'image has', 'images have')} none, so their vulnerabilities are unknown and these totals are a floor for the estate, not its total.`
-        : ' Every image has vulnerability data.'}{' '}
-      Each image's findings describe the day its report was made.
-    </p>
-    <div class="table-wrap">
-      <table>
-        <thead><tr><th></th>{SEVERITIES.map((s) => <th class="num">{s}</th>)}</tr></thead>
-        <tbody>
-          <tr><td>Findings</td>{SEVERITIES.map((s) => <td class="num">{vulns.counts[s]}</td>)}</tr>
-          <tr><td>With a fix</td>{SEVERITIES.map((s) => <td class="num">{vulns.fixable[s]}</td>)}</tr>
-        </tbody>
-      </table>
-    </div>
+    {!rescanned ? (
+      <>
+        <p class="lede small">
+          Totals over the {plural(vulns.scanned, 'image')} with vulnerability data.
+          {vulns.notScanned > 0
+            ? ` ${plural(vulns.notScanned, 'image has', 'images have')} none, so their vulnerabilities are unknown and these totals are a floor for the estate, not its total.`
+            : ' Every image has vulnerability data.'}{' '}
+          Each image's findings describe the day its report was made.
+        </p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th></th>{SEVERITIES.map((s) => <th class="num">{s}</th>)}</tr></thead>
+            <tbody>
+              <tr><td>Findings</td>{SEVERITIES.map((s) => <td class="num">{vulns.counts[s]}</td>)}</tr>
+              <tr><td>With a fix</td>{SEVERITIES.map((s) => <td class="num">{vulns.fixable[s]}</td>)}</tr>
+            </tbody>
+          </table>
+        </div>
+      </>
+    ) : (
+      <>
+        <p class="lede small">
+          Two scans, side by side. At build time: the publishers' scans of the {plural(vulns.scanned, 'image')} with
+          vulnerability data, each as of the day it ran{vulns.notScanned > 0 && <>; {plural(vulns.notScanned, 'image has', 'images have')} none, so these totals are a floor</>}.
+          Now: this run's own scan of {rescan ? plural(rescan.scanned, 'image') : 'the images'}' verified SBOMs
+          {rescan?.scanner && <> with {rescan.scanner}</>}{rescanDb ? <>, against a vulnerability database built {formatTime(rescanDb)}{rescan?.database?.schema && <> (schema {rescan.database.schema})</>}</> : ', against a database whose build time isn\'t recorded'}
+          {rescan && rescan.unknown > 0 && <>; {plural(rescan.unknown, 'image', 'images')} couldn't be rescanned, so this is a floor too</>}.
+          {policy.failOn && <> The policy's limit gated on {scanSourceWords(gatingScan(policy))}.</>}
+        </p>
+        <div class="table-wrap">
+          <table>
+            <caption class="sr-only">Findings by severity in each scan, across the estate</caption>
+            <thead><tr><th>Scan</th><th></th>{SEVERITIES.map((s) => <th class="num">{s}</th>)}</tr></thead>
+            <tbody>
+              <tr><th scope="rowgroup" rowspan="2">At build time</th><td>Findings</td>{SEVERITIES.map((s) => <td class="num">{vulns.scanned > 0 ? vulns.counts[s] : '?'}</td>)}</tr>
+              <tr><td>With a fix</td>{SEVERITIES.map((s) => <td class="num">{vulns.scanned > 0 ? vulns.fixable[s] : '?'}</td>)}</tr>
+              <tr><th scope="rowgroup" rowspan="2">Now</th><td>Findings</td>{SEVERITIES.map((s) => <td class="num">{rescan && rescan.scanned > 0 ? rescan.counts[s] : '?'}</td>)}</tr>
+              <tr><td>With a fix</td>{SEVERITIES.map((s) => <td class="num">{rescan && rescan.scanned > 0 ? rescan.fixable[s] : '?'}</td>)}</tr>
+            </tbody>
+          </table>
+        </div>
+        {rescan && (
+          <p class="small">
+            This run's scan suppressed {plural(rescan.suppressed, 'finding')} by a VEX statement or a rule of the scanner's own: not
+            counted above, and listed on each image's page with what suppressed it.{' '}
+            <a href={href(listPath('not-rescanned'))}>{rescan.unknown > 0 ? `The ${plural(rescan.unknown, 'image', 'images')} this run couldn't rescan` : 'Images this run couldn\'t rescan'}</a>.
+          </p>
+        )}
+        {(!rescan || rescan.scanned === 0 || vulns.scanned === 0) && <p class="small dim">? means unknown: no image has findings from that scan to count, which isn't zero.</p>}
+      </>
+    )}
   </section>
 
   <PolicySummary policy={policy} stacks={report.stacks?.length ?? 0} />

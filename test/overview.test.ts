@@ -182,3 +182,22 @@ test('an observe-only image holds nothing back, and comes after every image the 
     'cgr-dev-chainguard-static',
   ]);
 });
+
+test("with a rescan, what is outstanding counts this run's findings too, and the images it couldn't rescan", () => {
+  const report = readBundle(MINIMAL).report;
+  const items = outstanding(report, 7).map((o) => [o.text, o.path, o.tone]);
+  assert.deepEqual(items.slice(1, 5), [
+    ["1 high finding in the publishers' scans (0 with a fix)", 'findings/', 'warn'],
+    ["1 critical finding in this run's scan (1 with a fix)", 'findings/', 'bad'],
+    ["1 high finding in this run's scan (1 with a fix)", 'findings/', 'warn'],
+    ["2 images this run couldn't rescan", 'lists/not-rescanned/', 'unknown'],
+  ]);
+  const lists = new Map(imageLists(report, 7).map((l) => [l.key, l.images.map((i) => i.id)]));
+  assert.deepEqual(lists.get('not-rescanned'), ['docker-io-library-redis-7', 'cgr-dev-chainguard-static']);
+  // Critical or high in the worse of the gated scans: billing's critical is this run's.
+  assert.deepEqual(lists.get('critical-high'), ['ghcr-io-acme-images-billing-1-4-2']);
+  // A run that didn't rescan has no such list, and says nothing of this run's scan.
+  const plain = fixture();
+  assert.ok(!imageLists(plain, 7).some((l) => l.key === 'not-rescanned'));
+  assert.ok(!outstanding(plain, 7).some((o) => /this run's scan|rescan/.test(o.text)));
+});

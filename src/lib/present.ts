@@ -315,6 +315,17 @@ export function scanSourceWords(value: string): string {
   return SCAN_SOURCE[value as NonNullable<Policy['scanSource']>] ?? `"${value}", which this version of the portal doesn't know`;
 }
 
+const SCAN_SOURCE_SHORT: Record<NonNullable<Policy['scanSource']>, string> = {
+  attestation: "the publisher's scan",
+  rescan: "this run's scan",
+  worst: 'both scans',
+};
+
+/** The scans the policy gated on, in a few words: "both scans". */
+export function scanSourceShort(value: string): string {
+  return SCAN_SOURCE_SHORT[value as NonNullable<Policy['scanSource']>] ?? `the "${value}" scan`;
+}
+
 /**
  * The scan whose findings policy.failOn gated on: the policy's scanSource,
  * else what clearcutt-verify defaults to (worst with a rescan, the

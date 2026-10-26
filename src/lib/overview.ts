@@ -4,6 +4,7 @@
 // counted from the report; nothing here concludes more than it says.
 import type { EstateReport, Image } from './contract.gen.ts';
 import { byVerdict, imageLabel, isObserveOnly, staleImages } from './estate.ts';
+import { gatedScans, scanOf } from './findings.ts';
 import { compareTimes, plural } from './format.ts';
 import type { Tone } from './present.ts';
 
@@ -174,6 +175,13 @@ export function oldScans(report: EstateReport, days: number): ScanAge[] {
   return scanAges(report).dated.filter((s) => s.ms > days * DAY);
 }
 
+// ── Rescans ─────────────────────────────────────────────────────────────
+
+/** Whether the run scanned images itself (estate verify --rescan): the policy says so, or the summary counts it. */
+export function rescannedRun(report: EstateReport): boolean {
+  return report.policy.rescan === true || report.summary.rescan !== undefined;
+}
+
 // ── Lists ───────────────────────────────────────────────────────────────
 
 export interface ImageList {
@@ -196,7 +204,11 @@ export function imageLists(report: EstateReport, scanDays: number): ImageList[] 
   const apart = all.some(isObserveOnly) ? " Images the policy only observes aren't counted here; they are listed apart." : '';
   const old = new Set(oldScans(report, scanDays).map((s) => s.image.id));
   const undated = new Set(scanAges(report).undated.map((i) => i.id));
-  const severe = (i: Image) => (i.vulnerabilities ? i.vulnerabilities.counts.critical + i.vulnerabilities.counts.high : 0);
+  // Critical and high findings in the worse of the scans the policy gated on.
+  const scans = gatedScans(report.policy);
+  const severe = (i: Image) =>
+    Math.max(0, ...scans.map((k) => scanOf(i, k)).map((v) => (v ? v.counts.critical + v.counts.high : 0)));
+  const rescanned = rescannedRun(report);
   const stale = staleImages(report);
   return [
     {
@@ -258,7 +270,7 @@ export function imageLists(report: EstateReport, scanDays: number): ImageList[] 
     {
       key: 'critical-high',
       title: 'Images with critical or high findings',
-      lede: 'Images whose vulnerability data has critical or high findings, the most first. The findings page lists them by advisory, fixable first.',
+      lede: `Images whose vulnerability data has critical or high findings, the most first${rescanned ? ", in the worse of the scans the policy gated on" : ''}. The findings page lists them by advisory, fixable first.`,
       empty: 'No image with vulnerability data has a critical or high finding.',
       images: all.filter((i) => severe(i) > 0).sort((a, b) => severe(b) - severe(a) || imageLabel(a).localeCompare(imageLabel(b))),
     },
@@ -269,6 +281,17 @@ export function imageLists(report: EstateReport, scanDays: number): ImageList[] 
       empty: 'Every image has vulnerability data.',
       images: where((i) => !i.vulnerabilities),
     },
+    ...(rescanned
+      ? [
+          {
+            key: 'not-rescanned',
+            title: "Images this run couldn't rescan",
+            lede: "Images whose verified SBOMs this run couldn't scan itself, or didn't: one has none for a platform, a platform image couldn't be read, or the scanner failed. Their current vulnerabilities are unknown, not clean; each page says why.",
+            empty: 'This run rescanned every image.',
+            images: where((i) => i.rescan?.status !== 'scanned'),
+          },
+        ]
+      : []),
     {
       key: 'old-scans',
       title: `Scans older than ${plural(scanDays, 'day')}`,
@@ -331,8 +354,17 @@ export function outstanding(report: EstateReport, scanDays: number): Outstanding
   };
   add(summary.verdicts.failed, `${plural(summary.verdicts.failed, 'image fails', 'images fail')} the policy`, listPath('failed'), 'bad');
   add(summary.verdicts.unverified, `${plural(summary.verdicts.unverified, 'image is', 'images are')} unverified`, listPath('unverified'), 'unknown');
+  // With a rescan, both scans: the publishers', as of each image's build, and this run's.
+  const r = summary.rescan;
+  const inScans = r ? " in the publishers' scans" : '';
   for (const sev of ['critical', 'high'] as const) {
-    add(v.counts[sev], `${plural(v.counts[sev], `${sev} finding`)} (${v.fixable[sev]} with a fix)`, 'findings/', sev === 'critical' ? 'bad' : 'warn');
+    add(v.counts[sev], `${plural(v.counts[sev], `${sev} finding`)}${inScans} (${v.fixable[sev]} with a fix)`, 'findings/', sev === 'critical' ? 'bad' : 'warn');
+  }
+  if (r) {
+    for (const sev of ['critical', 'high'] as const) {
+      add(r.counts[sev], `${plural(r.counts[sev], `${sev} finding`)} in this run's scan (${r.fixable[sev]} with a fix)`, 'findings/', sev === 'critical' ? 'bad' : 'warn');
+    }
+    add(r.unknown, `${plural(r.unknown, 'image', 'images')} this run couldn't rescan`, listPath('not-rescanned'), 'unknown');
   }
   add(summary.bases.stale, `${plural(summary.bases.stale, 'image', 'images')} on a stale base`, listPath('stale-base'), 'warn');
   const repro = summary.reproducibility;

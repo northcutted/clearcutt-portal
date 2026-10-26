@@ -701,7 +701,7 @@ describe('a report using everything clearcutt-verify v0.15 writes', () => {
   test('the policy shows the scan-age limit and the stack signers', () => {
     const page = shown(read(site, 'about/index.html'));
     assert.match(page, /Scan age unverified when the vulnerability scan is more than 7 days old/);
-    assert.match(page, /Stack signers Identity matching \^https:\/\/github\\\.com\/northcutted\/clearcutt-factory\//);
+    assert.match(page, /Stack signers role stack: clearcutt-factory stacks Identity matching \^https:\/\/github\\\.com\/northcutted\/clearcutt-factory\//);
     assert.match(shown(read(site, 'images/ghcr-io-northcutted-images-hello-app/index.html')), /The findings describe that day, within the policy's limit of 7 days\./);
   });
 

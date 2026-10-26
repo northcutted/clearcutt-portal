@@ -48,8 +48,9 @@ export function imagesById(report: EstateReport): Map<string, Image> {
 const consumerIndex = memo((report: EstateReport) => {
   const out = new Map<string, Image[]>();
   for (const image of report.images) {
+    // An empty imageId (a claimed base whose version wasn't identified) links to nothing.
     const base = image.base?.imageId;
-    if (base !== undefined) out.set(base, [...(out.get(base) ?? []), image]);
+    if (base) out.set(base, [...(out.get(base) ?? []), image]);
   }
   return out;
 });

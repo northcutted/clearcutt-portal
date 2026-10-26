@@ -138,6 +138,17 @@ test('image ids may use letters, digits, dots, underscores, and dashes', () => {
   assert.ok(readBundle(dir).report.images.some((i) => i.id === 'Redis_7.2-alpine'));
 });
 
+test('an empty base.imageId links to nothing, and is no error: a claimed base, no version identified', () => {
+  const dir = editedBundle(MINIMAL, (r) => {
+    const hello = r.images.find((i: any) => i.id === 'ghcr-io-acme-images-hello-app');
+    hello.base = { ...hello.base, method: 'oci-base-name', strength: 'assisted', drift: 'unknown', imageId: '', digest: '' };
+  });
+  assert.equal(readBundle(dir).report.images.find((i) => i.id === 'ghcr-io-acme-images-hello-app')?.base?.imageId, '');
+  // Any other ID still has to name an image in the report.
+  const bad = editedBundle(MINIMAL, (r) => (r.images.find((i: any) => i.id === 'ghcr-io-acme-images-hello-app').base.imageId = 'nowhere'));
+  assert.throws(() => readBundle(bad), /base\.imageId "nowhere" is not an image in the report/);
+});
+
 test('image ids that differ only in case are refused, since they would share a directory', () => {
   const dir = editedBundle(MINIMAL, (r) => (r.images[3].id = r.images[0].id.toUpperCase()));
   assert.throws(() => readBundle(dir), /differ only in case/);

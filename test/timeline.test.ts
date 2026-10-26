@@ -67,6 +67,10 @@ test('how an image changed: rebased, rebuilt with or without a new base, base mo
   assert.deepEqual([rebuiltNew.how, rebuiltNew.newBase, howWords(rebuiltNew).label], ['rebuilt', true, 'Rebuilt on a new base']);
   const rebuiltUnknown = diffImage('x', { ...before, base: undefined }, { ...before, digest: D('c') });
   assert.deepEqual([rebuiltUnknown.newBase, howWords(rebuiltUnknown).label], [null, 'Rebuilt']);
+  // A claimed base with no version identified has an empty digest, or none: not recorded, not a change.
+  const claimedBase = { ...before.base!, digest: '' };
+  const claimed = diffImage('x', { ...before, base: claimedBase }, { ...before, digest: D('c'), base: claimedBase });
+  assert.deepEqual([claimed.newBase, howWords(claimed).label], [null, 'Rebuilt']);
 
   const rebased = diffImage('x', before, { ...before, digest: D('c'), base: base(D('d')), rebasedFrom: `ghcr.io/acme/x@${D('a')}`, rebaseStatus: 'verified' });
   assert.deepEqual([rebased.how, rebased.newBase], ['rebased', true]);

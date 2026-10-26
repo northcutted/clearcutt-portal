@@ -347,7 +347,9 @@ const capital = (s: string) => `${s[0].toUpperCase()}${s.slice(1)}`;
       <>
         <p class="lede small">
           Behind is measured against the newest version of the same base observed in this run, not against upstream.
-          {policy.maxDaysBehind ? ` The policy fails images more than ${policy.maxDaysBehind} days behind.` : ' The policy sets no limit.'}
+          {policy.maxDaysBehind
+            ? ` The policy fails images more than ${policy.maxDaysBehind} days behind a base proven by layer digests; behind a base they only claim, they are unverified.`
+            : ' The policy sets no limit.'}
         </p>
         <div class="table-wrap">
           <table>
@@ -367,7 +369,11 @@ const capital = (s: string) => `${s[0].toUpperCase()}${s.slice(1)}`;
                     ) : (
                       <>
                         {image.base.daysBehind}
-                        {policy.maxDaysBehind && image.base.daysBehind > policy.maxDaysBehind ? ' (over the limit)' : ''}
+                        {policy.maxDaysBehind && image.base.daysBehind > policy.maxDaysBehind
+                          ? image.base.strength === 'proof'
+                            ? ' (over the limit)'
+                            : ' (over the limit by a claim: unverified, not failed)'
+                          : ''}
                       </>
                     )}
                   </td>

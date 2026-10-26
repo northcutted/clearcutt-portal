@@ -51,8 +51,12 @@ const behind = (link: BaseLink) => {
               label={c.link.drift === 'stale' ? behind(c.link) : undefined}
             />{' '}
             <span class="dim small">
-              on <code>{c.link.ref}</code> <Digest digest={c.link.digest} />
-              {c.link.platform && c.link.digest && <> (its {c.link.platform} image)</>}
+              on <code>{c.link.ref}</code>{' '}
+              {c.link.digest ? (
+                <><Digest digest={c.link.digest} />{c.link.platform && <> (its {c.link.platform} image)</>}</>
+              ) : (
+                <>(claimed base, no version identified)</>
+              )}
             </span>
           </p>
           {c.asBase && <Astro.self node={c.asBase} />}

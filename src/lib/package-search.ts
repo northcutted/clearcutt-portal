@@ -150,7 +150,7 @@ export function packageList(image: Image): PackageList {
 /** Whether an image is built on exactly the version of its base that the report describes. */
 function onExactBase(image: Image, base: Image | undefined): boolean | null {
   const digest = image.base?.digest;
-  if (!base || digest === undefined) return null;
+  if (!base || !digest) return null;
   return digest === base.digest || base.platforms.some((p) => p.digest === digest);
 }
 
@@ -162,7 +162,7 @@ export function buildSearchIndex(
   const images = [...report.images]
     .sort((a, b) => imageLabel(a).localeCompare(imageLabel(b)))
     .map((image): IndexImage => {
-      const baseImage = image.base?.imageId !== undefined ? byId.get(image.base.imageId) : undefined;
+      const baseImage = image.base?.imageId ? byId.get(image.base.imageId) : undefined;
       return {
         id: image.id,
         label: imageLabel(image),

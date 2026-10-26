@@ -999,6 +999,56 @@ describe('a report at the edges of what the schema allows', () => {
   });
 });
 
+describe('a claimed base with no version identified', () => {
+  // clearcutt-verify v0.17: an edge from org.opencontainers.image.base.name or
+  // build history names the repository only: no digest, no imageId (or, from
+  // a hand-written report, empty ones), drift unknown, 0 days behind.
+  let site: string;
+  before(() => {
+    const claimed = { repository: 'cgr.dev/chainguard/static', ref: 'cgr.dev/chainguard/static', drift: 'unknown', versionsBehind: 0, daysBehind: 0 };
+    site = build(
+      editedBundle(MINIMAL, (r) => {
+        const byId = (id: string) => r.images.find((i: any) => i.id === id);
+        byId('ghcr-io-acme-images-billing-1-4-2').base = { ...claimed, method: 'oci-base-name', strength: 'assisted' };
+        byId('ghcr-io-acme-images-hello-app').base = { ...claimed, method: 'history', strength: 'weak', digest: '', imageId: '' };
+      }),
+    );
+  });
+
+  test('builds, and says the version is unknown instead of linking a base', () => {
+    for (const id of ['ghcr-io-acme-images-billing-1-4-2', 'ghcr-io-acme-images-hello-app']) {
+      const html = read(site, `images/${id}/index.html`);
+      const base = html.slice(html.indexOf('id="base"'), html.indexOf('id="evidence"'));
+      assert.match(shown(base), /Built on cgr\.dev\/chainguard\/static A claimed base, no version identified: the image names this repository, but not which version of it/, id);
+      assert.doesNotMatch(base, /href="\/images\/cgr-dev-chainguard-static\/"/, id);
+      assert.doesNotMatch(shown(base), /unknown\s*\(its|sha256:/, id);
+      assert.match(shown(base), /\? Unknown With no version identified, how far behind it is is unknown\./, id);
+    }
+    const bases = shown(read(site, 'bases/index.html'));
+    assert.match(bases, /billing:1\.4\.2 ○ Assisted \? Unknown on cgr\.dev\/chainguard\/static \(claimed base, no version identified\)/);
+    assert.match(bases, /hello-app:latest ○ Weak \? Unknown on cgr\.dev\/chainguard\/static \(claimed base, no version identified\)/);
+    // The static image's page lists no image built on it: nothing linked to it.
+    assert.doesNotMatch(shown(read(site, 'images/cgr-dev-chainguard-static/index.html')), /Built on this image/);
+  });
+
+  test('drift past the limit from a claimed base is unverified, not failed; from a proven one, failed', () => {
+    const drifted = build(
+      editedBundle(MINIMAL, (r) => {
+        r.policy.maxDaysBehind = 30;
+        const byId = (id: string) => r.images.find((i: any) => i.id === id);
+        Object.assign(byId('ghcr-io-acme-images-billing-1-4-2').base, { strength: 'declared', method: 'oci-base-digest', drift: 'stale', daysBehind: 40, versionsBehind: 2 });
+        Object.assign(byId('ghcr-io-acme-images-hello-app').base, { drift: 'stale', daysBehind: 41, versionsBehind: 2 });
+      }),
+    );
+    const overview = shown(read(drifted, 'index.html'));
+    assert.match(overview, /The policy fails images more than 30 days behind a base proven by layer digests; behind a base they only claim, they are unverified\./);
+    assert.match(overview, /billing:1\.4\.2 \S+ ○ Declared 2 40 \(over the limit by a claim: unverified, not failed\)/);
+    assert.match(overview, /hello-app:latest \S+ ✓ Proven 2 41 \(over the limit\)/);
+    assert.match(overview, /Base age fail when more than 30 days behind a base proven by layer digests; unverified when that far behind a base the image only claims/);
+    assert.match(shown(read(drifted, 'bases/index.html')), /○ Declared 2 40 \(over 30 by a claim: unverified, not failed\)/);
+  });
+});
+
 describe('the CLI', () => {
   test('refuses a bundle that does not match the contract', () => {
     const bad = editedBundle(MINIMAL, (r) => (r.images[0].verdict.status = 'fine'));

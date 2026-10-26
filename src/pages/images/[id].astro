@@ -191,8 +191,17 @@ const reasonLists = [
         <dd>
           <code>{image.base.ref}</code>
           {baseImage && <> (<a href={imageHref(baseImage.id)}>{imageLabel(baseImage)}</a>)</>}
-          <br /><Digest digest={image.base.digest} full />
-          {image.base.platform && <span class="dim small"> (its {image.base.platform} image)</span>}
+          {image.base.digest ? (
+            <>
+              <br /><Digest digest={image.base.digest} full />
+              {image.base.platform && <span class="dim small"> (its {image.base.platform} image)</span>}
+            </>
+          ) : (
+            <div class="small">
+              A claimed base, no version identified: the image names this repository, but not which version of it, so
+              there is no digest to compare and no image of the report to link to.
+            </div>
+          )}
         </dd>
         <dt>How it's known</dt>
         <dd>
@@ -203,6 +212,7 @@ const reasonLists = [
         <dt>Currency</dt>
         <dd>
           <Chip term={drift(image.base.drift)} />
+          {!image.base.digest && image.base.drift === 'unknown' && <> With no version identified, how far behind it is is unknown.</>}
           {image.base.drift === 'stale' && (
             <>
               {' '}

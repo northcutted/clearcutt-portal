@@ -211,8 +211,9 @@ function checkReferences(file: string, report: EstateReport): void {
     folded.set(image.id.toLowerCase(), image.id);
   }
   for (const image of report.images) {
+    // Empty is no link: a base named by repository, no version of it identified.
     const baseId = image.base?.imageId;
-    if (baseId !== undefined && !ids.has(baseId)) {
+    if (baseId !== undefined && baseId !== '' && !ids.has(baseId)) {
       problems.push(`image ${image.id}: base.imageId ${JSON.stringify(baseId)} is not an image in the report`);
     }
   }

@@ -29,6 +29,18 @@ between minor releases, with notes here.
   and fixture bundles are v0.17's, with its image IDs, and the tests follow
   them.
 
+### Changed: claimed bases
+
+- A base the image only names by repository (an `oci-base-name` or
+  `history` edge from clearcutt-verify v0.17: no digest, and no or an empty
+  `imageId`) reads "a claimed base, no version identified", links to no
+  image, and says how far behind it is is unknown. An empty `base.imageId`
+  is no link, not a bundle error (it used to stop the build); comparisons
+  and the package search take an empty base digest as not recorded.
+- Drift past `maxDaysBehind` fails an image only from a base proven by layer
+  digests: the stale tables say "over the limit by a claim: unverified, not
+  failed" for a claimed base, and the policy says so.
+
 ### Added: observe-only images
 
 - An image the policy observes without gating on it (`images[].observeOnly`,

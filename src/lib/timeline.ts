@@ -145,8 +145,9 @@ export function diffImage(
   const driftAfter = after.base?.drift ?? 'none';
   if (driftBefore !== driftAfter) out.drift = [driftBefore, driftAfter];
   if (before.digest !== after.digest) {
-    const a = before.base?.digest;
-    const b = after.base?.digest;
+    // No digest (or an empty one: a claimed base, no version identified) isn't recorded.
+    const a = before.base?.digest || undefined;
+    const b = after.base?.digest || undefined;
     out.newBase = a === undefined || b === undefined ? null : a !== b;
     out.how = after.rebasedFrom !== undefined && after.rebasedFrom !== before.rebasedFrom ? 'rebased' : 'rebuilt';
   } else if (out.drift) {

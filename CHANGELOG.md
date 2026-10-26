@@ -17,9 +17,9 @@ between minor releases, with notes here.
 
 ### Contract: clearcutt-verify v0.17
 
-- `contract/` is clearcutt-verify's contract from its Phase B branch
-  (`feat/phase-b-rescan`, pinned by commit in `contract/UPSTREAM`; to be
-  re-pinned to the release). Every change is additive under
+- `contract/` is clearcutt-verify's contract at its main branch after
+  v0.16.0 (pinned by commit in `contract/UPSTREAM`; to be re-pinned to
+  v0.17.0 once it is tagged). Every change is additive under
   `clearcutt.dev/v1`: the run's `metadata.platforms`; the policy's `rescan`,
   `scanSource`, `vex`, `observe`, and `provenanceBuilders`; an image's
   `rescan`, `observeOnly`, and `provenance`; a scan's `database`; a

@@ -28,6 +28,19 @@ between minor releases, with notes here.
   and fixture bundles are v0.17's, with its image IDs, and the tests follow
   them.
 
+### Added: which platforms a run read
+
+- A run that read only some platforms (`metadata.platforms`, from
+  `estate verify --platforms`) says so in the overview, the footer, and on
+  About; an image with platform images outside the selection says which
+  weren't read, and that its evidence, findings, and packages describe the
+  rest; its platforms table marks each read or not; and its verdict command
+  passes the run's selection.
+- An image whose platform list couldn't be read says its platforms are
+  unknown. clearcutt-verify before v0.17.0 wrote that list as `null`, which
+  the schema doesn't allow and used to stop the build; it now reads as the
+  empty list v0.17.0 writes.
+
 ### Added: the policy's new fields
 
 - The policy (overview and About) says whether the run rescanned

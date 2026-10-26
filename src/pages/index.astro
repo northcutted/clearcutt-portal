@@ -237,7 +237,7 @@ const capital = (s: string) => `${s[0].toUpperCase()}${s.slice(1)}`;
     <h1>{metadata.name}</h1>
     <p class="lede">
       {metadata.generator.name} checked {plural(summary.images, 'image')} from {sources.join(', ')} against the
-      policy below, finishing at {formatTime(metadata.generatedAt)}. Each image is verified, failed, or unverified,
+      policy below, finishing at {formatTime(metadata.generatedAt)}.{metadata.platforms && <> It read only their {metadata.platforms.join(', ')} platform images (--platforms), so per-platform evidence, findings, and packages describe those alone.</>} Each image is verified, failed, or unverified,
       with the reasons it wasn't verified.
     </p>
   </header>

@@ -79,7 +79,7 @@ const generator = report.metadata.generator;
       <div class="wrap">
         <p>
           Built from the estate report <code>{generator.name} {generator.version}</code> wrote at {formatTime(report.metadata.generatedAt)}
-          {history ? ` with ${plural(history.entries.length, 'history entry', 'history entries')}` : ' (no history)'}.
+          {history ? ` with ${plural(history.entries.length, 'history entry', 'history entries')}` : ' (no history)'}{report.metadata.platforms && `, reading only the ${report.metadata.platforms.join(', ')} platform images`}.
           The site shows what that report says and nothing more.
         </p>
         {contractNotes.length > 0 && (

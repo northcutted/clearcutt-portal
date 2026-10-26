@@ -149,6 +149,14 @@ test('an empty base.imageId links to nothing, and is no error: a claimed base, n
   assert.throws(() => readBundle(bad), /base\.imageId "nowhere" is not an image in the report/);
 });
 
+test("an older report's null platform list reads as the empty one v0.17.0 writes: unreadable", () => {
+  const dir = editedBundle(MINIMAL, (r) => (r.images.find((i: any) => i.id === 'docker-io-library-redis-7').platforms = null));
+  assert.deepEqual(readBundle(dir).report.images.find((i) => i.id === 'docker-io-library-redis-7')?.platforms, []);
+  // Anything else that isn't a list still stops the build.
+  const bad = editedBundle(MINIMAL, (r) => (r.images[0].platforms = 'linux/amd64'));
+  assert.throws(() => readBundle(bad), /platforms: must be array/);
+});
+
 test('image ids that differ only in case are refused, since they would share a directory', () => {
   const dir = editedBundle(MINIMAL, (r) => (r.images[3].id = r.images[0].id.toUpperCase()));
   assert.throws(() => readBundle(dir), /differ only in case/);

@@ -131,6 +131,12 @@ const sources = metadata.sources.map((s) =>
       <dt>Written by</dt><dd><code>{metadata.generator.name} {metadata.generator.version}</code></dd>
       <dt>Finished</dt><dd>{formatTime(metadata.generatedAt)}</dd>
       <dt>Read from</dt><dd>{sources.join('; ')}</dd>
+      <dt>Platforms read</dt>
+      <dd>
+        {metadata.platforms
+          ? <>only {metadata.platforms.map((p, i) => <>{i > 0 && ', '}<code>{p}</code></>)} (estate verify --platforms): evidence attached to the images' other platform images (SBOMs and vulnerability reports) wasn't looked at</>
+          : 'every platform image of every image'}
+      </dd>
       <dt>Format</dt><dd><code>{report.apiVersion}</code> (this portal reads <code>{API_VERSION}</code>)</dd>
       <dt>Contract</dt>
       <dd>

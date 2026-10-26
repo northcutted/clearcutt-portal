@@ -63,6 +63,10 @@ const signerText = (s: NonNullable<Image['evidence']['signature']['signer']>) =>
 const factory = image.factory;
 const onStack = stackOf(report, image);
 const packagesSource = image.packagesSource;
+// The platforms this run read (estate verify --platforms), and this image's it didn't.
+const readPlatforms = report.metadata.platforms;
+const notRead = readPlatforms ? image.platforms.map((p) => p.platform).filter((p) => !readPlatforms.includes(p)) : [];
+const listed = (list: string[]) => list.join(', ');
 
 // This image run by run, from the history's per-image rows. Runs before
 // clearcutt-verify recorded rows can't say anything about it.
@@ -105,6 +109,13 @@ const reasonLists = [
         <ul class="reasons">{list.reasons.map((r) => <li>{r}</li>)}</ul>
       </div>
     ))}
+    {notRead.length > 0 && (
+      <p class="callout small">
+        This run read only the {listed(readPlatforms!)} platform images (estate verify --platforms):
+        this image's {listed(notRead)} {notRead.length === 1 ? 'image wasn\'t' : 'images weren\'t'} read, so {notRead.length === 1 ? 'its' : 'their'} SBOMs and
+        vulnerability reports weren't looked at, and the evidence, findings, and packages here describe the platforms that were.
+      </p>
+    )}
     {image.warnings.length > 0 && (
       <div class="callout">
         <h2>Problems reading this image</h2>
@@ -456,16 +467,26 @@ const reasonLists = [
 
   <section aria-labelledby="platforms">
     <h2 id="platforms">Platforms</h2>
+    {image.platforms.length === 0 ? (
+      <p>
+        <Chip term={{ label: 'Unknown', tone: 'unknown', meaning: "The image's platform list couldn't be read." }} /> The report lists no
+        platform images: this image's platform list couldn't be read, so which platforms it has is unknown.
+      </p>
+    ) : (
     <div class="table-wrap">
       <table>
-        <thead><tr><th>Platform</th><th>Digest</th><th class="num">Layers</th><th class="num">Compressed size</th></tr></thead>
+        <thead><tr><th>Platform</th><th>Digest</th><th class="num">Layers</th><th class="num">Compressed size</th>{readPlatforms && <th>This run</th>}</tr></thead>
         <tbody>
           {image.platforms.map((p) => (
-            <tr><td>{p.platform}</td><td><Digest digest={p.digest} full /></td><td class="num">{p.layers}</td><td class="num">{bytes(p.size)}</td></tr>
+            <tr>
+              <td>{p.platform}</td><td><Digest digest={p.digest} full /></td><td class="num">{p.layers}</td><td class="num">{bytes(p.size)}</td>
+              {readPlatforms && <td class="small">{readPlatforms.includes(p.platform) ? 'read' : <strong>not read</strong>}</td>}
+            </tr>
           ))}
         </tbody>
       </table>
     </div>
+    )}
   </section>
 
   <section aria-labelledby="packages">

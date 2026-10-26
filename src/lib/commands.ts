@@ -389,7 +389,9 @@ export function verifyCommands(report: EstateReport, image: Image): Commands {
 
   // The verdict, from scratch, under the same policy.
   attempt('Verdict', () => {
-    const platforms = image.platforms.map((p) => p.platform);
+    // The platforms the run read: its --platforms selection when it made
+    // one (metadata.platforms), else every platform image of this one.
+    const platforms = report.metadata.platforms ?? image.platforms.map((p) => p.platform);
     for (const p of platforms) if (!PLATFORM.test(p)) throw new UnsafeValue(`the platform ${JSON.stringify(p)} isn't os/arch[/variant]`);
     const policyJson = shellWord(policyFile(policy), "the report's policy");
     const run = [

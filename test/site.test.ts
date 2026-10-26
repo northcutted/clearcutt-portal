@@ -1116,6 +1116,44 @@ describe('a claimed base with no version identified', () => {
   });
 });
 
+describe("a run that read only some platforms, and an image whose platforms couldn't be read", () => {
+  let site: string;
+  before(() => {
+    site = build(
+      editedBundle(MINIMAL, (r) => {
+        r.metadata.platforms = ['linux/amd64'];
+        // As clearcutt-verify before v0.17.0 wrote an unreadable platform list.
+        r.images.find((i: any) => i.id === 'docker-io-library-redis-7').platforms = null;
+      }),
+    );
+  });
+
+  test('the run says which platforms it read, and an image says which of its own it did not', () => {
+    assert.match(shown(read(site, 'index.html')), /It read only their linux\/amd64 platform images \(--platforms\), so per-platform evidence, findings, and packages describe those alone\./);
+    assert.match(shown(read(site, 'about/index.html')), /Platforms read only linux\/amd64 \(estate verify --platforms\)/);
+    assert.match(shown(read(site, 'bases/index.html')), /with 2 history entries, reading only the linux\/amd64 platform images\./);
+    const hello = read(site, 'images/ghcr-io-acme-images-hello-app/index.html');
+    assert.match(shown(hello), /This run read only the linux\/amd64 platform images \(estate verify --platforms\): this image's linux\/arm64 image wasn't read, so its SBOMs and vulnerability reports weren't looked at/);
+    assert.match(shown(hello), /linux\/amd64 \S+ \d+ [\d.]+ \w+ read linux\/arm64 \S+ \d+ [\d.]+ \w+ not read/);
+    // The verdict is reached again reading what this run read.
+    assert.match(hello, /--platforms=linux\/amd64 \\/);
+    assert.doesNotMatch(hello, /--platforms=linux\/amd64,linux\/arm64/);
+    // An image all of whose platforms were read has nothing to say.
+    assert.doesNotMatch(shown(read(site, 'images/ghcr-io-acme-images-billing-1-4-2/index.html')), /wasn't read, so/);
+  });
+
+  test("an image whose platform list couldn't be read says its platforms are unknown", () => {
+    const page = shown(read(site, 'images/docker-io-library-redis-7/index.html'));
+    assert.match(page, /Platforms \? Unknown The report lists no platform images: this image's platform list couldn't be read, so which platforms it has is unknown\./);
+  });
+
+  test('a run that read every platform says so', () => {
+    const plain = build(FIXTURE);
+    assert.match(shown(read(plain, 'about/index.html')), /Platforms read every platform image of every image/);
+    assert.doesNotMatch(shown(read(plain, 'index.html')), /--platforms/);
+  });
+});
+
 describe('the CLI', () => {
   test('refuses a bundle that does not match the contract', () => {
     const bad = editedBundle(MINIMAL, (r) => (r.images[0].verdict.status = 'fine'));

@@ -184,6 +184,35 @@ describe('the example site', () => {
     assert.match(vulns, /Now Findings \? \? \? \? \? \?/);
   });
 
+  test('the policy says whether the run rescanned, which scan gated, and which VEX documents and patterns were in force', () => {
+    for (const page of ['index.html', 'about/index.html']) {
+      const html = read(site, page);
+      const policy = shown(html.slice(html.indexOf('id="policy"'), html.indexOf('</section>', html.indexOf('id="policy"'))));
+      assert.match(policy, /Vulnerabilities fail at critical or above, counting only findings with a fix, in both scans: an image fails when either finds enough, and is unverified when either is unknown/, page);
+      assert.match(policy, /Rescan yes: this run scanned each image's verified SBOMs itself, against a vulnerability database of its day/, page);
+      assert.match(policy, /VEX documents OpenVEX documents applied to this run's rescans: .* vex\/acme\.openvex\.json \(https:\/\/acme\.example\/vex\/2026-10\) by acme security, 2 statements/, page);
+      assert.match(policy, /Observe-only Images matching these .* cgr\.dev\/chainguard\/\*/, page);
+      assert.match(policy, /Trusted signers role image: an image's signature and attestations/, page);
+      assert.doesNotMatch(policy, /Provenance builders/, page);
+    }
+    // Builders, when the policy names them; and a run without a rescan says so.
+    const other = build(
+      editedBundle(MINIMAL, (r) => {
+        r.policy.provenanceBuilders = ['https://github.com/acme/builder/.github/workflows/build.yml@refs/tags/v1'];
+        delete r.policy.rescan;
+        delete r.policy.scanSource;
+        delete r.policy.vex;
+        delete r.summary.rescan;
+        for (const image of r.images) delete image.rescan;
+      }),
+    );
+    const policy = shown(read(other, 'about/index.html'));
+    assert.match(policy, /Provenance builders Verified SLSA provenance must name one of these builders; provenance that names another, or none, fails\. https:\/\/github\.com\/acme\/builder\/\.github\/workflows\/build\.yml@refs\/tags\/v1/);
+    assert.match(policy, /Rescan no: the findings are the publishers' scans, each as of the day it ran/);
+    assert.match(policy, /Vulnerabilities fail at critical or above, counting only findings with a fix Rescan no/);
+    assert.doesNotMatch(policy, /VEX documents/);
+  });
+
   test('an observe-only image is counted apart, marked, and holds nothing back', () => {
     const html = read(site, 'index.html');
     const page = shown(html);

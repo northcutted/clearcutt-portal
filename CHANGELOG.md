@@ -29,6 +29,22 @@ between minor releases, with notes here.
   and fixture bundles are v0.17's, with its image IDs, and the tests follow
   them.
 
+### Added: the policy's new fields
+
+- The policy (overview and About) says whether the run rescanned
+  (`policy.rescan`), which scan the vulnerability limit gated on
+  (`policy.scanSource`: the publisher's, this run's, or both), each VEX
+  document applied to the rescans (`policy.vex`: file, `@id`, author, and
+  how many statements), the observe-only patterns (`policy.observe`), and
+  the provenance builders the policy requires (`policy.provenanceBuilders`),
+  each with what it means. Each signer list names its trust-policy role
+  (`image`, `stack`).
+- The verdict command's policy file carries `scanSource`, `observe`, and
+  `provenanceBuilders`, and the command adds `--rescan` when the run
+  rescanned. The VEX documents aren't in the report, so the command says to
+  add them rather than reaching a verdict that counts what they suppressed
+  without saying so.
+
 ### Changed: claimed bases
 
 - A base the image only names by repository (an `oci-base-name` or

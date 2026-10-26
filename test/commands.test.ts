@@ -324,6 +324,23 @@ describe("an image's commands", () => {
     assert.equal(file.kind, 'VerificationPolicy');
   });
 
+  test("the verdict is reached under v0.17's policy too: its scan source, observe patterns, and builders, and a rescan", () => {
+    const policy = { ...minimal.policy, provenanceBuilders: ['https://github.com/acme/builder@v1'] };
+    const file = JSON.parse(policyFile(policy));
+    assert.deepEqual(Object.keys(file), ['apiVersion', 'kind', 'required', 'trustedSigners', 'failOn', 'onlyFixed', 'maxDaysBehind', 'scanSource', 'observe', 'provenanceBuilders']);
+    assert.deepEqual([file.scanSource, file.observe, file.provenanceBuilders], ['worst', ['cgr.dev/chainguard/*'], ['https://github.com/acme/builder@v1']]);
+    // The VEX documents aren't in the report: not written into the file, but named in what the command says.
+    assert.equal(file.vex, undefined);
+    const verdict = verifyCommands(minimal, image(minimal, 'ghcr-io-acme-images-billing-1-4-2')).commands.find((c) => c.title === 'Verdict')!;
+    assert.match(verdict.text, / \\\n {2}--rescan \\\n {2}--out=estate$/);
+    assert.match(verdict.purpose, /It rescans the image with grype, as this run did/);
+    assert.match(verdict.purpose, /This run applied a VEX document the report names but doesn't carry .*add "vex": \[its file\] to it, or the findings it suppresses will count\./);
+    // A run without a rescan or VEX says neither.
+    const plain = verifyCommands(fixture, image(fixture, 'ghcr-io-northcutted-images-debian-tools')).commands.find((c) => c.title === 'Verdict')!;
+    assert.doesNotMatch(plain.text, /--rescan/);
+    assert.doesNotMatch(plain.purpose, /grype|VEX/);
+  });
+
   test("GitHub's provenance also gets gh's verifier, reading the bundle from the registry", () => {
     const hello = image(minimal, 'ghcr-io-acme-images-hello-app');
     const gh = verifyCommands(minimal, hello).commands.find((c) => c.title === 'SLSA provenance (GitHub)');

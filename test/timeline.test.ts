@@ -103,9 +103,9 @@ test('two runs compare only when both recorded rows', () => {
     diffs.filter(changed).map((d) => [d.id, d.how]),
     [
       ['retired-image', 'removed'],
-      ['static', 'added'],
-      ['debian-tools', 'rebuilt'],
-      ['platform-tools', 'base-moved'],
+      ['cgr-dev-chainguard-static', 'added'],
+      ['ghcr-io-northcutted-images-debian-tools', 'rebuilt'],
+      ['ghcr-io-northcutted-images-platform-tools', 'base-moved'],
     ],
   );
   const hows = countHows(diffs);

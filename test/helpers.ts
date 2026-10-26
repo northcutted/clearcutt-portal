@@ -54,7 +54,7 @@ export function v015Bundle(): string {
     FIXTURE,
     (r) => {
       const image = (id: string) => r.images.find((i: any) => i.id === id);
-      const hello = image('hello-app');
+      const hello = image('ghcr-io-northcutted-images-hello-app');
       hello.factory.stackRef = STACK_REF;
       r.stacks = [
         {
@@ -66,7 +66,7 @@ export function v015Bundle(): string {
               digest: hello.factory.stackDigest,
               current: false,
               signature: { status: 'verified', source: 'cosign-signature', signer: FACTORY_SIGNER },
-              images: ['hello-app'],
+              images: ['ghcr-io-northcutted-images-hello-app'],
             },
           ],
           consumers: 1,
@@ -76,8 +76,8 @@ export function v015Bundle(): string {
       r.policy.stackSigners = [FACTORY_SIGNER];
       r.policy.maxScanAgeDays = 7;
       r.bases.find((b: any) => b.repository === 'cgr.dev/chainguard/wolfi-base').currentPlatform = 'linux/amd64';
-      image('platform-tools').base.platform = 'linux/amd64';
-      delete image('debian-tools').packagesSource;
+      image('ghcr-io-northcutted-images-platform-tools').base.platform = 'linux/amd64';
+      delete image('ghcr-io-northcutted-images-debian-tools').packagesSource;
     },
     (h) => {
       // The run before the latest gets rows too, as clearcutt-verify v0.15
@@ -86,12 +86,12 @@ export function v015Bundle(): string {
       // wasn't there, and an image since removed was.
       const [latest, previous] = h.entries;
       previous.images = structuredClone(latest.images)
-        .filter((i: any) => i.id !== 'static')
+        .filter((i: any) => i.id !== 'cgr-dev-chainguard-static')
         .map(({ fixableFindings, packagesDigest, ...i }: any) => {
-          if (i.id === 'debian-tools') {
+          if (i.id === 'ghcr-io-northcutted-images-debian-tools') {
             return { ...i, verdict: 'failed', digest: `sha256:${'d'.repeat(64)}`, vulnerabilities: { ...i.vulnerabilities, critical: 30 } };
           }
-          if (i.id === 'platform-tools') return { ...i, base: { ...i.base, drift: 'stale' } };
+          if (i.id === 'ghcr-io-northcutted-images-platform-tools') return { ...i, base: { ...i.base, drift: 'stale' } };
           return i;
         })
         .concat([{ id: 'retired-image', digest: `sha256:${'e'.repeat(64)}`, verdict: 'verified' }]);

@@ -39,7 +39,7 @@ test('findings across the estate: one entry per advisory, fixable critical and h
   assert.equal(groups[0].severity, 'high');
   assert.ok(groups[0].fixable);
   const go6603 = groups.find((g) => g.id === 'GO-2026-6603')!;
-  assert.deepEqual(affectedImages(go6603).map((i) => i.id).sort(), ['amazonlinux-tools', 'debian-tools', 'platform-tools']);
+  assert.deepEqual(affectedImages(go6603).map((i) => i.id).sort(), ['ghcr-io-northcutted-images-amazonlinux-tools', 'ghcr-io-northcutted-images-debian-tools', 'ghcr-io-northcutted-images-platform-tools']);
   assert.ok(go6603.packages.includes('golang.org/x/net v0.57.0') && go6603.packages.includes('stdlib go1.27.1'));
   // Every fixable high comes before a critical with no fix known.
   const curl = ids.indexOf('CVE-2026-10536');
@@ -57,7 +57,7 @@ test('findings across the estate: one entry per advisory, fixable critical and h
 
 test('a finding page name is safe and unique, whatever the ID', () => {
   const report = structuredClone(readBundle(MINIMAL).report) as EstateReport;
-  const billing = report.images.find((i) => i.id === 'ghcr-io-acme-images-billing')!;
+  const billing = report.images.find((i) => i.id === 'ghcr-io-acme-images-billing-1-4-2')!;
   const hostile = ['../../../etc/passwd', '"><script>alert(1)</script>', 'CVE-2026-1', 'cve-2026-1', '..', '', 'A'.repeat(300)];
   billing.vulnerabilities!.findings.push(...hostile.map((id) => ({ id, severity: 'high' as const, package: 'p', version: '1', platforms: [] })));
   const slugs = findingGroups(report).map((g) => g.slug);

@@ -6,6 +6,29 @@ between minor releases, with notes here.
 
 ## Unreleased
 
+### Breaking
+
+- **Every image page moves once, with clearcutt-verify v0.17's reports.**
+  clearcutt-verify now makes an image's `id` from its whole reference
+  (`ghcr-io-northcutted-images-hello-app` where it was `hello-app`), and the
+  portal names pages by `id` (`images/<id>/`), so a site built from a v0.17
+  report has every image under a new address. The portal still takes IDs
+  only from the report and never derives one.
+
+### Contract: clearcutt-verify v0.17
+
+- `contract/` is clearcutt-verify's contract from its Phase B branch
+  (`feat/phase-b-rescan`, pinned by commit in `contract/UPSTREAM`; to be
+  re-pinned to the release). Every change is additive under
+  `clearcutt.dev/v1`: the run's `metadata.platforms`; the policy's `rescan`,
+  `scanSource`, `vex`, `observe`, and `provenanceBuilders`; an image's
+  `rescan`, `observeOnly`, and `provenance`; a scan's `database`; a
+  finding's `suppressedBy`; `summary.rescan` and
+  `summary.verdicts.observeOnly`; history rows' `rescanVulnerabilities` and
+  `observeOnly`; and the trust policy's `estate` role. The vendored example
+  and fixture bundles are v0.17's, with its image IDs, and the tests follow
+  them.
+
 ### Added: what to fix first
 
 - The overview opens with where the estate stands: whether the policy passes,

@@ -177,13 +177,13 @@ test('the fixture index answers with its real packages and base links', () => {
   const report = readBundle(FIXTURE).report;
   const index = buildSearchIndex(report, { image: (id) => `/images/${id}/`, package: (slug) => `/packages/${slug}/` });
   assert.equal(index.images.length, report.images.length);
-  assert.deepEqual(index.images.find((i) => i.id === 'platform-tools')?.base, { id: 'wolfi-base', strength: 'proof', exact: true });
-  assert.equal(index.images.find((i) => i.id === 'amazonlinux-2023')?.packages, 'unknown');
+  assert.deepEqual(index.images.find((i) => i.id === 'ghcr-io-northcutted-images-platform-tools')?.base, { id: 'cgr-dev-chainguard-wolfi-base', strength: 'proof', exact: true });
+  assert.equal(index.images.find((i) => i.id === 'docker-io-library-amazonlinux-2023')?.packages, 'unknown');
   assert.ok(indexTypes(index).includes('apk'));
 
   const zlib = search(index, query('apk:zlib <1.3.2.1', indexTypes(index))).answers;
   assert.deepEqual(zlib.map((a) => [a.type, a.name, a.matching.map((m) => m.version)]), [['apk', 'zlib', ['1.3.2.1_rc20260917-r0']]]);
-  assert.deepEqual(zlib[0].direct, [{ id: 'platform-tools', versions: ['1.3.2.1_rc20260917-r0'], baseToo: 'wolfi-base' }, { id: 'wolfi-base', versions: ['1.3.2.1_rc20260917-r0'] }]);
+  assert.deepEqual(zlib[0].direct, [{ id: 'ghcr-io-northcutted-images-platform-tools', versions: ['1.3.2.1_rc20260917-r0'], baseToo: 'cgr-dev-chainguard-wolfi-base' }, { id: 'cgr-dev-chainguard-wolfi-base', versions: ['1.3.2.1_rc20260917-r0'] }]);
 
   // Every version of openssl-libs (epoch 1) is under 3.6 once the epoch is left out.
   assert.equal(search(index, query('openssl-libs <3.6', indexTypes(index))).answers[0]?.matching.length, 1);
@@ -192,17 +192,17 @@ test('the fixture index answers with its real packages and base links', () => {
 
 test('in the fixture, an app whose own SBOM is gone still inherits from its base', () => {
   const bundle = editedBundle(FIXTURE, (r) => {
-    const tools = r.images.find((i: any) => i.id === 'platform-tools');
+    const tools = r.images.find((i: any) => i.id === 'ghcr-io-northcutted-images-platform-tools');
     delete tools.packages;
     delete tools.packagesSource;
-    for (const pkg of r.packages) pkg.images = pkg.images.filter((id: string) => id !== 'platform-tools');
+    for (const pkg of r.packages) pkg.images = pkg.images.filter((id: string) => id !== 'ghcr-io-northcutted-images-platform-tools');
     r.packages = r.packages.filter((pkg: any) => pkg.images.length > 0);
   });
   const index = buildSearchIndex(readBundle(bundle).report, { image: (id) => id, package: (slug) => slug });
   const [busybox] = search(index, query('busybox <1.38.1', indexTypes(index))).answers;
-  assert.deepEqual(busybox.direct.map((d) => d.id), ['wolfi-base']);
+  assert.deepEqual(busybox.direct.map((d) => d.id), ['cgr-dev-chainguard-wolfi-base']);
   assert.deepEqual(
     busybox.inherited.map((i) => [i.id, i.from, i.strength, i.exact, i.own]),
-    [['platform-tools', 'wolfi-base', 'proof', true, 'unknown']],
+    [['ghcr-io-northcutted-images-platform-tools', 'cgr-dev-chainguard-wolfi-base', 'proof', true, 'unknown']],
   );
 });

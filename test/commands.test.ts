@@ -126,7 +126,7 @@ describe('shell words', () => {
 
 describe('image references', () => {
   test('are repository@digest', () => {
-    const debian = image(fixture, 'debian-tools');
+    const debian = image(fixture, 'ghcr-io-northcutted-images-debian-tools');
     assert.equal(pinnedRef(debian.repository, debian.digest), `ghcr.io/northcutted/images/debian-tools@${debian.digest}`);
     assert.equal(pinnedRef('localhost:5000/a/b', `sha256:${'a'.repeat(64)}`), `localhost:5000/a/b@sha256:${'a'.repeat(64)}`);
     for (const ref of fixture.images.map((i) => pinnedRef(i.repository, i.digest))) assert.equal(shellWord(ref), ref, 'needs no quotes');
@@ -164,7 +164,7 @@ describe('signers', () => {
   const policy = (...trustedSigners: Signer[]): Policy => ({ required: [], reproduce: false, trustedSigners });
 
   test("the policy's signer that accepts the certificate, with the repository it requires", () => {
-    const cert = image(fixture, 'debian-tools').evidence.signature.signer!;
+    const cert = image(fixture, 'ghcr-io-northcutted-images-debian-tools').evidence.signature.signer!;
     assert.deepEqual(identityFor(fixture.policy, cert), {
       flags: [
         ['--certificate-identity-regexp', '^https://github\\.com/northcutted/clearcutt-factory/'],
@@ -175,7 +175,7 @@ describe('signers', () => {
       fromPolicy: true,
     });
     // Chainguard's signer: no source constraint, and the workflow is in the repository that ran it.
-    const chainguard = image(fixture, 'static').evidence.signature.signer!;
+    const chainguard = image(fixture, 'cgr-dev-chainguard-static').evidence.signature.signer!;
     assert.deepEqual(identityFor(fixture.policy, chainguard).flags, [
       ['--certificate-identity-regexp', '^https://github\\.com/chainguard-images/images/'],
       ['--certificate-oidc-issuer', ISSUER],
@@ -255,7 +255,7 @@ function runCommand(shell: string, command: Command): { calls: string[][]; cwd: 
 
 describe("an image's commands", () => {
   test('a clearcutt-factory image gets a command per verified signature and attestation, a rebuild, and the verdict', () => {
-    const debian = image(fixture, 'debian-tools');
+    const debian = image(fixture, 'ghcr-io-northcutted-images-debian-tools');
     const { ref, commands, skipped, unverified } = verifyCommands(fixture, debian);
     assert.equal(ref, `ghcr.io/northcutted/images/debian-tools@${debian.digest}`);
     assert.deepEqual(skipped, []);
@@ -292,7 +292,7 @@ describe("an image's commands", () => {
   });
 
   test('every command runs as written, in every shell, with the arguments it shows', () => {
-    const debian = image(fixture, 'debian-tools');
+    const debian = image(fixture, 'ghcr-io-northcutted-images-debian-tools');
     const { commands } = verifyCommands(fixture, debian);
     for (const shell of SHELLS) {
       const signature = runCommand(shell, commands[0]).calls;
@@ -433,7 +433,7 @@ describe("an image's commands", () => {
   });
 
   test('a hostile signer runs nothing, and a value that cannot be shown drops only its command', () => {
-    const debian = image(fixture, 'debian-tools');
+    const debian = image(fixture, 'ghcr-io-northcutted-images-debian-tools');
     const report = structuredClone(fixture);
     const evil = "https://evil/$(touch pwned)'; touch pwned; '`touch pwned`";
     report.policy.trustedSigners = [{ identity: evil, issuer: 'https://token.actions.githubusercontent.com' }];
@@ -454,7 +454,7 @@ describe("an image's commands", () => {
   });
 
   test('an image the report names oddly gets no command at all', () => {
-    const bad = image(fixture, 'debian-tools');
+    const bad = image(fixture, 'ghcr-io-northcutted-images-debian-tools');
     bad.repository = 'ghcr.io/acme/app;touch pwned';
     const result = verifyCommands(fixture, bad);
     assert.deepEqual(result.commands, []);
@@ -463,7 +463,7 @@ describe("an image's commands", () => {
   });
 
   test('evidence that is not verified gets no command, and is named', () => {
-    const redis = image(minimal, 'docker-io-library-redis');
+    const redis = image(minimal, 'docker-io-library-redis-7');
     const { commands, unverified } = verifyCommands(minimal, redis);
     assert.deepEqual(commands.map((c) => c.title), ['Verdict']);
     assert.deepEqual(unverified, ['sbom']);
@@ -473,7 +473,7 @@ describe("an image's commands", () => {
   });
 
   test('a rebased factory image repeats its rebase', () => {
-    const billing = image(minimal, 'ghcr-io-acme-images-billing');
+    const billing = image(minimal, 'ghcr-io-acme-images-billing-1-4-2');
     const titles = verifyCommands(minimal, billing).commands.map((c) => c.title);
     assert.ok(titles.includes('Repeat the rebase'));
     assert.ok(titles.includes('Rebase record'));
@@ -482,7 +482,7 @@ describe("an image's commands", () => {
   test("a policy that can't be written as printable ASCII drops only the verdict command", () => {
     const report = structuredClone(fixture);
     report.policy.trustedSigners.push({ identity: 'https://github.com/acmé/x', issuer: 'https://token.actions.githubusercontent.com' });
-    const { commands, skipped } = verifyCommands(report, image(report, 'debian-tools') as Image);
+    const { commands, skipped } = verifyCommands(report, image(report, 'ghcr-io-northcutted-images-debian-tools') as Image);
     assert.ok(!commands.some((c) => c.title === 'Verdict'));
     assert.deepEqual(skipped, [{ title: 'Verdict', reason: "The report's policy has characters other than printable ASCII." }]);
   });

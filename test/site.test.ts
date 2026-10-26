@@ -126,19 +126,19 @@ describe('the example site', () => {
   });
 
   test('an image with no vulnerability data says unknown, never zero', () => {
-    const page = text(read(site, 'images/docker-io-library-redis/index.html'));
+    const page = text(read(site, 'images/docker-io-library-redis-7/index.html'));
     assert.match(page, /how many vulnerabilities it has is unknown/);
     assert.doesNotMatch(page, /0 findings|No findings/);
   });
 
   test('an image whose base is unknown says so, with the reasons', () => {
-    const page = text(read(site, 'images/docker-io-library-redis/index.html'));
+    const page = text(read(site, 'images/docker-io-library-redis-7/index.html'));
     assert.match(page, /No base could be determined/);
     assert.match(page, /no observed image.s layers are a prefix of this image/);
   });
 
   test('unknown evidence is shown as unknown', () => {
-    const page = text(read(site, 'images/docker-io-library-redis/index.html'));
+    const page = text(read(site, 'images/docker-io-library-redis-7/index.html'));
     assert.match(page, /SBOM \? Unknown/);
   });
 
@@ -227,12 +227,12 @@ describe('the example site', () => {
     for (const c of commands) assert.doesNotMatch(c, /hello-app:latest/);
     // Copy buttons wait for the script, which unhides them where the clipboard works.
     assert.match(html, /<button type="button" class="copy" data-copy aria-label="Copy the Signature command" hidden>Copy<\/button>/);
-    assert.match(shown(read(site, 'images/docker-io-library-redis/index.html')), /No command for SBOM: it isn't verified, so there is no trusted signer to check it against\./);
+    assert.match(shown(read(site, 'images/docker-io-library-redis-7/index.html')), /No command for SBOM: it isn't verified, so there is no trusted signer to check it against\./);
   });
 
   test('a reproduction says what checked it: this run, or an attestation and where it ran', () => {
     assert.match(shown(read(site, 'images/ghcr-io-acme-images-hello-app/index.html')), /Checked by this run, which rebuilt it\./);
-    const html = read(site, 'images/ghcr-io-acme-images-billing/index.html');
+    const html = read(site, 'images/ghcr-io-acme-images-billing-1-4-2/index.html');
     const page = shown(html);
     assert.match(page, /Checked by a clearcutt-factory reproduction attestation, verified against a trusted signer; this run didn't rebuild it\./);
     assert.match(page, /Attestation signed by https:\/\/github\.com\/acme\/images\/\.github\/workflows\/fleet\.yml@refs\/heads\/main \(issuer https:\/\/token\.actions\.githubusercontent\.com\) ghcr\.io\/acme\/images\/billing@sha256:a?(ba)+b?/);
@@ -306,7 +306,7 @@ describe('the example site', () => {
   });
 
   test('a rebased image names what it was rebased from', () => {
-    const page = text(read(site, 'images/ghcr-io-acme-images-billing/index.html'));
+    const page = text(read(site, 'images/ghcr-io-acme-images-billing-1-4-2/index.html'));
     assert.match(page, /Rebased from ghcr\.io\/acme\/images\/billing@sha256:0{64} onto/);
   });
 });
@@ -315,6 +315,13 @@ describe('a report written by someone hostile', () => {
   let site: string;
   before(() => {
     const bundle = editedBundle(MINIMAL, (r) => {
+      const byId = (id: string) => r.images.find((i: any) => i.id === id);
+      r.images = [
+        byId('cgr-dev-chainguard-static'),
+        byId('ghcr-io-acme-images-hello-app'),
+        byId('ghcr-io-acme-images-billing-1-4-2'),
+        byId('docker-io-library-redis-7'),
+      ];
       r.images[0].source = { url: 'javascript:alert(document.domain)', basis: 'label' };
       r.images[2].source = { url: 'https://github.com@evil.example/acme', basis: 'annotation' };
       r.images[3].source = { url: 'https://example.test/acme/redis', basis: 'label' };
@@ -353,17 +360,17 @@ describe('a report written by someone hostile', () => {
     const page = read(site, 'images/cgr-dev-chainguard-static/index.html');
     assert.doesNotMatch(page, /href="javascript:/i);
     assert.match(page, /<code>javascript:alert\(document\.domain\)<\/code> <span class="dim small">\(not linked/);
-    assert.match(read(site, 'images/ghcr-io-acme-images-billing/index.html'), /<code>https:\/\/github\.com@evil\.example\/acme<\/code>/);
+    assert.match(read(site, 'images/ghcr-io-acme-images-billing-1-4-2/index.html'), /<code>https:\/\/github\.com@evil\.example\/acme<\/code>/);
   });
 
   test("a reproduction's run that is not http(s) is shown as text", () => {
-    const page = read(site, 'images/ghcr-io-acme-images-billing/index.html');
+    const page = read(site, 'images/ghcr-io-acme-images-billing-1-4-2/index.html');
     assert.match(page, /Run: <code>javascript:alert\(document\.domain\)<\/code> <span class="dim small">\(not linked/);
   });
 
   test('an http(s) source URL is a link', () => {
     assert.match(
-      read(site, 'images/docker-io-library-redis/index.html'),
+      read(site, 'images/docker-io-library-redis-7/index.html'),
       /<a href="https:\/\/example\.test\/acme\/redis" rel="noreferrer">https:\/\/example\.test\/acme\/redis<\/a>/,
     );
   });
@@ -377,7 +384,7 @@ describe('a report written by someone hostile', () => {
   });
 
   test('markup in report text is escaped', () => {
-    const page = read(site, 'images/docker-io-library-redis/index.html');
+    const page = read(site, 'images/docker-io-library-redis-7/index.html');
     assert.doesNotMatch(page, /<script>alert|<img src=x/);
     assert.match(page, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
   });
@@ -386,7 +393,7 @@ describe('a report written by someone hostile', () => {
     const pages = readdirSync(path.join(site, 'findings')).sort();
     assert.ok(pages.includes('etc-passwd') && pages.includes('script-alert-1-script'), pages.join(' '));
     assert.ok(!existsSync(path.join(site, 'etc')));
-    for (const page of ['findings/index.html', 'images/ghcr-io-acme-images-billing/index.html']) {
+    for (const page of ['findings/index.html', 'images/ghcr-io-acme-images-billing-1-4-2/index.html']) {
       const html = read(site, page);
       // Inside a quoted attribute, where < is text, it may stay as it is.
       assert.doesNotMatch(html.replace(/="[^"]*"/g, '=""'), /<script>alert/);
@@ -408,7 +415,13 @@ describe('the fixture site', () => {
     const section = html.slice(html.indexOf('id="attention"'), html.indexOf('id="fix-first"'));
     assert.deepEqual(
       [...section.matchAll(/<h3>([^<]+)<\/h3>/g)].map((m) => m[1]),
-      ['Vulnerabilities are unknown (no scan)', 'Provenance is missing', 'Sbom is missing', 'Signature is missing'],
+      [
+        'Vulnerabilities are unknown (no scan)',
+        'None of its evidence is verified, so a trusted signer vouched for nothing about it',
+        'Provenance is missing',
+        'Sbom is missing',
+        'Signature is missing',
+      ],
     );
     assert.match(shown(section), /Vulnerabilities are unknown \(no scan\) 4 images: 2 failed, 2 unverified amazonlinux:2023 ✕ Failed debian:trixie-slim ✕ Failed static:latest \? Unverified wolfi-base:latest \? Unverified/);
   });
@@ -424,7 +437,7 @@ describe('the fixture site', () => {
     const failed = shown(read(site, 'lists/failed/index.html'));
     assert.match(failed, /Failed images.*2 images/);
     const rows = [...read(site, 'lists/failed/index.html').matchAll(/<a href="\/images\/([^/]+)\/">/g)].map((m) => m[1]);
-    assert.deepEqual(rows, ['amazonlinux-2023', 'debian-trixie-slim']);
+    assert.deepEqual(rows, ['docker-io-library-amazonlinux-2023', 'docker-io-library-debian-trixie-slim']);
     assert.match(shown(read(site, 'lists/not-reproduced/index.html')), /No rebuild gave a different digest/);
   });
 
@@ -455,7 +468,7 @@ describe('the fixture site', () => {
   });
 
   test("an image's findings are fix first, each opening the advisory's page", () => {
-    const html = read(site, 'images/debian-tools/index.html');
+    const html = read(site, 'images/ghcr-io-northcutted-images-debian-tools/index.html');
     const rows = [...html.matchAll(/<tr data-text="([^"]+)">/g)].map((m) => m[1]);
     const first = rows.findIndex((r) => r.endsWith(' critical'));
     const fixableHigh = rows.findIndex((r) => r.startsWith('go-2026-6603 '));
@@ -468,7 +481,7 @@ describe('the fixture site', () => {
     const table = html.slice(html.indexOf('<table class="images" data-sortable>'));
     assert.match(table, /<th data-sort="text"[^>]*>Image<\/th>/);
     const order = [...table.slice(0, table.indexOf('</table>')).matchAll(/<a href="\/images\/([^/]+)\/">/g)].map((m) => m[1]);
-    assert.deepEqual(order.slice(0, 4), ['amazonlinux-2023', 'debian-trixie-slim', 'static', 'wolfi-base']);
+    assert.deepEqual(order.slice(0, 4), ['docker-io-library-amazonlinux-2023', 'docker-io-library-debian-trixie-slim', 'cgr-dev-chainguard-static', 'cgr-dev-chainguard-wolfi-base']);
     assert.match(html, /<p class="small dim sort-hint" data-sort-hint hidden>/);
   });
 
@@ -482,19 +495,19 @@ describe('the fixture site', () => {
   });
 
   test("a smoke test the recipe declares reads as declared, not as a generic present", () => {
-    const page = shown(read(site, 'images/debian-tools/index.html'));
+    const page = shown(read(site, 'images/ghcr-io-northcutted-images-debian-tools/index.html'));
     assert.match(page, /Tests ○ Declared in recipe .*declared in the recipe .*declares a smoke test \(\/usr\/local\/bin\/rg --version\)/);
-    assert.match(text(read(site, 'images/debian-tools/index.html')), /Tests ○ Declared in recipe Declared in recipe\. The image's verified recipe declares a smoke test/);
+    assert.match(text(read(site, 'images/ghcr-io-northcutted-images-debian-tools/index.html')), /Tests ○ Declared in recipe Declared in recipe\. The image's verified recipe declares a smoke test/);
     assert.match(shown(read(site, 'about/index.html')), /Declared in recipe .* Nothing attests that the test ran/);
   });
 
   test('a proven base says which platform images were compared', () => {
-    const page = shown(read(site, 'images/platform-tools/index.html'));
+    const page = shown(read(site, 'images/ghcr-io-northcutted-images-platform-tools/index.html'));
     assert.match(page, /Proven by layer digests, comparing the linux\/amd64 images\./);
   });
 
   test('an image says where its package list was read from', () => {
-    const page = shown(read(site, 'images/platform-tools/index.html'));
+    const page = shown(read(site, 'images/ghcr-io-northcutted-images-platform-tools/index.html'));
     assert.match(page, /Read from its SBOM, which is ✓ Verified; the union of the linux\/amd64, linux\/arm64 images' lists\./);
     const pkg = shown(read(site, 'packages/index.html'));
     assert.doesNotMatch(pkg, /of\d/);
@@ -510,7 +523,7 @@ describe('the fixture site', () => {
   });
 
   test('an app on a stack defined beside it says so', () => {
-    const page = shown(read(site, 'images/hello-app/index.html'));
+    const page = shown(read(site, 'images/ghcr-io-northcutted-images-hello-app/index.html'));
     assert.match(page, /Stack go defined beside the app, not in a registry; its definition's digest is sha256:cfdf348cb280\./);
     assert.match(shown(read(site, 'stacks/index.html')), /No registry stacks in this report[\s\S]*Apps on stacks not listed here[\s\S]*hello-app:latest on go at sha256:cfdf348cb280/);
     assert.match(read(site, 'index.html'), /<a href="\/stacks\/">Stacks<\/a>/);
@@ -521,7 +534,7 @@ describe('the fixture site', () => {
     assert.match(page, /The previous run recorded no per-image rows \(clearcutt-verify writes them from v0\.15\)/);
     assert.doesNotMatch(page, /isn't recorded\./);
     assert.match(page, /UTC\. 3 runs recorded/);
-    const image = shown(read(site, 'images/debian-tools/index.html'));
+    const image = shown(read(site, 'images/ghcr-io-northcutted-images-debian-tools/index.html'));
     assert.match(image, /This image over time .* 2026-10-10 16:51 UTC sha256:867c6cbf7f44 ✓ Verified ✓ Proven, ✓ current/);
     assert.match(image, /2 earlier runs recorded no per-image rows and aren't shown/);
   });
@@ -548,7 +561,7 @@ describe('a report using everything clearcutt-verify v0.15 writes', () => {
   });
 
   test("an app's page names its registry stack, the version's currency and signature, and links to it", () => {
-    const html = read(site, 'images/hello-app/index.html');
+    const html = read(site, 'images/ghcr-io-northcutted-images-hello-app/index.html');
     assert.match(shown(html), /Stack go from the registry stack ghcr\.io\/northcutted\/stacks\/go:1, pinned at sha256:cfdf348cb280\. Version: ! Older version .* Signature: ✓ Verified/);
     assert.match(html, /href="\/stacks\/#stack-ghcr-io-northcutted-stacks-go"/);
     assert.match(read(site, 'stacks/index.html'), /id="stack-ghcr-io-northcutted-stacks-go"/);
@@ -562,25 +575,25 @@ describe('a report using everything clearcutt-verify v0.15 writes', () => {
     const page = shown(read(site, 'about/index.html'));
     assert.match(page, /Scan age unverified when the vulnerability scan is more than 7 days old/);
     assert.match(page, /Stack signers Identity matching \^https:\/\/github\\\.com\/northcutted\/clearcutt-factory\//);
-    assert.match(shown(read(site, 'images/hello-app/index.html')), /The findings describe that day, within the policy's limit of 7 days\./);
+    assert.match(shown(read(site, 'images/ghcr-io-northcutted-images-hello-app/index.html')), /The findings describe that day, within the policy's limit of 7 days\./);
   });
 
   test('a base digest of one platform image says which', () => {
-    assert.match(shown(read(site, 'images/platform-tools/index.html')), /sha256:1c451d46a0d5\w+ \(its linux\/amd64 image\)/);
+    assert.match(shown(read(site, 'images/ghcr-io-northcutted-images-platform-tools/index.html')), /sha256:1c451d46a0d5\w+ \(its linux\/amd64 image\)/);
     assert.match(shown(read(site, 'bases/index.html')), /Newest observed: cgr\.dev\/chainguard\/wolfi-base:latest sha256:1c451d46a0d5 \(its linux\/amd64 image\)/);
   });
 
   test('a package list whose source is not recorded says so', () => {
-    assert.match(shown(read(site, 'images/debian-tools/index.html')), /Where this package set was read from isn't recorded\./);
+    assert.match(shown(read(site, 'images/ghcr-io-northcutted-images-debian-tools/index.html')), /Where this package set was read from isn't recorded\./);
   });
 
   test("an image's page shows it run by run, with trends", () => {
-    const page = shown(read(site, 'images/debian-tools/index.html'));
+    const page = shown(read(site, 'images/ghcr-io-northcutted-images-debian-tools/index.html'));
     assert.match(page, /2026-10-10 16:51 UTC sha256:867c6cbf7f44 rebuilt, same base ✓ Verified/);
     assert.match(page, /2026-10-06 23:30 UTC sha256:dddddddddddd ✕ Failed .* 30 /);
     assert.match(page, /1 earlier run recorded no per-image rows and isn't shown/);
-    assert.match(read(site, 'images/debian-tools/index.html'), /aria-label="Critical findings\. 2 runs; latest [^"]*: 25\. lowest 25, highest 30\. Every value is in the table above\."/);
-    assert.match(shown(read(site, 'images/static/index.html')), /2026-10-06 23:30 UTC Not in this run\./);
+    assert.match(read(site, 'images/ghcr-io-northcutted-images-debian-tools/index.html'), /aria-label="Critical findings\. 2 runs; latest [^"]*: 25\. lowest 25, highest 30\. Every value is in the table above\."/);
+    assert.match(shown(read(site, 'images/cgr-dev-chainguard-static/index.html')), /2026-10-06 23:30 UTC Not in this run\./);
   });
 
   test('the latest two runs side by side: each image before and after, and how it changed', () => {
@@ -628,17 +641,17 @@ describe('a report from a newer clearcutt-verify', () => {
   before(() => {
     const bundle = editedBundle(FIXTURE, (r) => {
       const image = (id: string) => r.images.find((i: any) => i.id === id);
-      Object.assign(image('platform-tools').base, { drift: 'stale', versionsBehind: 1, daysBehind: 0, daysBehindUnknown: true });
-      image('platform-tools').evidence.signature.someLaterField = 'ignored';
+      Object.assign(image('ghcr-io-northcutted-images-platform-tools').base, { drift: 'stale', versionsBehind: 1, daysBehind: 0, daysBehindUnknown: true });
+      image('ghcr-io-northcutted-images-platform-tools').evidence.signature.someLaterField = 'ignored';
       r.someLaterSection = [{ anything: true }];
       r.metadata.generator = { name: 'clearcutt-verify', version: 'v99.0.0' };
-      const bare = image('debian-tools');
+      const bare = image('ghcr-io-northcutted-images-debian-tools');
       bare.verdict = { status: 'unverified', reasons: ['sbom is present but not from a trusted signer'] };
       for (const key of ['vulnerabilities', 'packages', 'packagesSource', 'factory']) delete bare[key];
-      for (const pkg of r.packages) pkg.images = pkg.images.filter((id: string) => id !== 'debian-tools');
+      for (const pkg of r.packages) pkg.images = pkg.images.filter((id: string) => id !== 'ghcr-io-northcutted-images-debian-tools');
       r.packages = r.packages.filter((pkg: any) => pkg.images.length > 0);
-      image('wolfi-base').packagesSource.status = 'present';
-      image('static').evidence.signature = {
+      image('cgr-dev-chainguard-wolfi-base').packagesSource.status = 'present';
+      image('cgr-dev-chainguard-static').evidence.signature = {
         status: 'failed',
         source: 'cosign-signature',
         signer: { identity: 'https://github.com/someone/else/.github/workflows/sign.yml@refs/heads/main', issuer: 'https://token.actions.githubusercontent.com' },
@@ -649,7 +662,7 @@ describe('a report from a newer clearcutt-verify', () => {
   });
 
   test("what this portal's contract doesn't cover is in every page's footer and on the about page", () => {
-    for (const page of ['index.html', 'images/platform-tools/index.html', 'about/index.html']) {
+    for (const page of ['index.html', 'images/ghcr-io-northcutted-images-platform-tools/index.html', 'about/index.html']) {
       const text = shown(read(site, page));
       assert.match(text, /This report goes beyond what this portal knows\./, page);
       assert.match(text, /estate-report\.json has 2 fields this portal's contract doesn't define, so no page shows them: images\[\]\.evidence\.signature\.someLaterField, someLaterSection\./, page);
@@ -659,7 +672,7 @@ describe('a report from a newer clearcutt-verify', () => {
   });
 
   test('a stale base whose age is unknown says so, never 0 days', () => {
-    const page = shown(read(site, 'images/platform-tools/index.html'));
+    const page = shown(read(site, 'images/ghcr-io-northcutted-images-platform-tools/index.html'));
     assert.match(page, /! Stale 1 version behind; how many days couldn't be measured/);
     assert.doesNotMatch(page, /0 days behind/);
     assert.match(shown(read(site, 'bases/index.html')), /platform-tools:latest ✓ Proven ! behind, age unknown/);
@@ -668,7 +681,7 @@ describe('a report from a newer clearcutt-verify', () => {
   });
 
   test('an image with nothing trusted to read from says what is unknown', () => {
-    const page = shown(read(site, 'images/debian-tools/index.html'));
+    const page = shown(read(site, 'images/ghcr-io-northcutted-images-debian-tools/index.html'));
     assert.match(page, /\? Unverified sbom is present but not from a trusted signer/);
     assert.match(page, /This image has no vulnerability data, so how many vulnerabilities it has is unknown\./);
     assert.match(page, /The report has no package set for this image, so what it ships is unknown\./);
@@ -678,13 +691,13 @@ describe('a report from a newer clearcutt-verify', () => {
   });
 
   test("a signer is shown as checked only on verified evidence", () => {
-    const page = shown(read(site, 'images/static/index.html'));
+    const page = shown(read(site, 'images/cgr-dev-chainguard-static/index.html'));
     assert.match(page, /Signature ✕ Failed https:\/\/github\.com\/someone\/else\/\S+ issuer \S+ as its certificate claims; not checked/);
     assert.equal(page.match(/as its certificate claims/g)?.length, 1);
   });
 
   test('a package list read from unverified SBOMs is flagged as possibly incomplete', () => {
-    assert.match(shown(read(site, 'images/wolfi-base/index.html')), /which is ○ Present, unverified; .*No trusted signer verified all of it, so the list may not be complete\./);
+    assert.match(shown(read(site, 'images/cgr-dev-chainguard-wolfi-base/index.html')), /which is ○ Present, unverified; .*No trusted signer verified all of it, so the list may not be complete\./);
     assert.match(shown(read(site, 'packages/index.html')), /1 image's package list rests on SBOMs no trusted signer verified, so it may not be complete: wolfi-base:latest\./);
   });
 });
@@ -699,11 +712,11 @@ describe('runs that list fixable findings and package digests', () => {
       editedBundle(FIXTURE, () => {}, (h) => {
         const [latest, previous] = h.entries;
         previous.images = structuredClone(latest.images).map((i: any) => {
-          if (i.id === 'debian-tools') {
+          if (i.id === 'ghcr-io-northcutted-images-debian-tools') {
             const ids = [...i.fixableFindings.filter((f: string) => f !== 'GO-2026-6629'), 'CVE-2026-0001'].sort();
             return { ...i, digest: `sha256:${'d'.repeat(64)}`, fixableFindings: ids, packagesDigest: `sha256:${'0'.repeat(64)}` };
           }
-          if (i.id === 'static') delete i.packagesDigest;
+          if (i.id === 'cgr-dev-chainguard-static') delete i.packagesDigest;
           return i;
         });
       }),
@@ -735,10 +748,10 @@ describe('an image whose own packages are unknown', () => {
   before(() => {
     site = build(
       editedBundle(FIXTURE, (r) => {
-        const tools = r.images.find((i: any) => i.id === 'platform-tools');
+        const tools = r.images.find((i: any) => i.id === 'ghcr-io-northcutted-images-platform-tools');
         delete tools.packages;
         delete tools.packagesSource;
-        for (const pkg of r.packages) pkg.images = pkg.images.filter((id: string) => id !== 'platform-tools');
+        for (const pkg of r.packages) pkg.images = pkg.images.filter((id: string) => id !== 'ghcr-io-northcutted-images-platform-tools');
         r.packages = r.packages.filter((pkg: any) => pkg.images.length > 0);
       }),
     );
@@ -755,19 +768,19 @@ describe('an image whose own packages are unknown', () => {
 
   test('is in the search index with its base link', () => {
     const index = JSON.parse(read(site, 'packages/search-index.json'));
-    assert.deepEqual(index.images.find((i: any) => i.id === 'platform-tools'), {
-      id: 'platform-tools',
+    assert.deepEqual(index.images.find((i: any) => i.id === 'ghcr-io-northcutted-images-platform-tools'), {
+      id: 'ghcr-io-northcutted-images-platform-tools',
       label: 'platform-tools:latest',
-      href: '/images/platform-tools/',
+      href: '/images/ghcr-io-northcutted-images-platform-tools/',
       packages: 'unknown',
-      base: { id: 'wolfi-base', strength: 'proof', exact: true },
+      base: { id: 'cgr-dev-chainguard-wolfi-base', strength: 'proof', exact: true },
     });
   });
 });
 
 describe('a rebased image with per-image history', () => {
   test('lists each rebase from the run that first recorded it', () => {
-    const billing = 'ghcr-io-acme-images-billing';
+    const billing = 'ghcr-io-acme-images-billing-1-4-2';
     const bundle = editedBundle(
       MINIMAL,
       () => {},
@@ -806,7 +819,7 @@ describe('a history longer than the site shows', () => {
     const pairs = readdirSync(path.join(site, 'history/changes'), { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name).sort();
     assert.deepEqual(pairs, ['20261006T233046Z--20261010T165146Z', '20261006T233046Z--latest']);
     assert.match(shown(read(site, 'history/changes/index.html')), /This site compares the latest 2 runs; 1 older one is in estate-history\.json\./);
-    assert.match(shown(read(site, 'images/debian-tools/index.html')), /This shows the latest 2 runs; 1 older one is in estate-history\.json\./);
+    assert.match(shown(read(site, 'images/ghcr-io-northcutted-images-debian-tools/index.html')), /This shows the latest 2 runs; 1 older one is in estate-history\.json\./);
   });
 });
 
@@ -817,12 +830,12 @@ describe('an estate whose policy passes, with work outstanding', () => {
       editedBundle(FIXTURE, (r) => {
         for (const image of r.images) image.verdict = { status: 'verified', reasons: [] };
         r.summary.verdicts = { verified: r.images.length, failed: 0, unverified: 0 };
-        for (const id of ['platform-tools', 'hello-app']) {
+        for (const id of ['ghcr-io-northcutted-images-platform-tools', 'ghcr-io-northcutted-images-hello-app']) {
           Object.assign(r.images.find((i: any) => i.id === id).base, { drift: 'stale', daysBehind: 3, versionsBehind: 1 });
         }
         r.summary.bases.stale = 2;
         r.summary.bases.current -= 2;
-        r.images.find((i: any) => i.id === 'amazonlinux-tools').vulnerabilities.scannedAt = '2026-09-30T16:00:00Z';
+        r.images.find((i: any) => i.id === 'ghcr-io-northcutted-images-amazonlinux-tools').vulnerabilities.scannedAt = '2026-09-30T16:00:00Z';
       }),
     );
   });
@@ -852,7 +865,7 @@ describe('a report at the edges of what the schema allows', () => {
         FIXTURE,
         (r) => {
           // A SOURCE_DATE_EPOCH past what a date can hold.
-          r.images.find((i: any) => i.id === 'hello-app').factory.sourceDateEpoch = 1e20;
+          r.images.find((i: any) => i.id === 'ghcr-io-northcutted-images-hello-app').factory.sourceDateEpoch = 1e20;
           // Nothing was rebuilt: no image reproduced.
           for (const image of r.images) {
             if (image.reproducibility.status === 'reproduced') {
@@ -873,11 +886,11 @@ describe('a report at the edges of what the schema allows', () => {
   test('a history with no runs says so on every page that shows history', () => {
     assert.match(shown(read(site, 'history/index.html')), /No runs in the history/);
     assert.match(shown(read(site, 'history/changes/index.html')), /The history lists no runs, so there is nothing to compare/);
-    assert.match(shown(read(site, 'images/hello-app/index.html')), /The history lists no runs, so there is only this run/);
+    assert.match(shown(read(site, 'images/ghcr-io-northcutted-images-hello-app/index.html')), /The history lists no runs, so there is only this run/);
   });
 
   test('a SOURCE_DATE_EPOCH no date can hold is shown as the number it is', () => {
-    assert.match(shown(read(site, 'images/hello-app/index.html')), /files clamped to SOURCE_DATE_EPOCH 100000000000000000000, which is not a date this site can show/);
+    assert.match(shown(read(site, 'images/ghcr-io-northcutted-images-hello-app/index.html')), /files clamped to SOURCE_DATE_EPOCH 100000000000000000000, which is not a date this site can show/);
   });
 
   test('the Reproduced tile is not green when nothing reproduced', () => {

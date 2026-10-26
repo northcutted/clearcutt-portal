@@ -16,7 +16,7 @@ test.describe('the images table', () => {
   test('reads in verdict order, and sorts by any column, both ways', async ({ page }) => {
     await page.goto('./');
     const initial = await imageOrder(page);
-    expect(initial.slice(0, 2)).toEqual(['amazonlinux-2023', 'debian-trixie-slim']);
+    expect(initial.slice(0, 2)).toEqual(['docker-io-library-amazonlinux-2023', 'docker-io-library-debian-trixie-slim']);
     await expect(page.locator('[data-sort-hint]')).toBeVisible();
 
     await page.getByRole('button', { name: 'Image', exact: true }).click();
@@ -38,14 +38,14 @@ test.describe('the images table', () => {
     await vulns.click();
     await expect(header(page, 'Vulnerabilities')).toHaveAttribute('aria-sort', 'descending');
     let order = await imageOrder(page);
-    expect(order[0]).toBe('debian-tools');
-    const unknown = ['amazonlinux-2023', 'debian-trixie-slim', 'static', 'wolfi-base'];
+    expect(order[0]).toBe('ghcr-io-northcutted-images-debian-tools');
+    const unknown = ['cgr-dev-chainguard-static', 'cgr-dev-chainguard-wolfi-base', 'docker-io-library-amazonlinux-2023', 'docker-io-library-debian-trixie-slim'];
     expect(order.slice(-4).sort()).toEqual(unknown);
     await vulns.click();
     await expect(header(page, 'Vulnerabilities')).toHaveAttribute('aria-sort', 'ascending');
     order = await imageOrder(page);
     expect(order.slice(-4).sort()).toEqual(unknown);
-    expect(order[0]).not.toBe('debian-tools');
+    expect(order[0]).not.toBe('ghcr-io-northcutted-images-debian-tools');
   });
 
   test('sorts from the keyboard', async ({ page }) => {
@@ -54,7 +54,7 @@ test.describe('the images table', () => {
     await verdict.focus();
     await page.keyboard.press('Enter');
     await expect(header(page, 'Verdict')).toHaveAttribute('aria-sort', 'ascending');
-    expect((await imageOrder(page)).slice(0, 2)).toEqual(['amazonlinux-2023', 'debian-trixie-slim']);
+    expect((await imageOrder(page)).slice(0, 2)).toEqual(['docker-io-library-amazonlinux-2023', 'docker-io-library-debian-trixie-slim']);
     await page.keyboard.press('Space');
     await expect(header(page, 'Verdict')).toHaveAttribute('aria-sort', 'descending');
     await expect(page.locator('[data-sort-status]').first()).toHaveText('Sorted by Verdict, best first.');
@@ -64,7 +64,7 @@ test.describe('the images table', () => {
     await page.goto('lists/unverified/');
     await page.getByRole('button', { name: 'Image', exact: true }).click();
     await page.getByRole('button', { name: 'Image', exact: true }).click();
-    expect(await imageOrder(page)).toEqual(['wolfi-base', 'static']);
+    expect(await imageOrder(page)).toEqual(['cgr-dev-chainguard-wolfi-base', 'cgr-dev-chainguard-static']);
   });
 });
 
@@ -81,7 +81,7 @@ test.describe('filter boxes', () => {
   });
 
   test("an image's findings filter by package", async ({ page }) => {
-    await page.goto('images/debian-tools/');
+    await page.goto('images/ghcr-io-northcutted-images-debian-tools/');
     // Closed, with too many findings to show at once; its filter is inside.
     const box = page.locator('details', { has: page.locator('input[data-filter]') }).first();
     await box.locator('summary').click();
@@ -127,7 +127,7 @@ test.describe('the package search', () => {
 test.describe('controls', () => {
   test('a copy button copies its command and says so', async ({ page, context }) => {
     await context.grantPermissions(['clipboard-read', 'clipboard-write']);
-    await page.goto('images/hello-app/');
+    await page.goto('images/ghcr-io-northcutted-images-hello-app/');
     const button = page.getByRole('button', { name: /^Copy the / }).first();
     await expect(button).toBeVisible();
     const command = await button.locator('xpath=ancestor::figure[1]//code').textContent();
@@ -138,7 +138,7 @@ test.describe('controls', () => {
   });
 
   test('a chip opens what it means, from the keyboard too, and closes on Escape', async ({ page }) => {
-    await page.goto('images/static/');
+    await page.goto('images/cgr-dev-chainguard-static/');
     const chip = page.locator('button.chip').first();
     const tip = page.locator(`#${await chip.getAttribute('popovertarget')}`);
     await expect(tip).toBeHidden();

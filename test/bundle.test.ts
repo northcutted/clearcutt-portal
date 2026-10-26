@@ -133,8 +133,9 @@ test('image ids must be plain page names, since each is a directory and a URL', 
 });
 
 test('image ids may use letters, digits, dots, underscores, and dashes', () => {
-  const dir = editedBundle(MINIMAL, (r) => (r.images[3].id = 'Redis_7.2-alpine'));
-  assert.equal(readBundle(dir).report.images[3].id, 'Redis_7.2-alpine');
+  const redis = (r: any) => r.images.findIndex((i: any) => i.id === 'docker-io-library-redis-7');
+  const dir = editedBundle(MINIMAL, (r) => (r.images[redis(r)].id = 'Redis_7.2-alpine'));
+  assert.ok(readBundle(dir).report.images.some((i) => i.id === 'Redis_7.2-alpine'));
 });
 
 test('image ids that differ only in case are refused, since they would share a directory', () => {

@@ -22,6 +22,7 @@ test('reasons are grouped: one per reason, however many images give it', () => {
     groups.map((g) => [g.text, g.images.length, g.failed, g.unverified]),
     [
       ['vulnerabilities are unknown (no scan)', 4, 2, 2],
+      ['none of its evidence is verified, so a trusted signer vouched for nothing about it', 2, 2, 0],
       ['provenance is missing', 2, 2, 0],
       ['sbom is missing', 2, 2, 0],
       ['signature is missing', 2, 2, 0],
@@ -63,17 +64,17 @@ test('a passing policy still has its outstanding work listed', () => {
 
 test('scan ages: the oldest first, undated and unscanned apart, flagged past the limit', () => {
   const report = fixture();
-  report.images.find((i) => i.id === 'hello-app')!.vulnerabilities!.scannedAt = '2026-09-30T16:51:46Z';
-  delete report.images.find((i) => i.id === 'debian-tools')!.vulnerabilities!.scannedAt;
+  report.images.find((i) => i.id === 'ghcr-io-northcutted-images-hello-app')!.vulnerabilities!.scannedAt = '2026-09-30T16:51:46Z';
+  delete report.images.find((i) => i.id === 'ghcr-io-northcutted-images-debian-tools')!.vulnerabilities!.scannedAt;
   const ages = scanAges(report);
-  assert.equal(ages.dated[0].image.id, 'hello-app');
+  assert.equal(ages.dated[0].image.id, 'ghcr-io-northcutted-images-hello-app');
   assert.equal(formatAge(ages.dated[0].ms), '10 days');
-  assert.deepEqual(ages.undated.map((i) => i.id), ['debian-tools']);
+  assert.deepEqual(ages.undated.map((i) => i.id), ['ghcr-io-northcutted-images-debian-tools']);
   assert.equal(ages.unscanned.length, 4);
-  assert.deepEqual(oldScans(report, 7).map((s) => s.image.id), ['hello-app']);
+  assert.deepEqual(oldScans(report, 7).map((s) => s.image.id), ['ghcr-io-northcutted-images-hello-app']);
   assert.deepEqual(oldScans(report, 10).map((s) => s.image.id), []);
   const old = imageLists(report, 7).find((l) => l.key === 'old-scans')!;
-  assert.deepEqual(old.images.map((i) => i.id), ['hello-app', 'debian-tools']);
+  assert.deepEqual(old.images.map((i) => i.id), ['ghcr-io-northcutted-images-hello-app', 'ghcr-io-northcutted-images-debian-tools']);
   assert.deepEqual(outstanding(report, 7).filter((o) => o.path === 'lists/old-scans/').map((o) => o.text), ['1 scan older than 7 days', '1 scan with no date']);
 });
 
@@ -94,10 +95,10 @@ test("the scan-age limit: the build's setting, else the policy's, else the defau
 
 test("each list holds the images its title says, and every list has a page", () => {
   const lists = new Map(imageLists(readBundle(MINIMAL).report, 7).map((l) => [l.key, l.images.map((i) => i.id)]));
-  assert.deepEqual(lists.get('failed'), ['ghcr-io-acme-images-billing']);
+  assert.deepEqual(lists.get('failed'), ['ghcr-io-acme-images-billing-1-4-2', 'docker-io-library-redis-7', 'cgr-dev-chainguard-static']);
   assert.deepEqual(lists.get('verified'), ['ghcr-io-acme-images-hello-app']);
-  assert.deepEqual(lists.get('base-unresolved'), ['docker-io-library-redis']);
-  assert.deepEqual(lists.get('not-scanned')?.sort(), ['cgr-dev-chainguard-static', 'docker-io-library-redis']);
+  assert.deepEqual(lists.get('base-unresolved'), ['docker-io-library-redis-7']);
+  assert.deepEqual(lists.get('not-scanned')?.sort(), ['cgr-dev-chainguard-static', 'docker-io-library-redis-7']);
   for (const o of outstanding(readBundle(MINIMAL).report, 7)) {
     if (o.path.startsWith('lists/')) assert.ok(lists.has(o.path.slice(6, -1)), o.path);
   }

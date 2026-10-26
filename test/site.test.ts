@@ -142,6 +142,16 @@ describe('the example site', () => {
     assert.match(page, /SBOM \? Unknown/);
   });
 
+  test("an image's page lists what it failed apart from what couldn't be checked", () => {
+    const page = shown(read(site, 'images/docker-io-library-redis-7/index.html'));
+    const head = page.slice(0, page.indexOf('Identity Digest'));
+    assert.match(head, /✕ Failed signature is missing vulnerabilityScan is missing provenance is missing \? Couldn't be checked · not a pass, and not a failure none of its evidence is verified/);
+    const unknown = head.slice(head.indexOf("Couldn't be checked"));
+    assert.match(unknown, /sbom is unknown \(couldn't be read or checked\)/);
+    assert.match(unknown, /current vulnerabilities are unknown \(the rescan is unknown/);
+    assert.doesNotMatch(unknown, /signature is missing/);
+  });
+
   test('present evidence is shown as unverified, not verified', () => {
     const page = text(read(site, 'images/cgr-dev-chainguard-static/index.html'));
     assert.match(page, /Signature ○ Present, unverified/);
@@ -413,17 +423,18 @@ describe('the fixture site', () => {
   test('why images fall short: one card per reason, with every image it holds back', () => {
     const html = read(site, 'index.html');
     const section = html.slice(html.indexOf('id="attention"'), html.indexOf('id="fix-first"'));
-    assert.deepEqual(
-      [...section.matchAll(/<h3>([^<]+)<\/h3>/g)].map((m) => m[1]),
-      [
-        'Vulnerabilities are unknown (no scan)',
-        'None of its evidence is verified, so a trusted signer vouched for nothing about it',
-        'Provenance is missing',
-        'Sbom is missing',
-        'Signature is missing',
-      ],
-    );
-    assert.match(shown(section), /Vulnerabilities are unknown \(no scan\) 4 images: 2 failed, 2 unverified amazonlinux:2023 ✕ Failed debian:trixie-slim ✕ Failed static:latest \? Unverified wolfi-base:latest \? Unverified/);
+    const failed = section.slice(section.indexOf('id="reasons-failed"'), section.indexOf('id="reasons-unknown"'));
+    const unknown = section.slice(section.indexOf('id="reasons-unknown"'));
+    const cards = (part: string) => [...part.matchAll(/<h4>([^<]+)<\/h4>/g)].map((m) => m[1]);
+    assert.deepEqual(cards(failed), ['Provenance is missing', 'Sbom is missing', 'Signature is missing']);
+    // A failed image's reasons that weren't failures are in a group of their own.
+    assert.deepEqual(cards(unknown), [
+      'Vulnerabilities are unknown (no scan)',
+      'None of its evidence is verified, so a trusted signer vouched for nothing about it',
+    ]);
+    assert.match(shown(failed), /✕ Failed · 3 reasons The check ran, and the image fell short/);
+    assert.match(shown(unknown), /\? Couldn't be checked · 2 reasons The requirement couldn't be decided.*Not a pass, and not a failure\./);
+    assert.match(shown(unknown), /Vulnerabilities are unknown \(no scan\) 4 images: 2 failed, 2 unverified amazonlinux:2023 ✕ Failed debian:trixie-slim ✕ Failed static:latest \? Unverified wolfi-base:latest \? Unverified/);
   });
 
   test('every headline number links to the list of what it counts', () => {
@@ -682,7 +693,7 @@ describe('a report from a newer clearcutt-verify', () => {
 
   test('an image with nothing trusted to read from says what is unknown', () => {
     const page = shown(read(site, 'images/ghcr-io-northcutted-images-debian-tools/index.html'));
-    assert.match(page, /\? Unverified sbom is present but not from a trusted signer/);
+    assert.match(page, /\? Unverified \? Couldn't be checked · not a pass, and not a failure sbom is present but not from a trusted signer/);
     assert.match(page, /This image has no vulnerability data, so how many vulnerabilities it has is unknown\./);
     assert.match(page, /The report has no package set for this image, so what it ships is unknown\./);
     assert.doesNotMatch(page, /clearcutt-factory App|Stack go|undefined|NaN/);

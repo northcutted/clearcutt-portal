@@ -29,6 +29,20 @@ between minor releases, with notes here.
   and fixture bundles are v0.17's, with its image IDs, and the tests follow
   them.
 
+### Changed: "couldn't be checked" apart from "failed"
+
+- The overview's "Not verified, and why" puts the requirements images
+  failed (evidence missing or failing verification, findings over the limit,
+  a base proven too far behind, a rebuild that gave another digest) in one
+  group, and those that couldn't be checked (evidence that couldn't be read
+  or checked, or that no trusted signer vouched for; vulnerabilities no scan
+  covers, or a rescan that couldn't run; drift from a base the image only
+  claims; old scans) in another. A failed image lists both kinds of reason,
+  so each reason is classed by what it says, not by the image's verdict;
+  "vulnerabilities are unknown" on a failed image used to read as a failed
+  requirement. A reason this portal doesn't recognize, on a failed image,
+  stays with the failures. Image pages list their reasons the same way.
+
 ### Added: what to fix first
 
 - The overview opens with where the estate stands: whether the policy passes,

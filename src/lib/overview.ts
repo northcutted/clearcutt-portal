@@ -9,13 +9,59 @@ import type { Tone } from './present.ts';
 
 // ── Reasons ─────────────────────────────────────────────────────────────
 
+/**
+ * What a verdict reason says about its requirement: `failed`, the check ran
+ * and the image fell short of it; `unknown`, it couldn't be decided (evidence
+ * that couldn't be read or checked, or that no trusted signer vouched for;
+ * vulnerabilities no scan covers, or a rescan that couldn't run; drift from a
+ * base the image only claims; a rebuild that couldn't be checked).
+ * clearcutt-verify lists both kinds on a failed image, so an image's verdict
+ * alone doesn't say which a reason is.
+ */
+export type ReasonKind = 'failed' | 'unknown';
+
+// The reasons clearcutt-verify gives for a requirement an image failed
+// (estateverify.verdictAt): a check that ran and came out against it.
+const FAILING_REASONS = [
+  /^[A-Za-z]+ failed verification$/,
+  /^[A-Za-z]+ is missing$/,
+  /^\d+( fixable)? vulnerabilities at [a-z]+ or above( in this run's scan \(.*\))?$/,
+  /^base is \d+ days behind its newest version \(limit \d+\)$/,
+  /^rebuilding gave a different digest$/,
+];
+
+// The reasons it gives for a requirement it couldn't decide.
+const UNDECIDED_REASONS = [
+  /unknown/,
+  /couldn't be (read|checked|measured)/,
+  /\bnot verified\b|isn't verified|isn't proven/,
+  /\bnot applicable\b/,
+  /no trusted signer/,
+  /vouched for nothing/,
+  /days old \(limit \d+\)/,
+];
+
+/**
+ * Whether a reason is a failed requirement or one that couldn't be decided.
+ * On an unverified image every reason is undecided. On a failed image a
+ * reason this portal doesn't recognize is taken as failed: overstating a
+ * reason never makes anything read as a pass.
+ */
+export function reasonKind(reason: string, verdictStatus: string): ReasonKind {
+  if (FAILING_REASONS.some((r) => r.test(reason))) return 'failed';
+  if (verdictStatus !== 'failed' || UNDECIDED_REASONS.some((r) => r.test(reason))) return 'unknown';
+  return 'failed';
+}
+
 export interface ReasonGroup {
-  /** The reason with each number replaced by #, which the group shares. */
+  /** The reason's kind, then the reason with each number replaced by #, which the group shares. */
   key: string;
+  kind: ReasonKind;
   /** The reason as a heading: numbers that differ between images become a range. */
   text: string;
   /** Each image with the reason, and the reason as its verdict says it. */
   images: { image: Image; reason: string }[];
+  /** How many of those images failed, and how many are unverified. */
   failed: number;
   unverified: number;
 }
@@ -23,23 +69,29 @@ export interface ReasonGroup {
 /**
  * The reasons images aren't verified, one group per reason, however many
  * images give it: "3 vulnerabilities at critical or above" and "30
- * vulnerabilities at critical or above" are one reason. Reasons that fail an
- * image come first, then the reasons with the most images.
+ * vulnerabilities at critical or above" are one reason. Failed requirements
+ * come first, then those that couldn't be decided (reasonKind); within each,
+ * the reasons with the most images first.
  */
 export function reasonGroups(report: EstateReport): ReasonGroup[] {
-  const groups = new Map<string, { parts: string[][]; images: { image: Image; reason: string }[]; failed: Set<string>; unverified: Set<string> }>();
+  const groups = new Map<
+    string,
+    { kind: ReasonKind; parts: string[][]; images: { image: Image; reason: string }[]; failed: Set<string>; unverified: Set<string> }
+  >();
   for (const image of byVerdict(report.images)) {
     if (image.verdict.status === 'verified') continue;
     for (const reason of new Set(image.verdict.reasons.length > 0 ? image.verdict.reasons : ['no reason given'])) {
+      const kind = reasonKind(reason, image.verdict.status);
       const parts = reason.split(/(\d+)/);
-      const key = parts.map((p, i) => (i % 2 === 1 ? '#' : p)).join('');
+      const key = `${kind}:${parts.map((p, i) => (i % 2 === 1 ? '#' : p)).join('')}`;
       let g = groups.get(key);
-      if (!g) groups.set(key, (g = { parts: [], images: [], failed: new Set(), unverified: new Set() }));
+      if (!g) groups.set(key, (g = { kind, parts: [], images: [], failed: new Set(), unverified: new Set() }));
       g.parts.push(parts);
       g.images.push({ image, reason });
       (image.verdict.status === 'failed' ? g.failed : g.unverified).add(image.id);
     }
   }
+  const kindOrder = (k: ReasonKind) => (k === 'failed' ? 0 : 1);
   return [...groups]
     .map(([key, g]): ReasonGroup => {
       const first = g.parts[0];
@@ -52,9 +104,9 @@ export function reasonGroups(report: EstateReport): ReasonGroup[] {
           return lo === hi ? p : `${lo}–${hi}`;
         })
         .join('');
-      return { key, text, images: g.images, failed: g.failed.size, unverified: g.unverified.size };
+      return { key, kind: g.kind, text, images: g.images, failed: g.failed.size, unverified: g.unverified.size };
     })
-    .sort((a, b) => b.failed - a.failed || b.images.length - a.images.length || a.text.localeCompare(b.text));
+    .sort((a, b) => kindOrder(a.kind) - kindOrder(b.kind) || b.images.length - a.images.length || a.text.localeCompare(b.text));
 }
 
 // ── Scan age ────────────────────────────────────────────────────────────

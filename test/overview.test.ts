@@ -9,25 +9,75 @@ import {
   oldScans,
   outstanding,
   reasonGroups,
+  reasonKind,
   scanAgeLimit,
+  type ReasonKind,
   scanAges,
 } from '../src/lib/overview.ts';
 import { FIXTURE, MINIMAL } from './helpers.ts';
 
 const fixture = () => structuredClone(readBundle(FIXTURE).report) as EstateReport;
 
-test('reasons are grouped: one per reason, however many images give it', () => {
+test('reasons are grouped: one per reason, however many images give it, failed apart from undecided', () => {
   const groups = reasonGroups(fixture());
   assert.deepEqual(
-    groups.map((g) => [g.text, g.images.length, g.failed, g.unverified]),
+    groups.map((g) => [g.kind, g.text, g.images.length, g.failed, g.unverified]),
     [
-      ['vulnerabilities are unknown (no scan)', 4, 2, 2],
-      ['none of its evidence is verified, so a trusted signer vouched for nothing about it', 2, 2, 0],
-      ['provenance is missing', 2, 2, 0],
-      ['sbom is missing', 2, 2, 0],
-      ['signature is missing', 2, 2, 0],
+      ['failed', 'provenance is missing', 2, 2, 0],
+      ['failed', 'sbom is missing', 2, 2, 0],
+      ['failed', 'signature is missing', 2, 2, 0],
+      // Given by failed images too, but these requirements weren't failed: they couldn't be decided.
+      ['unknown', 'vulnerabilities are unknown (no scan)', 4, 2, 2],
+      ['unknown', 'none of its evidence is verified, so a trusted signer vouched for nothing about it', 2, 2, 0],
     ],
   );
+});
+
+// Every reason clearcutt-verify gives (estateverify.verdictAt), as a failed
+// image gives it: what the requirement came to, whatever the image's verdict.
+const REASONS: [string, ReasonKind][] = [
+  ['signature failed verification', 'failed'],
+  ['sbom is missing', 'failed'],
+  ['vulnerabilityScan is missing', 'failed'],
+  ['3 vulnerabilities at critical or above', 'failed'],
+  ['12 fixable vulnerabilities at high or above', 'failed'],
+  ["1 fixable vulnerabilities at critical or above in this run's scan (grype 0.121.0, database built 2026-10-06)", 'failed'],
+  ['base is 40 days behind its newest version (limit 30)', 'failed'],
+  ['rebuilding gave a different digest', 'failed'],
+  ['no trusted signer is configured, so nothing about it can be verified', 'unknown'],
+  ['none of its evidence is verified, so a trusted signer vouched for nothing about it', 'unknown'],
+  ['recipe is not applicable, and no verified evidence stands in for it', 'unknown'],
+  ['sbom is present but not verified', 'unknown'],
+  ["sbom is unknown (couldn't be read or checked)", 'unknown'],
+  ['recipe is missing, and the rebase record that would stand in for it is present, not verified', 'unknown'],
+  ['recipe is missing, and the rebase record that would stand in for it is unknown, not verified', 'unknown'],
+  ['tests has status "weird", which isn\'t verified', 'unknown'],
+  ['vulnerabilities are unknown (no scan)', 'unknown'],
+  ['vulnerabilities are unknown (the vulnerability scan is present, not verified)', 'unknown'],
+  ["vulnerabilities are unknown (the verified scan couldn't be read)", 'unknown'],
+  ["current vulnerabilities are unknown (this run didn't rescan the image)", 'unknown'],
+  ['current vulnerabilities are unknown (the rescan is unknown: no verified SBOM for linux/arm64)', 'unknown'],
+  ["the rescan's age is unknown (no database build time or scan time)", 'unknown'],
+  ["the rescan's vulnerability database is 9 days old (limit 7); what was published since is unknown", 'unknown'],
+  ["the vulnerability scan's age is unknown (no verified scan of every platform)", 'unknown'],
+  ['the vulnerability scan is 12 days old (limit 7); what was found since is unknown', 'unknown'],
+  ["its base is 40 days behind its newest version (limit 30) by what the image claims (declared, oci-base-digest), which isn't proven by layer digests", 'unknown'],
+  ["its base is behind its newest version, by how many days couldn't be measured", 'unknown'],
+  ["how far its base is behind couldn't be measured", 'unknown'],
+  ["reproducibility couldn't be checked", 'unknown'],
+];
+
+test("a failed image's reasons: each failed or couldn't be checked, by what it says", () => {
+  for (const [reason, kind] of REASONS) assert.equal(reasonKind(reason, 'failed'), kind, reason);
+});
+
+test('an unverified image has nothing failed, and a reason this portal does not know is failed only on a failed image', () => {
+  for (const [reason] of REASONS.filter(([, k]) => k === 'unknown')) assert.equal(reasonKind(reason, 'unverified'), 'unknown', reason);
+  // Never quietly softened: an unknown reason on a failed image counts as failed.
+  assert.equal(reasonKind('the moon is in the wrong phase', 'failed'), 'failed');
+  assert.equal(reasonKind('the moon is in the wrong phase', 'unverified'), 'unknown');
+  // Almost a failing reason, but not one.
+  assert.equal(reasonKind('signature is missing, and something else', 'unverified'), 'unknown');
 });
 
 test('a reason that differs only in its numbers is one group, its numbers a range', () => {

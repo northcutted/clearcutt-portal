@@ -96,7 +96,8 @@ body {
 
 h1,
 h2,
-h3 {
+h3,
+h4 {
   color: rgb(var(--ink-50));
   line-height: 1.25;
   margin: 0;
@@ -111,6 +112,10 @@ h2 {
 }
 h3 {
   font-size: 1rem;
+  font-weight: 650;
+}
+h4 {
+  font-size: 0.95rem;
   font-weight: 650;
 }
 p {
@@ -619,6 +624,12 @@ details[open] > summary {
   font: inherit;
 }
 
+.verdict-reasons {
+  margin-top: 0.6rem;
+}
+.verdict-reasons .reasons {
+  margin-top: 0.15rem;
+}
 .reasons {
   margin: 0.35rem 0 0;
   padding-left: 1.1rem;
@@ -929,6 +940,12 @@ a.tile-link:hover .tile-label {
 
 .reasons-grid {
   grid-template-columns: repeat(auto-fill, minmax(20rem, 1fr));
+}
+.reason-kind > * + * {
+  margin-top: 0.6rem;
+}
+.reason-kind + .reason-kind {
+  margin-top: 1.6rem;
 }
 .reason-images {
   margin: 0;

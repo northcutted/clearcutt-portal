@@ -40,6 +40,7 @@ import {
   verdict,
   vulnSource,
 } from '../../lib/present.ts';
+import { reasonKind } from '../../lib/overview.ts';
 import { historyWindow, href, imageHref } from '../../lib/site.ts';
 import { diffImage, howWords } from '../../lib/timeline.ts';
 
@@ -80,6 +81,14 @@ const wasRebased = rebases.length > 0 || image.evidence.rebase.status !== 'not-a
 const trend = (sev: 'critical' | 'high'): Point[] =>
   recorded.flatMap((run) => (run.row ? [{ at: run.at, value: run.row.vulnerabilities?.[sev] ?? null }] : []));
 const showTrend = recorded.filter((run) => run.row?.vulnerabilities).length >= 2;
+// The verdict's reasons: what the image failed apart from what couldn't be
+// checked, which is never a failure, and never a pass.
+const reasonLists = [
+  { kind: 'failed', term: { label: 'Failed', tone: 'bad' as const, meaning: '' }, note: '' },
+  { kind: 'unknown', term: { label: "Couldn't be checked", tone: 'unknown' as const, meaning: '' }, note: 'not a pass, and not a failure' },
+]
+  .map((l) => ({ ...l, reasons: image.verdict.reasons.filter((r) => reasonKind(r, image.verdict.status) === l.kind) }))
+  .filter((l) => l.reasons.length > 0);
 ---
 <Layout title={imageLabel(image)} description={`What clearcutt-verify found and proved about ${image.repository}.`}>
   <header class="page-head">
@@ -88,7 +97,12 @@ const showTrend = recorded.filter((run) => run.row?.vulnerabilities).length >= 2
     <p class="mono dim">{image.repository}</p>
     {image.description && <p class="lede">{image.description}</p>}
     <p><Chip term={verdict(image.verdict.status)} /></p>
-    {image.verdict.reasons.length > 0 && <ul class="reasons">{image.verdict.reasons.map((r) => <li>{r}</li>)}</ul>}
+    {reasonLists.map((list) => (
+      <div class="verdict-reasons">
+        <p class="small"><StatusText term={list.term} />{list.note && <span class="dim"> · {list.note}</span>}</p>
+        <ul class="reasons">{list.reasons.map((r) => <li>{r}</li>)}</ul>
+      </div>
+    ))}
     {image.warnings.length > 0 && (
       <div class="callout">
         <h2>Problems reading this image</h2>

@@ -28,6 +28,24 @@ const { summary, metadata, policy } = report;
 const images = byVerdict(report.images);
 const stale = staleImages(report);
 const reasons = reasonGroups(report);
+// Failed requirements apart from those that couldn't be decided: "couldn't
+// check" is never a failure, and never a pass.
+const reasonKinds = (
+  [
+    {
+      key: 'failed',
+      term: { label: 'Failed', tone: 'bad', meaning: '' },
+      lede: 'The check ran, and the image fell short: evidence that is missing or failed verification, findings over the limit, a base proven too far behind, a rebuild that gave another digest.',
+    },
+    {
+      key: 'unknown',
+      term: { label: "Couldn't be checked", tone: 'unknown', meaning: '' },
+      lede: "The requirement couldn't be decided: evidence that couldn't be read or checked, or that no trusted signer vouched for; vulnerabilities no scan covers, or a rescan that couldn't run; drift from a base the image only claims. Not a pass, and not a failure.",
+    },
+  ] as const
+)
+  .map((k) => ({ ...k, groups: reasons.filter((g) => g.kind === k.key) }))
+  .filter((k) => k.groups.length > 0);
 const withBase = summary.bases.proven + summary.bases.claimed;
 const repro = summary.reproducibility;
 const recipes = repro.reproduced + repro.notReproduced + repro.notChecked;
@@ -216,39 +234,46 @@ const capital = (s: string) => `${s[0].toUpperCase()}${s.slice(1)}`;
     ) : (
       <>
         <p class="lede small">
-          One card per reason, with every image it holds back: fix a reason and every image on its card moves. Reasons that
-          fail an image come first, then those that hold back the most images. An image can be on more than one card.
+          One card per reason, with every image it holds back: fix a reason and every image on its card moves. Requirements an
+          image failed come first, then those that couldn't be checked, each with the reasons that hold back the most images
+          first. An image can be on more than one card.
         </p>
-        <div class="grid reasons-grid">
-          {reasons.map((group) => {
-            const shown = group.images.slice(0, INLINE);
-            const rest = group.images.slice(INLINE);
-            const item = ({ image, reason }: (typeof group.images)[number]) => (
-              <li>
-                <a href={imageHref(image.id)}>{imageLabel(image)}</a> <StatusText term={verdict(image.verdict.status)} />
-                {reason !== group.text && <div class="dim small">{reason}</div>}
-              </li>
-            );
-            return (
-              <article class="card">
-                <h3>{capital(group.text)}</h3>
-                <p class="small">
-                  {plural(group.images.length, 'image', 'images')}
-                  {group.failed > 0 && group.unverified > 0 && <>: {group.failed} failed, {group.unverified} unverified</>}
-                  {group.failed > 0 && group.unverified === 0 && <>, failed</>}
-                  {group.failed === 0 && <>, unverified</>}
-                </p>
-                <ul class="reason-images">{shown.map(item)}</ul>
-                {rest.length > 0 && (
-                  <details>
-                    <summary>{plural(rest.length, 'more image', 'more images')}</summary>
-                    <ul class="reason-images">{rest.map(item)}</ul>
-                  </details>
-                )}
-              </article>
-            );
-          })}
-        </div>
+        {reasonKinds.map((kind) => (
+          <div class="reason-kind">
+            <h3 id={`reasons-${kind.key}`}><StatusText term={kind.term} /> <span class="dim small">· {plural(kind.groups.length, 'reason')}</span></h3>
+            <p class="small dim">{kind.lede}</p>
+            <div class="grid reasons-grid">
+              {kind.groups.map((group) => {
+                const shown = group.images.slice(0, INLINE);
+                const rest = group.images.slice(INLINE);
+                const item = ({ image, reason }: (typeof group.images)[number]) => (
+                  <li>
+                    <a href={imageHref(image.id)}>{imageLabel(image)}</a> <StatusText term={verdict(image.verdict.status)} />
+                    {reason !== group.text && <div class="dim small">{reason}</div>}
+                  </li>
+                );
+                return (
+                  <article class="card">
+                    <h4>{capital(group.text)}</h4>
+                    <p class="small">
+                      {plural(group.images.length, 'image', 'images')}
+                      {group.failed > 0 && group.unverified > 0 && <>: {group.failed} failed, {group.unverified} unverified</>}
+                      {group.failed > 0 && group.unverified === 0 && <>, failed</>}
+                      {group.failed === 0 && <>, unverified</>}
+                    </p>
+                    <ul class="reason-images">{shown.map(item)}</ul>
+                    {rest.length > 0 && (
+                      <details>
+                        <summary>{plural(rest.length, 'more image', 'more images')}</summary>
+                        <ul class="reason-images">{rest.map(item)}</ul>
+                      </details>
+                    )}
+                  </article>
+                );
+              })}
+            </div>
+          </div>
+        ))}
       </>
     )}
   </section>

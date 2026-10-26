@@ -25,7 +25,8 @@ const vocab = [
   },
   {
     title: 'Verdicts',
-    intro: 'Whether an image meets the policy. An image that is not verified lists one reason per requirement it misses.',
+    intro:
+      "Whether an image meets the policy. An image that is not verified lists one reason per requirement it misses, each either failed (the check ran and came out against it) or couldn't be checked (it couldn't be decided: evidence that couldn't be read or checked, or that no trusted signer vouched for; vulnerabilities no scan covers; drift from a base the image only claims). A failed image can have both kinds; couldn't be checked is never a failure, and never a pass.",
     terms: ['verified', 'failed', 'unverified'].map(verdict),
   },
   {

@@ -1155,5 +1155,5 @@ export interface HistoryBase {
  */
 export const CONTRACT_UPSTREAM: { commit: string; release: string } = {
   commit: "8e1aec561ece55d8a1a9a6f7c8e11d9143bf45e4",
-  release: "v0.16.0",
+  release: "v0.17.0",
 };

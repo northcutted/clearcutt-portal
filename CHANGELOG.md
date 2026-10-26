@@ -8,18 +8,17 @@ between minor releases, with notes here.
 
 ### Breaking
 
-- **Every image page moves once, with clearcutt-verify v0.17's reports.**
+- **Every image page moves once, with clearcutt-verify v0.17.0's reports.**
   clearcutt-verify now makes an image's `id` from its whole reference
   (`ghcr-io-northcutted-images-hello-app` where it was `hello-app`), and the
   portal names pages by `id` (`images/<id>/`), so a site built from a v0.17
   report has every image under a new address. The portal still takes IDs
   only from the report and never derives one.
 
-### Contract: clearcutt-verify v0.17
+### Contract: clearcutt-verify v0.17.0
 
-- `contract/` is clearcutt-verify's contract at its main branch after
-  v0.16.0 (pinned by commit in `contract/UPSTREAM`; to be re-pinned to
-  v0.17.0 once it is tagged). Every change is additive under
+- `contract/` is clearcutt-verify v0.17.0's contract (`contract/UPSTREAM`
+  pins its commit and names the release). Every change is additive under
   `clearcutt.dev/v1`: the run's `metadata.platforms`; the policy's `rescan`,
   `scanSource`, `vex`, `observe`, and `provenanceBuilders`; an image's
   `rescan`, `observeOnly`, and `provenance`; a scan's `database`; a

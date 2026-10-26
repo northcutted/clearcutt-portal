@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { readBundle } from '../src/lib/bundle.ts';
 import type { EstateReport, Finding } from '../src/lib/contract.gen.ts';
-import { advisoryLinks, affectedImages, byFixFirst, findingGroups, fixFirstTier } from '../src/lib/findings.ts';
+import { advisoryLinks, affectedImages, byFixFirst, findingGroups, fixFirstTier, gatingGroups } from '../src/lib/findings.ts';
 import { FIXTURE, MINIMAL } from './helpers.ts';
 
 test('fix first: fixable critical, fixable high, then critical and high with no fix, then the rest', () => {
@@ -86,4 +86,26 @@ test('advisory IDs link to their canonical pages only when they have a known sha
     ['', []],
   ];
   for (const [id, urls] of cases) assert.deepEqual(advisoryLinks(id).map((l) => l.url), urls, id);
+});
+
+test("what to fix first leaves out the images the policy only observes, and keeps every page's name", () => {
+  const report = structuredClone(readBundle(FIXTURE).report) as EstateReport;
+  const all = findingGroups(readBundle(FIXTURE).report);
+  assert.deepEqual(gatingGroups(readBundle(FIXTURE).report).map((g) => g.id), all.map((g) => g.id), 'nothing is observe-only in the fixture');
+  // Observe debian-tools: the only image with CVE-2026-10536 (critical, no fix).
+  const debian = report.images.find((i) => i.id === 'ghcr-io-northcutted-images-debian-tools')!;
+  debian.observeOnly = true;
+  const only = (id: string) => findingGroups(report).find((g) => g.id === id)!;
+  assert.deepEqual(affectedImages(only('CVE-2026-10536')).map((i) => i.id), [debian.id], 'still a finding of the estate');
+  const gating = gatingGroups(report);
+  assert.ok(!gating.some((g) => g.id === 'CVE-2026-10536'), 'but not one to fix first');
+  for (const g of gating) {
+    assert.ok(![...g.counted, ...g.suppressed].some((o) => o.image.id === debian.id), g.id);
+    assert.equal(g.slug, only(g.id).slug, 'the same page');
+  }
+  // GO-2026-6603 is in two more images: there, still, with them alone.
+  assert.deepEqual(affectedImages(gating.find((g) => g.id === 'GO-2026-6603')!).map((i) => i.id).sort(), [
+    'ghcr-io-northcutted-images-amazonlinux-tools',
+    'ghcr-io-northcutted-images-platform-tools',
+  ]);
 });

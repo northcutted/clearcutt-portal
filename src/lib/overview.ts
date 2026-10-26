@@ -3,7 +3,7 @@
 // is, and the filtered lists the overview's tiles link to. Everything is
 // counted from the report; nothing here concludes more than it says.
 import type { EstateReport, Image } from './contract.gen.ts';
-import { byVerdict, imageLabel, staleImages } from './estate.ts';
+import { byVerdict, imageLabel, isObserveOnly, staleImages } from './estate.ts';
 import { compareTimes, plural } from './format.ts';
 import type { Tone } from './present.ts';
 
@@ -79,7 +79,8 @@ export function reasonGroups(report: EstateReport): ReasonGroup[] {
     { kind: ReasonKind; parts: string[][]; images: { image: Image; reason: string }[]; failed: Set<string>; unverified: Set<string> }
   >();
   for (const image of byVerdict(report.images)) {
-    if (image.verdict.status === 'verified') continue;
+    // An observe-only image holds nothing back: the policy doesn't gate on it.
+    if (image.verdict.status === 'verified' || isObserveOnly(image)) continue;
     for (const reason of new Set(image.verdict.reasons.length > 0 ? image.verdict.reasons : ['no reason given'])) {
       const kind = reasonKind(reason, image.verdict.status);
       const parts = reason.split(/(\d+)/);
@@ -190,6 +191,9 @@ export interface ImageList {
 export function imageLists(report: EstateReport, scanDays: number): ImageList[] {
   const all = byVerdict(report.images);
   const where = (f: (i: Image) => boolean) => all.filter(f);
+  // The verdict lists count what summary.verdicts counts: the images the policy gates on.
+  const gating = (status: string) => (i: Image) => i.verdict.status === status && !isObserveOnly(i);
+  const apart = all.some(isObserveOnly) ? " Images the policy only observes aren't counted here; they are listed apart." : '';
   const old = new Set(oldScans(report, scanDays).map((s) => s.image.id));
   const undated = new Set(scanAges(report).undated.map((i) => i.id));
   const severe = (i: Image) => (i.vulnerabilities ? i.vulnerabilities.counts.critical + i.vulnerabilities.counts.high : 0);
@@ -198,23 +202,30 @@ export function imageLists(report: EstateReport, scanDays: number): ImageList[] 
     {
       key: 'verified',
       title: 'Verified images',
-      lede: 'Images that meet every requirement in the policy.',
+      lede: `Images that meet every requirement in the policy.${apart}`,
       empty: 'No image is verified.',
-      images: where((i) => i.verdict.status === 'verified'),
+      images: where(gating('verified')),
     },
     {
       key: 'failed',
       title: 'Failed images',
-      lede: 'Images that violate at least one requirement in the policy.',
+      lede: `Images that violate at least one requirement in the policy.${apart}`,
       empty: 'No image failed.',
-      images: where((i) => i.verdict.status === 'failed'),
+      images: where(gating('failed')),
     },
     {
       key: 'unverified',
       title: 'Unverified images',
-      lede: "Images for which at least one requirement couldn't be decided: not a pass, and not a failure.",
+      lede: `Images for which at least one requirement couldn't be decided: not a pass, and not a failure.${apart}`,
       empty: 'No image is unverified.',
-      images: where((i) => i.verdict.status === 'unverified'),
+      images: where(gating('unverified')),
+    },
+    {
+      key: 'observe-only',
+      title: 'Observe-only images',
+      lede: "Images the policy observes without gating on (policy.observe): each has a verdict, but isn't counted with the verified, failed, or unverified images, and doesn't fail the run.",
+      empty: 'The policy gates on every image.',
+      images: where(isObserveOnly),
     },
     {
       key: 'stale-base',

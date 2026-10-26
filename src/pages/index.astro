@@ -6,12 +6,13 @@ import PolicySummary from '../components/PolicySummary.astro';
 import StatusText from '../components/StatusText.astro';
 import Tile from '../components/Tile.astro';
 import { loadBundle } from '../lib/bundle.ts';
-import { byVerdict, daysBehind, imageLabel, staleImages } from '../lib/estate.ts';
-import { affectedImages, findingGroups, isSevere } from '../lib/findings.ts';
+import { byVerdict, daysBehind, imageLabel, isObserveOnly, staleImages } from '../lib/estate.ts';
+import { affectedImages, gatingGroups, isSevere } from '../lib/findings.ts';
 import { formatTime, plural } from '../lib/format.ts';
 import { formatAge, listPath, oldScans, outstanding, reasonGroups, scanAges } from '../lib/overview.ts';
 import {
   EVIDENCE_KINDS,
+  OBSERVE_ONLY,
   SEVERITIES,
   TONE_GLYPH,
   evidenceStatus,
@@ -60,19 +61,36 @@ const old = oldScans(report, scanDays);
 const todo = outstanding(report, scanDays);
 // What the verdicts don't already say.
 const besides = todo.filter((t) => t.path !== listPath('failed') && t.path !== listPath('unverified'));
+// Images the policy observes without gating on: counted apart, everywhere.
+const observed = report.images.filter(isObserveOnly);
+const observeOnly = summary.verdicts.observeOnly ?? observed.length;
+const gatingCount = summary.images - observeOnly;
 const passes = summary.verdicts.failed === 0 && summary.verdicts.unverified === 0;
-const groups = findingGroups(report);
+const gated = observeOnly > 0 ? 'gating ' : '';
 // The findings to fix first: fixable critical and high, then critical and
-// high with no fix known.
-const fixFirst = groups.filter((g) => g.counted.length > 0 && isSevere(g.severity));
+// high with no fix known, in the images the policy gates on.
+const fixFirst = gatingGroups(report).filter((g) => g.counted.length > 0 && isSevere(g.severity));
 const SHOW = 10;
 // A reason's images: a few inline, the rest a click away.
 const INLINE = 12;
 
-const verdictTiles = (['verified', 'failed', 'unverified'] as const).map((status) => {
-  const term = verdict(status);
-  return { value: summary.verdicts[status], label: term.label, note: term.meaning, tone: term.tone, path: listPath(status) };
-});
+const verdictTiles = [
+  ...(['verified', 'failed', 'unverified'] as const).map((status) => {
+    const term = verdict(status);
+    return { value: summary.verdicts[status], label: term.label, note: term.meaning, tone: term.tone, path: listPath(status) };
+  }),
+  ...(observeOnly > 0
+    ? [
+        {
+          value: observeOnly,
+          label: OBSERVE_ONLY.label,
+          note: "Observed, not gating: each has a verdict, but isn't counted with these and doesn't fail the run.",
+          tone: OBSERVE_ONLY.tone,
+          path: listPath('observe-only'),
+        },
+      ]
+    : []),
+];
 
 const severe = vulns.counts.critical + vulns.counts.high;
 const otherTiles: { label: string; value: string | number; tone: Tone; note: string; path: string }[] = [
@@ -178,11 +196,11 @@ const capital = (s: string) => `${s[0].toUpperCase()}${s.slice(1)}`;
     <h2 id="standing" class="sr-only">Where the estate stands</h2>
     <p class="standing-head">
       {passes ? (
-        <><StatusText term={{ label: 'Policy passes:', tone: 'good', meaning: '' }} /> {summary.images === 1 ? 'the image is' : `all ${summary.images} images are`} verified.</>
+        <><StatusText term={{ label: 'Policy passes:', tone: 'good', meaning: '' }} /> {gatingCount === 1 ? `the ${gated}image is` : `all ${gatingCount} ${gated}images are`} verified.</>
       ) : (
         <>
           <StatusText term={{ label: 'Policy does not pass:', tone: summary.verdicts.failed > 0 ? 'bad' : 'unknown', meaning: '' }} /> of{' '}
-          {plural(summary.images, 'image')},{' '}
+          {plural(gatingCount, `${gated}image`)},{' '}
           {[
             summary.verdicts.failed > 0 && `${summary.verdicts.failed} ${summary.verdicts.failed === 1 ? 'fails' : 'fail'} it`,
             summary.verdicts.unverified > 0 && `${summary.verdicts.unverified} ${summary.verdicts.unverified === 1 ? 'is' : 'are'} unverified`,
@@ -190,6 +208,9 @@ const capital = (s: string) => `${s[0].toUpperCase()}${s.slice(1)}`;
             .filter(Boolean)
             .join(' and ')}.
         </>
+      )}
+      {observeOnly > 0 && (
+        <> <a href={href(listPath('observe-only'))}>{plural(observeOnly, 'more image is', 'more images are')} observe-only</a>: {observeOnly === 1 ? 'it has a verdict, but the policy doesn\'t gate on it' : 'each has a verdict, but the policy doesn\'t gate on them'}.</>
       )}
     </p>
     {besides.length > 0 ? (
@@ -236,7 +257,7 @@ const capital = (s: string) => `${s[0].toUpperCase()}${s.slice(1)}`;
         <p class="lede small">
           One card per reason, with every image it holds back: fix a reason and every image on its card moves. Requirements an
           image failed come first, then those that couldn't be checked, each with the reasons that hold back the most images
-          first. An image can be on more than one card.
+          first. An image can be on more than one card.{observeOnly > 0 && <> Observe-only images hold nothing back, so they aren't on these cards: <a href={href(listPath('observe-only'))}>the observe-only images</a> each say why they aren't verified.</>}
         </p>
         {reasonKinds.map((kind) => (
           <div class="reason-kind">
@@ -284,14 +305,14 @@ const capital = (s: string) => `${s[0].toUpperCase()}${s.slice(1)}`;
       <p>No image has vulnerability data, so what there is to fix is unknown.</p>
     ) : fixFirst.length === 0 ? (
       <p>
-        No image with vulnerability data has a critical or high finding.{vulns.notScanned > 0 && <> {plural(vulns.notScanned, 'image has', 'images have')} none, so {vulns.notScanned === 1 ? 'its findings are' : 'theirs are'} unknown.</>}{' '}
+        No {observeOnly > 0 ? 'image the policy gates on' : 'image'} with vulnerability data has a critical or high finding.{vulns.notScanned > 0 && <> {plural(vulns.notScanned, 'image has', 'images have')} none, so {vulns.notScanned === 1 ? 'its findings are' : 'theirs are'} unknown.</>}{' '}
         <a href={href('findings/')}>Every finding</a>.
       </p>
     ) : (
       <>
         <p class="lede small">
           Critical and high findings with a fixed version first, then those with no fix known, each with the images that have
-          it. {vulns.notScanned > 0 && <>{plural(vulns.notScanned, 'image has', 'images have')} no vulnerability data, so this is a floor. </>}
+          it.{observeOnly > 0 && <> Only the images the policy gates on: observe-only images' findings are on the findings pages.</>}{' '}{vulns.notScanned > 0 && <>{plural(vulns.notScanned, 'image has', 'images have')} no vulnerability data, so this is a floor. </>}
           <a href={href('findings/')}>Every finding</a>, by advisory.
         </p>
         <div class="table-wrap">

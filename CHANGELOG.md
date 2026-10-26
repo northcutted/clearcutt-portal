@@ -29,6 +29,20 @@ between minor releases, with notes here.
   and fixture bundles are v0.17's, with its image IDs, and the tests follow
   them.
 
+### Added: observe-only images
+
+- An image the policy observes without gating on it (`images[].observeOnly`,
+  `policy.observe`) is counted apart: a fourth verdict tile (Observe-only,
+  from `summary.verdicts.observeOnly`) and a list of its own
+  (`lists/observe-only/`), not in the verified, failed, and unverified
+  lists, which now count exactly what `summary.verdicts` counts. The
+  overview's standing counts the gating images and says how many more are
+  observe-only. Observe-only images are on no "Not verified, and why" card,
+  and their findings aren't in "Findings to fix first" (the findings pages
+  still list them). They stay in the images table, after the gating images,
+  with their own verdict and an Observe-only mark, as on their pages, the
+  bases graph, and the finding pages.
+
 ### Added: rescans and suppressions
 
 - When the run rescanned (`policy.rescan`, `images[].rescan`), an image's

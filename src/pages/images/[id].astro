@@ -6,6 +6,7 @@ import ExternalLink from '../../components/ExternalLink.astro';
 import ImageScans from '../../components/ImageScans.astro';
 import LineChart from '../../components/LineChart.astro';
 import StatusText from '../../components/StatusText.astro';
+import VerdictChip from '../../components/VerdictChip.astro';
 import VerifyCommands from '../../components/VerifyCommands.astro';
 import type { Point } from '../../lib/charts.ts';
 import type { Image } from '../../lib/contract.gen.ts';
@@ -91,7 +92,13 @@ const reasonLists = [
     <h1>{imageLabel(image)}</h1>
     <p class="mono dim">{image.repository}</p>
     {image.description && <p class="lede">{image.description}</p>}
-    <p><Chip term={verdict(image.verdict.status)} /></p>
+    <p><VerdictChip image={image} /></p>
+    {image.observeOnly && (
+      <p class="small">
+        The policy observes this image without gating on it: its verdict is reported, but isn't counted with the estate's
+        verified, failed, and unverified images, and doesn't fail the run.
+      </p>
+    )}
     {reasonLists.map((list) => (
       <div class="verdict-reasons">
         <p class="small"><StatusText term={list.term} />{list.note && <span class="dim"> · {list.note}</span>}</p>

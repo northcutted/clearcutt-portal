@@ -4,10 +4,11 @@ import type { BaseLink } from '../lib/contract.gen.ts';
 import type { BaseNode } from '../lib/estate.ts';
 import { daysBehind, imageLabel } from '../lib/estate.ts';
 import { formatDay, plural } from '../lib/format.ts';
-import { drift, method, strength, verdict } from '../lib/present.ts';
+import { drift, method, strength } from '../lib/present.ts';
 import { imageHref } from '../lib/site.ts';
 import Chip from './Chip.astro';
 import Digest from './Digest.astro';
+import VerdictChip from './VerdictChip.astro';
 
 interface Props {
   node: BaseNode;
@@ -23,7 +24,7 @@ const behind = (link: BaseLink) => {
   <p>
     <strong class="mono">{node.repository}</strong>
     {node.images.map((image) => (
-      <> · <a href={imageHref(image.id)}>{imageLabel(image)}</a> <Chip term={verdict(image.verdict.status)} /></>
+      <> · <a href={imageHref(image.id)}>{imageLabel(image)}</a> <VerdictChip image={image} /></>
     ))}
   </p>
   {b && (

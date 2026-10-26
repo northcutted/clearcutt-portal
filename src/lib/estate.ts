@@ -61,10 +61,27 @@ export function consumersOf(report: EstateReport, image: Image): Image[] {
 
 const VERDICT_ORDER: Record<string, number> = { failed: 0, unverified: 1, verified: 2 };
 
-/** Failed first, then unverified, then verified; by name within each. */
+/**
+ * Whether the policy observes an image without gating on it
+ * (images[].observeOnly): it has a verdict, but isn't counted in
+ * summary.verdicts and doesn't fail the run.
+ */
+export const isObserveOnly = (image: Image): boolean => image.observeOnly === true;
+
+/** The images the policy gates on: every image but the observe-only ones. */
+export function gatingImages(images: Image[]): Image[] {
+  return images.filter((image) => !isObserveOnly(image));
+}
+
+/**
+ * Failed first, then unverified, then verified; by name within each. Images
+ * the policy only observes come after every image it gates on, in the same
+ * order.
+ */
 export function byVerdict(images: Image[]): Image[] {
   return [...images].sort(
     (a, b) =>
+      Number(isObserveOnly(a)) - Number(isObserveOnly(b)) ||
       (VERDICT_ORDER[a.verdict.status] ?? -1) - (VERDICT_ORDER[b.verdict.status] ?? -1) ||
       imageLabel(a).localeCompare(imageLabel(b)),
   );

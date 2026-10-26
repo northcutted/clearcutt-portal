@@ -5,14 +5,13 @@
 // package versions, for which it is unknown.
 import Layout from '../../layouts/Layout.astro';
 import AdvisoryLinks from '../../components/AdvisoryLinks.astro';
-import StatusText from '../../components/StatusText.astro';
+import VerdictChip from '../../components/VerdictChip.astro';
 import type { Image } from '../../lib/contract.gen.ts';
 import { loadBundle } from '../../lib/bundle.ts';
 import { imageLabel, imagesById, packageVersions } from '../../lib/estate.ts';
 import { affectedImages, findingGroups, hasFix, type FindingGroup } from '../../lib/findings.ts';
 import { formatTime, plural } from '../../lib/format.ts';
 import { formatAge, listPath, scanAges } from '../../lib/overview.ts';
-import { verdict } from '../../lib/present.ts';
 import { href, imageHref } from '../../lib/site.ts';
 
 export function getStaticPaths() {
@@ -76,7 +75,7 @@ const scan = (image: Image) => {
           <tbody>
           {group.counted.map((o) => (
             <tr>
-              <td><a href={imageHref(o.image.id)}>{imageLabel(o.image)}</a> <StatusText term={verdict(o.image.verdict.status)} /></td>
+              <td><a href={imageHref(o.image.id)}>{imageLabel(o.image)}</a> <VerdictChip image={o.image} inline /></td>
               <td>{o.finding.package}</td>
               <td class="mono">{o.finding.version}</td>
               <td class="mono">{hasFix(o.finding) ? o.finding.fixedIn!.join(', ') : <span class="dim">no fix known</span>}</td>
@@ -102,7 +101,7 @@ const scan = (image: Image) => {
           <tbody>
           {group.suppressed.map((o) => (
             <tr>
-              <td><a href={imageHref(o.image.id)}>{imageLabel(o.image)}</a> <StatusText term={verdict(o.image.verdict.status)} /></td>
+              <td><a href={imageHref(o.image.id)}>{imageLabel(o.image)}</a> <VerdictChip image={o.image} inline /></td>
               <td>{o.finding.package}</td>
               <td class="mono">{o.finding.version}</td>
               <td class="mono">{hasFix(o.finding) ? o.finding.fixedIn!.join(', ') : <span class="dim">no fix known</span>}</td>

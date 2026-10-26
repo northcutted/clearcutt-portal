@@ -184,6 +184,27 @@ describe('the example site', () => {
     assert.match(vulns, /Now Findings \? \? \? \? \? \?/);
   });
 
+  test('an observe-only image is counted apart, marked, and holds nothing back', () => {
+    const html = read(site, 'index.html');
+    const page = shown(html);
+    assert.match(page, /✕ Policy does not pass: of 3 gating images, 2 fail it\. 1 more image is observe-only ?: it has a verdict, but the policy doesn't gate on it\./);
+    assert.match(page, /1 – Observe-only Observed, not gating/);
+    assert.match(html, /<a class="tile tone-muted tile-link" href="\/portal\/lists\/observe-only\/">/);
+    // On no reason card, and last in the table, with its own verdict and a mark.
+    const reasons = html.slice(html.indexOf('id="attention"'), html.indexOf('id="fix-first"'));
+    assert.doesNotMatch(reasons, /\/images\/cgr-dev-chainguard-static\//);
+    assert.match(shown(reasons), /Observe-only images hold nothing back/);
+    const table = html.slice(html.indexOf('<table class="images"'), html.indexOf('</table>', html.indexOf('<table class="images"')));
+    const order = [...table.matchAll(/<a href="\/portal\/images\/([^/]+)\/">/g)].map((m) => m[1]);
+    assert.equal(order.at(-1), 'cgr-dev-chainguard-static');
+    assert.match(table, /<td data-sort-value="3 0">.*?✕<\/span>Failed<\/button>.*?–<\/span>Observe-only<\/button>/s);
+    // Its page says what it is; the lists count it apart.
+    assert.match(shown(read(site, 'images/cgr-dev-chainguard-static/index.html')), /✕ Failed – Observe-only The policy observes this image without gating on it/);
+    assert.match(shown(read(site, 'lists/observe-only/index.html')), /Observe-only images .* static:latest/);
+    assert.doesNotMatch(read(site, 'lists/failed/index.html'), /\/images\/cgr-dev-chainguard-static\//);
+    assert.match(shown(read(site, 'lists/failed/index.html')), /Images the policy only observes aren't counted here; they are listed apart\./);
+  });
+
   test("the images table gives this run's scan beside the publisher's, or says it couldn't check", () => {
     const html = read(site, 'index.html');
     const table = html.slice(html.indexOf('<table class="images"'), html.indexOf('</table>', html.indexOf('<table class="images"')));

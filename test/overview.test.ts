@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { readBundle } from '../src/lib/bundle.ts';
 import type { EstateReport } from '../src/lib/contract.gen.ts';
+import { byVerdict } from '../src/lib/estate.ts';
 import {
   DEFAULT_SCAN_AGE_DAYS,
   formatAge,
@@ -145,11 +146,39 @@ test("the scan-age limit: the build's setting, else the policy's, else the defau
 
 test("each list holds the images its title says, and every list has a page", () => {
   const lists = new Map(imageLists(readBundle(MINIMAL).report, 7).map((l) => [l.key, l.images.map((i) => i.id)]));
-  assert.deepEqual(lists.get('failed'), ['ghcr-io-acme-images-billing-1-4-2', 'docker-io-library-redis-7', 'cgr-dev-chainguard-static']);
+  // The static image failed, but the policy only observes it: it is listed apart.
+  assert.deepEqual(lists.get('failed'), ['ghcr-io-acme-images-billing-1-4-2', 'docker-io-library-redis-7']);
+  assert.deepEqual(lists.get('observe-only'), ['cgr-dev-chainguard-static']);
   assert.deepEqual(lists.get('verified'), ['ghcr-io-acme-images-hello-app']);
   assert.deepEqual(lists.get('base-unresolved'), ['docker-io-library-redis-7']);
   assert.deepEqual(lists.get('not-scanned')?.sort(), ['cgr-dev-chainguard-static', 'docker-io-library-redis-7']);
   for (const o of outstanding(readBundle(MINIMAL).report, 7)) {
     if (o.path.startsWith('lists/')) assert.ok(lists.has(o.path.slice(6, -1)), o.path);
   }
+});
+
+test('the verdict lists count what summary.verdicts counts, observe-only images apart', () => {
+  for (const bundle of [MINIMAL, FIXTURE]) {
+    const report = readBundle(bundle).report;
+    const lists = new Map(imageLists(report, 7).map((l) => [l.key, l.images]));
+    const v = report.summary.verdicts;
+    assert.equal(lists.get('verified')!.length, v.verified, bundle);
+    assert.equal(lists.get('failed')!.length, v.failed, bundle);
+    assert.equal(lists.get('unverified')!.length, v.unverified, bundle);
+    assert.equal(lists.get('observe-only')!.length, v.observeOnly ?? 0, bundle);
+    assert.equal(v.verified + v.failed + v.unverified + (v.observeOnly ?? 0), report.summary.images, bundle);
+  }
+});
+
+test('an observe-only image holds nothing back, and comes after every image the policy gates on', () => {
+  const report = readBundle(MINIMAL).report;
+  const reasons = reasonGroups(report).flatMap((g) => g.images.map((i) => i.image.id));
+  assert.ok(reasons.includes('ghcr-io-acme-images-billing-1-4-2'));
+  assert.ok(!reasons.includes('cgr-dev-chainguard-static'), 'the observe-only image is on no card');
+  assert.deepEqual(byVerdict(report.images).map((i) => i.id), [
+    'ghcr-io-acme-images-billing-1-4-2',
+    'docker-io-library-redis-7',
+    'ghcr-io-acme-images-hello-app',
+    'cgr-dev-chainguard-static',
+  ]);
 });

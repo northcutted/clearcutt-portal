@@ -3,7 +3,7 @@
 // Everything here regroups the report's own findings; the only thing added is
 // a link to the advisory's canonical page, built from IDs of known shapes.
 import type { EstateReport, Finding, Image } from './contract.gen.ts';
-import { imageLabel } from './estate.ts';
+import { imageLabel, isObserveOnly } from './estate.ts';
 import { SEVERITIES, type Severity } from './present.ts';
 
 /** One image's finding of an advisory. */
@@ -74,6 +74,33 @@ function slugs(ids: string[]): Map<string, string> {
   return out;
 }
 
+/** A group from its occurrences: its severity, whether it has a fix, and its packages. */
+function derive(id: string, slug: string, counted: Occurrence[], suppressed: Occurrence[]): FindingGroup {
+  const rated = counted.length > 0 ? counted : suppressed;
+  const byLabel = (a: Occurrence, b: Occurrence) =>
+    imageLabel(a.image).localeCompare(imageLabel(b.image)) || a.finding.package.localeCompare(b.finding.package);
+  return {
+    id,
+    slug,
+    severity: rated.map((o) => o.finding.severity).sort((a, b) => rank(a) - rank(b))[0],
+    fixable: counted.some((o) => hasFix(o.finding)),
+    counted: [...counted].sort(byLabel),
+    suppressed: [...suppressed].sort(byLabel),
+    packages: [...new Set([...counted, ...suppressed].map((o) => `${o.finding.package} ${o.finding.version}`))].sort(),
+  };
+}
+
+/** Fix first (fixFirstTier), then the most images first, then by ID; advisories no image counts last. */
+function fixFirstOrder(groups: FindingGroup[]): FindingGroup[] {
+  const tier = (g: FindingGroup) => (g.counted.length === 0 ? 1000 : fixFirstTier(g.severity, g.fixable));
+  return groups.sort(
+    (a, b) =>
+      tier(a) - tier(b) ||
+      new Set(b.counted.map((o) => o.image.id)).size - new Set(a.counted.map((o) => o.image.id)).size ||
+      a.id.localeCompare(b.id),
+  );
+}
+
 const cache = new WeakMap<EstateReport, FindingGroup[]>();
 
 /**
@@ -84,39 +111,38 @@ const cache = new WeakMap<EstateReport, FindingGroup[]>();
 export function findingGroups(report: EstateReport): FindingGroup[] {
   const cached = cache.get(report);
   if (cached) return cached;
-  const byId = new Map<string, { counted: Occurrence[]; suppressed: Occurrence[]; packages: Set<string> }>();
+  const byId = new Map<string, { counted: Occurrence[]; suppressed: Occurrence[] }>();
   for (const image of report.images) {
     for (const finding of image.vulnerabilities?.findings ?? []) {
       let g = byId.get(finding.id);
-      if (!g) byId.set(finding.id, (g = { counted: [], suppressed: [], packages: new Set() }));
+      if (!g) byId.set(finding.id, (g = { counted: [], suppressed: [] }));
       (finding.suppressed ? g.suppressed : g.counted).push({ image, finding });
-      g.packages.add(`${finding.package} ${finding.version}`);
     }
   }
   const names = slugs([...byId.keys()]);
-  const byLabel = (a: Occurrence, b: Occurrence) =>
-    imageLabel(a.image).localeCompare(imageLabel(b.image)) || a.finding.package.localeCompare(b.finding.package);
-  const groups = [...byId].map(([id, g]): FindingGroup => {
-    const rated = g.counted.length > 0 ? g.counted : g.suppressed;
-    const severity = rated.map((o) => o.finding.severity).sort((a, b) => rank(a) - rank(b))[0];
-    return {
-      id,
-      slug: names.get(id)!,
-      severity,
-      fixable: g.counted.some((o) => hasFix(o.finding)),
-      counted: g.counted.sort(byLabel),
-      suppressed: g.suppressed.sort(byLabel),
-      packages: [...g.packages].sort(),
-    };
-  });
-  const tier = (g: FindingGroup) => (g.counted.length === 0 ? 1000 : fixFirstTier(g.severity, g.fixable));
-  groups.sort(
-    (a, b) =>
-      tier(a) - tier(b) ||
-      new Set(b.counted.map((o) => o.image.id)).size - new Set(a.counted.map((o) => o.image.id)).size ||
-      a.id.localeCompare(b.id),
-  );
+  const groups = fixFirstOrder([...byId].map(([id, g]) => derive(id, names.get(id)!, g.counted, g.suppressed)));
   cache.set(report, groups);
+  return groups;
+}
+
+const gatingCache = new WeakMap<EstateReport, FindingGroup[]>();
+
+/**
+ * The advisories of the images the policy gates on, in the same order and
+ * with the same pages as findingGroups, each group's severity, fix, and
+ * images taken from those images alone: what "fix first" is about. An
+ * observe-only image's findings are on the findings pages, not in this.
+ */
+export function gatingGroups(report: EstateReport): FindingGroup[] {
+  const cached = gatingCache.get(report);
+  if (cached) return cached;
+  const gates = (o: Occurrence) => !isObserveOnly(o.image);
+  const groups = fixFirstOrder(
+    findingGroups(report)
+      .map((g) => derive(g.id, g.slug, g.counted.filter(gates), g.suppressed.filter(gates)))
+      .filter((g) => g.counted.length + g.suppressed.length > 0),
+  );
+  gatingCache.set(report, groups);
   return groups;
 }
 

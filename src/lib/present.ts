@@ -154,6 +154,14 @@ export function verdict(status: string): Term {
   return VERDICT[status as Verdict['status']] ?? asIs(status);
 }
 
+/** An image the policy observes without gating on it (images[].observeOnly). */
+export const OBSERVE_ONLY: Term = {
+  label: 'Observe-only',
+  tone: 'muted',
+  meaning:
+    "The policy observes this image without gating on it (policy.observe): it has a verdict like any other, but isn't counted in the estate's verdicts and doesn't fail the run.",
+};
+
 const STRENGTH: Record<BaseLink['strength'], Term> = {
   proof: {
     label: 'Proven',

@@ -17,6 +17,7 @@ function repo(): { dir: string; git: (...args: string[]) => void; check: () => R
   };
   git('init', '-q');
   writeFileSync(path.join(dir, 'contract/estate-report.v1.schema.json'), '{"a": 1}\n');
+  writeFileSync(path.join(dir, 'package.json'), '{"version":"0.1.0"}\n');
   writeFileSync(path.join(dir, 'CHANGELOG.md'), '# Changelog\n\n## v0.1.0\n\nThe contract of v0.15.\n');
   git('add', '-A');
   git('commit', '-q', '-m', 'first');
@@ -55,4 +56,42 @@ test('a schema change since the last release needs an Unreleased entry about the
   r.git('add', '-A');
   r.git('commit', '-q', '-m', 'schema');
   assert.equal(r.check().status, 0);
+});
+
+test('release preparation accepts the new package version section, including an empty Unreleased section', () => {
+  const r = repo();
+  r.git('tag', 'v0.1.0');
+  writeFileSync(path.join(r.dir, 'contract/estate-report.v1.schema.json'), '{"a":2}\n');
+  writeFileSync(path.join(r.dir, 'package.json'), '{"version":"0.2.0"}\n');
+  const notes = '# Changelog\n\n## Unreleased\n\n## v0.2.0 (2026-10-26)\n\nThe v0.17 contract adds fresh scans.\n\n## v0.1.0\n';
+  writeFileSync(path.join(r.dir, 'CHANGELOG.md'), notes);
+  let run = r.check();
+  assert.equal(run.status, 0, String(run.stderr));
+  assert.match(String(run.stdout), /v0\.2\.0 section/);
+  // As in the release PR, commit the notes and version together.
+  r.git('add', '-A');
+  r.git('commit', '-qm', 'release');
+  assert.equal(r.check().status, 0);
+});
+
+test('release notes must match a changed package version and mention its contract', () => {
+  const r = repo();
+  r.git('tag', 'v0.1.0');
+  writeFileSync(path.join(r.dir, 'contract/estate-report.v1.schema.json'), '{"a":2}\n');
+  const notes = (version: string, body: string) => `# Changelog\n\n## Unreleased\n\n## v${version}\n\n${body}\n\n## v0.1.0\nThe previous contract.\n`;
+  writeFileSync(path.join(r.dir, 'CHANGELOG.md'), notes('0.2.0', 'The new contract.'));
+  assert.equal(r.check().status, 1, 'a future heading without a version change is insufficient');
+  writeFileSync(path.join(r.dir, 'package.json'), '{"version":"0.2.0"}\n');
+  writeFileSync(path.join(r.dir, 'CHANGELOG.md'), notes('0.3.0', 'The new contract.'));
+  assert.equal(r.check().status, 1, 'a different release heading is insufficient');
+  writeFileSync(path.join(r.dir, 'CHANGELOG.md'), notes('0.2.0', 'Pages tweaked.'));
+  assert.equal(r.check().status, 1, 'old release notes cannot satisfy an empty new release');
+  writeFileSync(path.join(r.dir, 'CHANGELOG.md'), notes('0.2.0', 'The new schema.'));
+  assert.equal(r.check().status, 0);
+  // After that release, new schema changes need Unreleased notes again.
+  r.git('add', '-A');
+  r.git('commit', '-qm', 'release');
+  r.git('tag', 'v0.2.0');
+  writeFileSync(path.join(r.dir, 'contract/estate-report.v1.schema.json'), '{"a":3}\n');
+  assert.equal(r.check().status, 1, 'a published version section cannot cover later changes');
 });

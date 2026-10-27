@@ -50,7 +50,7 @@ jobs:
   portal:
     needs: verify
     # Pinned by commit, like every other action; the comment is for you and Dependabot.
-    uses: northcutted/clearcutt-portal/.github/workflows/portal.yml@<commit of the release tag> # v0.1.0
+    uses: northcutted/clearcutt-portal/.github/workflows/portal.yml@<commit of the release tag> # v0.2.0
     permissions: {contents: read, pages: write, id-token: write}
     with:
       bundle-ref: ghcr.io/acme/estate:latest
@@ -95,7 +95,7 @@ the run that uploaded it.
 The workflow builds the clearcutt-portal it is called at: pinned to a
 release's commit or tag, that release's signed archive (verified against this
 repository's `release.yml` at the tag); at any other commit or branch, that
-commit's source. `git ls-remote https://github.com/northcutted/clearcutt-portal 'refs/tags/v0.1.0^{}'`
+commit's source. `git ls-remote https://github.com/northcutted/clearcutt-portal 'refs/tags/v0.2.0^{}'`
 prints a release's commit. Callers that still pass `portal-version` keep
 working and get a warning saying so; remove it when you next update the pin.
 
@@ -115,7 +115,7 @@ The action verifies and pulls a signed bundle (or reads a directory),
 installs a release after verifying its signature, and builds:
 
 ```yaml
-- uses: northcutted/clearcutt-portal@<commit of the release tag> # v0.1.0
+- uses: northcutted/clearcutt-portal@<commit of the release tag> # v0.2.0
   id: portal
   with:
     bundle-ref: ghcr.io/acme/estate:latest

@@ -113,8 +113,9 @@ const sources = metadata.sources.map((s) =>
     <h2>Checking it yourself</h2>
     <div class="prose">
       <p>
-        Each image page lists commands that check what it says without trusting this site: cosign for every signature
-        and attestation the report says verified, against the signer the policy trusts; gh for GitHub's provenance;
+        Each image page lists commands that check what it says without trusting this site: cosign for Cosign signatures
+        and attestations the report says verified, against the signer the policy trusts; clearcutt-verify with Notation
+        for verified Notation image signatures; gh for GitHub's provenance;
         clearcutt-factory to rebuild a factory image; and clearcutt-verify to reach the verdict again. They name images
         by digest, never by tag. The values in them come from the report, so each is quoted for the shell, and a
         value that can't be shown exactly as it would run keeps its command off the page.

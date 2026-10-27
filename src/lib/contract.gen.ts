@@ -274,7 +274,7 @@ export interface EvidenceItem {
    */
   ref?: string;
   /**
-   * Signer is who signed it. On verified evidence it is what cosign checked: the certificate's identity and issuer and, for GitHub Actions, the repository and ref of the run that signed (or the trusted key). Otherwise it is what the evidence's certificate claims, unverified.
+   * Signer is who signed it. On verified Cosign evidence it is what cosign checked: the certificate's identity and issuer and, for GitHub Actions, the repository and ref of the run that signed (or the trusted key). On verified Notation JWS signatures it is the checked certificate's X.509 subject; an unread COSE signing identity remains absent. Otherwise it is what the evidence's certificate claims, unverified.
    */
   signer?: Signer;
   /**
@@ -282,7 +282,7 @@ export interface EvidenceItem {
    */
   signerWorkflow?: string;
   /**
-   * Source is where it was found: cosign-signature, cosign-attestation, github-attestation, or oci-referrer (an unsigned document). Open: new sources may appear. github-attestation is a GitHub artifact attestation (actions/attest-build-provenance) stored in the registry, which gh attestation verify --bundle-from-oci can check too; it is told apart from cosign's by its content, so only verified evidence is labeled so, and an unverified one shows as cosign-attestation.
+   * Source is where it was found: cosign-signature, cosign-attestation, github-attestation, oci-referrer (an unsigned document), notation-signature (a Notation signature), buildx-attestation (an unsigned in-toto statement BuildKit stored in the image index), or cosign-sbom-tag (an unsigned SBOM in cosign's sha256-<digest>.sbom tag). Open: new sources may appear. github-attestation is a GitHub artifact attestation (actions/attest-build-provenance) stored in the registry, which gh attestation verify --bundle-from-oci can check too; it is told apart from cosign's by its content, so only verified evidence is labeled so, and an unverified one shows as cosign-attestation. notation-signature can verify against explicit Notation trust; buildx-attestation, cosign-sbom-tag, and oci-referrer evidence is never verified: it is present at best, and nothing in it is read.
    */
   source?: string;
   /**
@@ -626,13 +626,13 @@ export interface Finding {
    */
   suppressed?: boolean;
   /**
-   * SuppressedBy names the statement, for findings this run's rescan suppressed with the policy's VEX documents. Absent on a suppressed finding, the publisher's scan suppressed it with a statement this run didn't see.
+   * SuppressedBy names a matching statement from the trusted publisher's signed scan metadata (source attestation), or the policy's VEX applied to this run's rescan (source scan). Absent means attribution is unknown or differs across platforms; the finding remains visibly suppressed.
    */
   suppressedBy?: Suppression;
   version: string;
 }
 /**
- * Suppression is what suppressed a finding in this run's rescan.
+ * Suppression attributes a suppressed finding. On attestation findings it is the publisher's signed assertion, not independent verification of a VEX file.
  *
  * This interface was referenced by `EstateReport`'s JSON-Schema
  * via the `definition` "Suppression".
@@ -640,7 +640,7 @@ export interface Finding {
 export interface Suppression {
   document?: string;
   /**
-   * File is the document's path as the policy named it, and Document its @id (source vex).
+   * File is the document's path for this run's policy VEX, when known. Document is its @id or the publisher's signed document identifier.
    */
   file?: string;
   justification?: string;
@@ -649,7 +649,7 @@ export interface Suppression {
    */
   product?: string;
   /**
-   * Source is vex (a statement in one of the policy's OpenVEX documents) or scanner (a rule of grype's own, such as the one for kernel headers).
+   * Source is vex (a matching OpenVEX statement, as the scan's source says) or scanner (a rule of grype's own, such as the one for kernel headers).
    */
   source: 'vex' | 'scanner';
   /**
@@ -787,6 +787,10 @@ export interface Policy {
    */
   maxScanAgeDays?: number;
   /**
+   * Notation separately trusts X.509 image signatures. It does not authorize Cosign attestations, stack signatures or estate report publishers.
+   */
+  notation?: NotationTrust;
+  /**
    * Observe lists the patterns (path globs over repository, or repository:tag) of the images that are observe-only: in the report with a verdict, but not gating (not counted in summary.verdicts, and not failing --fail-on).
    */
   observe?: string[];
@@ -826,6 +830,22 @@ export interface Policy {
    * VEX lists the OpenVEX documents applied to this run's rescans. Every finding they suppressed is still listed, marked suppressed, with the statement that did it.
    */
   vex?: VEXDocument[];
+}
+/**
+ * NotationTrust is explicit X.509 trust for Notation image signatures.
+ *
+ * This interface was referenced by `EstateReport`'s JSON-Schema
+ * via the `definition` "NotationTrust".
+ */
+export interface NotationTrust {
+  /**
+   * TrustRoots are local certificate files, resolved relative to the policy. A run pins their bytes for its strict Notation verification.
+   */
+  trustRoots: string[];
+  /**
+   * TrustedIdentities are Notation x509.subject distinguished-name constraints. Wildcard identities are not accepted.
+   */
+  trustedIdentities: string[];
 }
 /**
  * VEXDocument is an OpenVEX document a policy applied.
@@ -1154,6 +1174,6 @@ export interface HistoryBase {
  * release at or before it ("none" when there is none), from contract/UPSTREAM.
  */
 export const CONTRACT_UPSTREAM: { commit: string; release: string } = {
-  commit: "8e1aec561ece55d8a1a9a6f7c8e11d9143bf45e4",
+  commit: "1ff0e61c1ce3eef8101795b4f3e15d2bce217a87",
   release: "v0.17.0",
 };

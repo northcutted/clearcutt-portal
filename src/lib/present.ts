@@ -385,7 +385,7 @@ export const SUPPRESSED: Term = {
 export function suppressionWords(finding: Finding): string {
   const by = finding.suppressedBy;
   if (!by) {
-    return "The publisher's scan suppressed it, with a statement this run didn't see.";
+    return 'The scan suppressed it; attribution is unavailable or differs between platforms.';
   }
   if (by.source === 'scanner') {
     return `A rule of the scanner's own${by.justification ? `: ${by.justification}` : ''}.`;
@@ -393,7 +393,7 @@ export function suppressionWords(finding: Finding): string {
   const doc = [by.file, by.document && by.document !== by.file ? `(${by.document})` : undefined].filter(Boolean).join(' ');
   const statement = [by.status, by.justification].filter(Boolean).join(', ');
   if (by.source === 'vex') {
-    return `A VEX statement${doc ? ` in ${doc}` : ''}${statement ? `: ${statement}` : ''}${by.product ? `, about ${by.product}` : ''}.`;
+    return `A VEX statement${doc ? `${by.file ? ' in ' : ' '}${doc}` : ''}${statement ? `: ${statement}` : ''}${by.product ? `, about ${by.product}` : ''}.`;
   }
   return `${by.source}${doc ? ` ${doc}` : ''}${statement ? `: ${statement}` : ''}.`;
 }

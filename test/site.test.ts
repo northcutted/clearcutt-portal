@@ -292,7 +292,7 @@ describe('the example site', () => {
       /CVE-2026-9999 CVE record .*? github\.com\/acme\/lib v1\.2\.0 medium no fix known linux\/amd64 ○ Suppressed A VEX statement in vex\/acme\.openvex\.json \(https:\/\/acme\.example\/vex\/2026-10\): not_affected, vulnerable_code_not_in_execute_path, about pkg:oci\/billing\?repository_url=ghcr\.io\/acme\/images\/billing\./,
     );
     assert.match(page, /CVE-2026-0042 CVE record .*? linux-headers 6\.12 low no fix known linux\/amd64 ○ Suppressed A rule of the scanner's own: ignored by grype's own rules \(exact-indirect-match\)\./);
-    assert.match(page, /1 suppressed in the publisher's scan .* ○ Suppressed The publisher's scan suppressed it, with a statement this run didn't see\./);
+    assert.match(page, /1 suppressed in the publisher's scan .* ○ Suppressed The scan suppressed it; attribution is unavailable or differs between platforms\./);
     assert.match(html, /<details open class="findings"[^>]*>\s*<summary>2 suppressed in this run&#39;s scan/);
   });
 
@@ -1099,6 +1099,56 @@ describe('a report at the edges of what the schema allows', () => {
     const tile = html.match(/class="tile tone-([a-z]+)[^"]*"(?:(?!class="tile ).)*?>Reproduced</s);
     assert.ok(tile, 'a Reproduced tile');
     assert.equal(tile[1], 'unknown');
+  });
+});
+
+describe('Notation trust and publisher VEX attribution', () => {
+  let site: string;
+  before(() => {
+    site = build(editedBundle(MINIMAL, (r) => {
+      r.policy.notation = { trustedIdentities: ['x509.subject: CN=Acme,O=Acme,C=US'], trustRoots: ['/certs/acme.pem'] };
+      r.policy.trustedSigners = [];
+      for (const [id, signer] of [
+        ['ghcr-io-acme-images-hello-app', { identity: 'x509.subject: CN=Acme,O=Acme,C=US' }],
+        ['ghcr-io-acme-images-billing-1-4-2', undefined],
+      ]) {
+        const image = r.images.find((i: any) => i.id === id);
+        image.evidence.signature = { status: 'verified', source: 'notation-signature', ...(signer ? { signer } : {}) };
+      }
+      const billing = r.images.find((i: any) => i.id === 'ghcr-io-acme-images-billing-1-4-2');
+      billing.vulnerabilities.findings.push({
+        id: 'CVE-2026-12345', severity: 'critical', package: 'library', version: '1',
+        platforms: ['linux/amd64'], suppressed: true,
+        suppressedBy: { source: 'vex', document: 'https://acme.example/vex/1', product: 'pkg:oci/billing', status: 'not_affected' },
+      });
+    }));
+  });
+
+  test('the policy names strict X.509 image trust and public certificate paths', () => {
+    const page = shown(read(site, 'index.html'));
+    assert.match(page, /Notation image signatures Strict X\.509 trust for image signatures/);
+    assert.match(page, /x509\.subject: CN=Acme,O=Acme,C=US/);
+    assert.match(page, /\/certs\/acme\.pem/);
+    assert.match(page, /their contents are not in this report/);
+    assert.match(page, /none for Cosign signatures or attestations/);
+    assert.doesNotMatch(page, /none: nothing could be verified/);
+  });
+
+  test('both JWS and COSE get a Notation recheck with no invented OIDC issuer', () => {
+    for (const id of ['ghcr-io-acme-images-hello-app', 'ghcr-io-acme-images-billing-1-4-2']) {
+      const html = read(site, 'images/' + id + '/index.html');
+      const commands = shownCommands(html);
+      assert.match(commands[0], /clearcutt-verify estate verify/);
+      assert.match(commands[0], /--fail-on=unverified/);
+      assert.doesNotMatch(commands[0], /cosign|oidc/);
+      assert.match(shown(html), /certificate files/);
+      assert.match(shown(html), /Needs .*notation \(1\.3\.2\+ in the 1\.3 series\)/);
+    }
+  });
+
+  test('a signed publisher VEX statement is shown without inventing a local VEX file', () => {
+    const page = shown(read(site, 'images/ghcr-io-acme-images-billing-1-4-2/index.html'));
+    assert.match(page, /A VEX statement \(https:\/\/acme\.example\/vex\/1\): not_affected, about pkg:oci\/billing/);
   });
 });
 

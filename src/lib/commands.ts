@@ -1,6 +1,6 @@
 // Commands that check what a report says about an image without trusting
-// this site: cosign for each signature and attestation the report says
-// verified, gh for GitHub's provenance, clearcutt-factory to rebuild a factory
+// this site: cosign or isolated Notation verification for verified signatures,
+// cosign for attestations, gh for GitHub's provenance, clearcutt-factory to rebuild a factory
 // image, and clearcutt-verify to reach the verdict again.
 //
 // Every value in a command comes from the report, and much of a report is
@@ -259,6 +259,7 @@ export function policyFile(policy: Policy): string {
     kind: 'VerificationPolicy',
     required: policy.required,
     trustedSigners: policy.trustedSigners.map(signer),
+    ...(policy.notation ? { notation: policy.notation } : {}),
     ...(policy.failOn ? { failOn: policy.failOn } : {}),
     ...(policy.onlyFixed ? { onlyFixed: true } : {}),
     ...(policy.maxDaysBehind ? { maxDaysBehind: policy.maxDaysBehind } : {}),
@@ -304,6 +305,17 @@ export function verifyCommands(report: EstateReport, image: Image): Commands {
   const signature = image.evidence.signature;
   if (signature.status === 'verified') {
     attempt(label('signature'), () => {
+      if (signature.source === 'notation-signature') {
+        if (!policy.notation) throw new NoCommand("the report does not record the Notation trust needed to recheck it");
+        const isolated: Policy = { required: ['signature'], trustedSigners: [], reproduce: false, notation: policy.notation };
+        const json = shellWord(policyFile(isolated), 'Notation trust policy');
+        return [{
+          title: label('signature'),
+          purpose: "Rechecks this image's Notation signatures using ClearCutt's isolated strict X.509 policy. It needs Notation 1.3.2+ in the 1.3 series. Obtain the listed public certificates and update trustRoots in policy.json to their local paths; the report does not include certificate files. This checks current attachments and current expiry/revocation.",
+          text: ['cd "$(mktemp -d)"', `printf '%s\\n' ${ref} > refs.txt`, `printf '%s\\n' ${json} > policy.json`,
+            shellLine(['clearcutt-verify', 'estate', 'verify'], [flag('--refs', 'refs.txt'), flag('--policy', 'policy.json'), flag('--fail-on', 'unverified'), flag('--out', 'signature')])].join('\n'),
+        }];
+      }
       const identity = identityFor(policy, signature.signer);
       return [
         {
@@ -417,6 +429,7 @@ export function verifyCommands(report: EstateReport, image: Image): Commands {
         purpose:
           "Runs clearcutt-verify over this image alone, in a new directory, held to the policy this report was held to, and writes its own report to estate/estate-report.json. Its verdict should match this page's, though one image on its own can't show how far behind its base's newest version it is." +
           (policy.rescan ? ' It rescans the image with grype, as this run did, against a database of the day you run it.' : '') +
+          (policy.notation ? ' It needs Notation 1.3.2+ in the 1.3 series. Obtain the listed public certificates and update notation.trustRoots in policy.json to their local paths; certificate files are not in the report.' : '') +
           (vex.length > 0
             ? ` This run applied ${vex.length === 1 ? 'a VEX document' : `${vex.length} VEX documents`} the report names but doesn't carry (the policy above lists them): put ${vex.length === 1 ? 'it' : 'them'} beside policy.json and add "vex": [${vex.length === 1 ? 'its file' : 'their files'}] to it, or the findings ${vex.length === 1 ? 'it suppresses' : 'they suppress'} will count.`
             : ''),

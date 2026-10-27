@@ -19,6 +19,9 @@ const tools = [
   ['clearcutt-factory', 'clearcutt-factory'],
   ['clearcutt-verify', 'clearcutt-verify'],
 ].filter(([program]) => commands.some((c) => c.text.split('\n').some((line) => line.startsWith(`${program} `))));
+if (report.policy.notation && tools.some(([program]) => program === 'clearcutt-verify')) {
+  tools.push(['notation', 'notation (1.3.2+ in the 1.3 series)']);
+}
 ---
 <section aria-labelledby="check">
   <h2 id="check">Check it yourself</h2>

@@ -324,6 +324,40 @@ describe("an image's commands", () => {
     assert.equal(file.kind, 'VerificationPolicy');
   });
 
+  test('Notation trust survives policy export and JWS/COSE signature rechecks without Cosign or an OIDC signer', () => {
+    const report = structuredClone(minimal);
+    report.policy.notation = {
+      trustedIdentities: ["x509.subject: CN=acme's $(touch pwned),O=Acme,C=US"],
+      trustRoots: ["certs/acme's $(touch pwned).pem"],
+    };
+    report.policy.trustedSigners = [];
+    assert.deepEqual(JSON.parse(policyFile(report.policy)).notation, report.policy.notation);
+    const target = image(report, 'ghcr-io-acme-images-hello-app');
+    for (const signer of [{ identity: report.policy.notation.trustedIdentities[0] }, undefined]) {
+      target.evidence.signature = { status: 'verified', source: 'notation-signature', ...(signer ? { signer } : {}) };
+      const result = verifyCommands(report, target);
+      const command = result.commands.find((c) => c.title === 'Signature')!;
+      assert.ok(command);
+      assert.doesNotMatch(command.text, /cosign|certificate-oidc-issuer/);
+      assert.match(command.purpose, /certificate files/);
+      assert.match(command.purpose, /current expiry\/revocation/);
+      for (const shell of SHELLS) {
+        const executed = runCommand(shell, command);
+        assert.deepEqual(executed.calls, [['clearcutt-verify', 'estate', 'verify', '--refs=refs.txt', '--policy=policy.json', '--fail-on=unverified', '--out=signature']]);
+        assert.equal(readFileSync(path.join(executed.cwd, 'refs.txt'), 'utf8'), target.repository + '@' + target.digest + '\n');
+        const policy = JSON.parse(readFileSync(path.join(executed.cwd, 'policy.json'), 'utf8'));
+        assert.deepEqual(policy.notation, report.policy.notation);
+        assert.deepEqual(policy.required, ['signature']);
+        assert.deepEqual(policy.trustedSigners, []);
+        assert.equal(existsSync(path.join(executed.cwd, 'pwned')), false);
+      }
+      assert.match(result.commands.find((c) => c.title === 'Verdict')!.purpose, /notation.trustRoots/);
+    }
+    delete report.policy.notation;
+    const missing = verifyCommands(report, target);
+    assert.ok(missing.skipped.some((s) => s.title === 'Signature' && s.reason.includes('Notation trust')));
+  });
+
   test("the verdict is reached under v0.17's policy too: its scan source, observe patterns, and builders, and a rescan", () => {
     const policy = { ...minimal.policy, provenanceBuilders: ['https://github.com/acme/builder@v1'] };
     const file = JSON.parse(policyFile(policy));

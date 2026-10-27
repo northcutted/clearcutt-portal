@@ -31,10 +31,10 @@ const stackSigners = policy.stackSigners ?? [];
 // publishes this site checks them before building it.
 const signerGroups = [
   {
-    label: 'Trusted signers',
+    label: policy.notation ? 'Cosign signers' : 'Trusted signers',
     role: "role image: an image's signature and attestations",
     signers: policy.trustedSigners,
-    none: 'none: nothing could be verified, only found',
+    none: policy.notation ? 'none for Cosign signatures or attestations' : 'none: nothing could be verified, only found',
   },
   ...(stacks > 0 || stackSigners.length > 0
     ? [
@@ -129,6 +129,15 @@ const scanAge = policy.maxScanAgeDays ?? 0;
     </dd>
     <dt>Rebuilds</dt>
     <dd>{policy.reproduce ? 'this run rebuilt images to check them' : "this run didn't rebuild images"}</dd>
+    {policy.notation && <>
+      <dt>Notation image signatures</dt>
+      <dd>
+        <span class="small">Strict X.509 trust for image signatures. Cosign attestations, stacks and estate publishers have separate trust.</span>
+        <ul class="vex-docs">{policy.notation.trustedIdentities.map((identity) => <li><code>{identity}</code></li>)}</ul>
+        <span class="small">Trusted certificate files, as recorded by the verifier; their contents are not in this report:</span>
+        <ul class="vex-docs">{policy.notation.trustRoots.map((root) => <li><code>{root}</code></li>)}</ul>
+      </dd>
+    </>}
     {signerGroups.map((group) => (
       <>
         <dt>{group.label}</dt>

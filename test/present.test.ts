@@ -45,7 +45,8 @@ test('a suppressed finding says what suppressed it, and never that nothing did',
     ['a VEX statement whose @id is its file', { source: 'vex', file: 'a.json', document: 'a.json', status: 'fixed' }, 'A VEX statement in a.json: fixed.'],
     ["the scanner's own rule", { source: 'scanner', justification: 'ignored by grype (kernel headers)' }, "A rule of the scanner's own: ignored by grype (kernel headers)."],
     ["the scanner's own rule, unexplained", { source: 'scanner' }, "A rule of the scanner's own."],
-    ["the publisher's scan, with a statement this run didn't see", undefined, "The publisher's scan suppressed it, with a statement this run didn't see."],
+    ['unavailable or differing platform attribution', undefined, 'The scan suppressed it; attribution is unavailable or differs between platforms.'],
+    ['a signed publisher attribution without a local file', { source: 'vex', document: 'https://acme.example/vex/1', product: 'pkg:oci/billing', status: 'not_affected' }, 'A VEX statement (https://acme.example/vex/1): not_affected, about pkg:oci/billing.'],
     ['a source this portal does not know', { source: 'oracle' as 'vex', file: 'x' }, 'oracle x.'],
   ];
   for (const [name, by, want] of cases) assert.equal(suppressionWords(finding(by)), want, name);

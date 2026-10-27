@@ -6,6 +6,16 @@ between minor releases, with notes here.
 
 ## Unreleased
 
+### Contract: Notation image trust and signed VEX attribution
+
+- Accept the additive `policy.notation` block and show X.509 identities and
+  public certificate paths separately from Cosign signers. Recheck commands
+  preserve this trust and state that certificate files must be obtained.
+  Notation signatures use ClearCutt's isolated strict verifier, including
+  when a COSE certificate subject was not parsed.
+- Publisher-signed VEX attribution uses the existing `suppressedBy` fields;
+  missing or platform-dependent attribution stays unknown.
+
 ## v0.2.0 (2026-10-26)
 
 ### Fixed: release checks

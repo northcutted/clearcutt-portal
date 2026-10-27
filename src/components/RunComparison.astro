@@ -243,6 +243,11 @@ const hasRows = (run: Run) => run.entry.images !== undefined;
                       ) : (
                         <StatusText term={verdict((a ?? b)!.verdict)} />
                       )}
+                      {d.observeOnly ? (
+                        <div>{d.observeOnly[1] ? 'gating → observe-only' : 'observe-only → gating'}</div>
+                      ) : (
+                        (a ?? b)!.observeOnly && <div class="dim">observe-only</div>
+                      )}
                     </td>
                     <td class="small">
                       {SEVERITIES.every((s) => d.findings[s][0] === null && d.findings[s][1] === null) ? (
@@ -259,6 +264,17 @@ const hasRows = (run: Run) => run.entry.images !== undefined;
                           })}
                           {SEVERITIES.every((s) => !d.findingsChanged.includes(s) && (d.findings[s][0] ?? 0) === 0 && (d.findings[s][1] ?? 0) === 0) && <li class="dim">none</li>}
                         </ul>
+                      )}
+                      {SEVERITIES.some((s) => d.rescanFindings[s][0] !== null || d.rescanFindings[s][1] !== null) && (
+                        <div>
+                          This run's scan:{' '}
+                          {SEVERITIES.filter((s) => d.rescanChanged.includes(s) || (d.rescanFindings[s][0] ?? 0) > 0 || (d.rescanFindings[s][1] ?? 0) > 0)
+                            .map((s) => {
+                              const [x, y] = d.rescanFindings[s];
+                              return d.rescanChanged.includes(s) ? `${s} ${count(x)} → ${count(y)}` : `${s} ${count(b && a ? x : a ? y : x)}`;
+                            })
+                            .join(', ') || 'none'}
+                        </div>
                       )}
                       {(d.fixed?.length ?? 0) > 0 && <div>Fixed: <span class="mono">{d.fixed!.join(', ')}</span></div>}
                       {(d.introduced?.length ?? 0) > 0 && <div>New: <span class="mono">{d.introduced!.join(', ')}</span></div>}

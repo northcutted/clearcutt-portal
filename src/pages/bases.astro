@@ -77,7 +77,14 @@ const strengths = ['proof', 'declared', 'assisted', 'weak'];
                   {daysBehind(image.base) === null ? (
                     <span class="dim">unknown</span>
                   ) : (
-                    <>{image.base.daysBehind}{limit && image.base.daysBehind > limit ? ` (over ${limit})` : ''}</>
+                    <>
+                      {image.base.daysBehind}
+                      {limit && image.base.daysBehind > limit
+                        ? image.base.strength === 'proof'
+                          ? ` (over ${limit})`
+                          : ` (over ${limit} by a claim: unverified, not failed)`
+                        : ''}
+                    </>
                   )}
                 </td>
               </tr>

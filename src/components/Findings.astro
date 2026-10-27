@@ -2,43 +2,60 @@
 // An image's vulnerability findings in the order to fix them
 // (findings.byFixFirst): fixable critical and high first. Each ID opens the
 // advisory's page across the estate, with links to its canonical pages.
-// Findings a VEX statement covers are listed apart, because the report
-// doesn't count them.
+// Findings a VEX statement (or the scanner's own rule) suppressed are listed
+// apart, because the report doesn't count them, each with what suppressed
+// it: they stay on the page, never hidden.
 import AdvisoryLinks from './AdvisoryLinks.astro';
+import Chip from './Chip.astro';
 import type { Finding } from '../lib/contract.gen.ts';
 import { loadBundle } from '../lib/bundle.ts';
 import { byFixFirst, findingPath } from '../lib/findings.ts';
+import { SUPPRESSED, suppressionWords } from '../lib/present.ts';
 import { href } from '../lib/site.ts';
 
 interface Props {
   findings: Finding[];
+  /** Which scan they are from, for the headings: "in this run's scan". */
+  scan?: string;
 }
 const { report } = loadBundle();
+const { scan } = Astro.props;
 const sorted = byFixFirst(Astro.props.findings);
 const counted = sorted.filter((f) => !f.suppressed);
 const suppressed = sorted.filter((f) => f.suppressed);
+const where = scan ? ` ${scan}` : '';
 const groups = [
-  { label: `${counted.length} findings, fix first`, rows: counted, open: counted.length > 0 && counted.length <= 40 },
-  { label: `${suppressed.length} covered by a VEX statement (not counted)`, rows: suppressed, open: false },
+  { label: `${counted.length} ${counted.length === 1 ? 'finding' : 'findings'}${where}, fix first`, rows: counted, open: counted.length > 0 && counted.length <= 40, suppressed: false },
+  {
+    label: `${suppressed.length} suppressed${where} by a VEX statement or the scanner (not counted)`,
+    rows: suppressed,
+    open: suppressed.length <= 40,
+    suppressed: true,
+  },
 ].filter((g) => g.rows.length > 0);
 ---
 {groups.map((group) => (
-  <details open={group.open}>
+  <details open={group.open} class="findings">
     <summary>{group.label}</summary>
     {group.rows.length > 15 && (
-      <p><input class="filter" type="search" placeholder="Filter by ID, package, or severity" aria-label="Filter findings" data-filter data-filter-noun="findings" /></p>
+      <p><input class="filter" type="search" placeholder="Filter by ID, package, or severity" aria-label={`Filter findings${where}${group.suppressed ? ', suppressed' : ''}`} data-filter data-filter-noun="findings" /></p>
     )}
     <p class="small dim" data-count aria-live="polite"></p>
     <div class="table-wrap">
       <table>
-        <thead><tr><th>ID</th><th>Package</th><th>Version</th><th>Severity</th><th>Fixed in</th><th>Platforms</th></tr></thead>
+        <thead>
+          <tr>
+            <th>ID</th><th>Package</th><th>Version</th><th>Severity</th><th>Fixed in</th><th>Platforms</th>
+            {group.suppressed && <th>Suppressed by</th>}
+          </tr>
+        </thead>
         <tbody>
           {group.rows.map((f) => {
             const page = findingPath(report, f.id);
             return (
               <tr data-text={`${f.id} ${f.package} ${f.version} ${f.severity}`.toLowerCase()}>
                 <td>
-                  {page ? <a class="mono" href={href(page)}>{f.id}</a> : <span class="mono">{f.id}</span>}
+                  {page ? <a class="mono nowrap" href={href(page)}>{f.id}</a> : <span class="mono nowrap">{f.id}</span>}
                   <div class="small"><AdvisoryLinks id={f.id} /></div>
                 </td>
                 <td>{f.package}</td>
@@ -46,6 +63,9 @@ const groups = [
                 <td>{f.severity}</td>
                 <td class="mono">{f.fixedIn && f.fixedIn.length > 0 ? f.fixedIn.join(', ') : <span class="dim">no fix known</span>}</td>
                 <td class="small">{f.platforms.join(', ')}</td>
+                {group.suppressed && (
+                  <td class="small"><Chip term={SUPPRESSED} /> {suppressionWords(f)}</td>
+                )}
               </tr>
             );
           })}
@@ -54,6 +74,6 @@ const groups = [
     </div>
   </details>
 ))}
-{groups.length === 0 && <p>No findings.</p>}
+{groups.length === 0 && <p>No findings{where}.</p>}
 
 <script src="../scripts/filter-rows.ts"></script>

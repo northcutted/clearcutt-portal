@@ -3,19 +3,66 @@
 // is, and the filtered lists the overview's tiles link to. Everything is
 // counted from the report; nothing here concludes more than it says.
 import type { EstateReport, Image } from './contract.gen.ts';
-import { byVerdict, imageLabel, staleImages } from './estate.ts';
+import { byVerdict, imageLabel, isObserveOnly, staleImages } from './estate.ts';
+import { gatedScans, scanOf } from './findings.ts';
 import { compareTimes, plural } from './format.ts';
 import type { Tone } from './present.ts';
 
 // ── Reasons ─────────────────────────────────────────────────────────────
 
+/**
+ * What a verdict reason says about its requirement: `failed`, the check ran
+ * and the image fell short of it; `unknown`, it couldn't be decided (evidence
+ * that couldn't be read or checked, or that no trusted signer vouched for;
+ * vulnerabilities no scan covers, or a rescan that couldn't run; drift from a
+ * base the image only claims; a rebuild that couldn't be checked).
+ * clearcutt-verify lists both kinds on a failed image, so an image's verdict
+ * alone doesn't say which a reason is.
+ */
+export type ReasonKind = 'failed' | 'unknown';
+
+// The reasons clearcutt-verify gives for a requirement an image failed
+// (estateverify.verdictAt): a check that ran and came out against it.
+const FAILING_REASONS = [
+  /^[A-Za-z]+ failed verification$/,
+  /^[A-Za-z]+ is missing$/,
+  /^\d+( fixable)? vulnerabilities at [a-z]+ or above( in this run's scan \(.*\))?$/,
+  /^base is \d+ days behind its newest version \(limit \d+\)$/,
+  /^rebuilding gave a different digest$/,
+];
+
+// The reasons it gives for a requirement it couldn't decide.
+const UNDECIDED_REASONS = [
+  /unknown/,
+  /couldn't be (read|checked|measured)/,
+  /\bnot verified\b|isn't verified|isn't proven/,
+  /\bnot applicable\b/,
+  /no trusted signer/,
+  /vouched for nothing/,
+  /days old \(limit \d+\)/,
+];
+
+/**
+ * Whether a reason is a failed requirement or one that couldn't be decided.
+ * On an unverified image every reason is undecided. On a failed image a
+ * reason this portal doesn't recognize is taken as failed: overstating a
+ * reason never makes anything read as a pass.
+ */
+export function reasonKind(reason: string, verdictStatus: string): ReasonKind {
+  if (FAILING_REASONS.some((r) => r.test(reason))) return 'failed';
+  if (verdictStatus !== 'failed' || UNDECIDED_REASONS.some((r) => r.test(reason))) return 'unknown';
+  return 'failed';
+}
+
 export interface ReasonGroup {
-  /** The reason with each number replaced by #, which the group shares. */
+  /** The reason's kind, then the reason with each number replaced by #, which the group shares. */
   key: string;
+  kind: ReasonKind;
   /** The reason as a heading: numbers that differ between images become a range. */
   text: string;
   /** Each image with the reason, and the reason as its verdict says it. */
   images: { image: Image; reason: string }[];
+  /** How many of those images failed, and how many are unverified. */
   failed: number;
   unverified: number;
 }
@@ -23,23 +70,30 @@ export interface ReasonGroup {
 /**
  * The reasons images aren't verified, one group per reason, however many
  * images give it: "3 vulnerabilities at critical or above" and "30
- * vulnerabilities at critical or above" are one reason. Reasons that fail an
- * image come first, then the reasons with the most images.
+ * vulnerabilities at critical or above" are one reason. Failed requirements
+ * come first, then those that couldn't be decided (reasonKind); within each,
+ * the reasons with the most images first.
  */
 export function reasonGroups(report: EstateReport): ReasonGroup[] {
-  const groups = new Map<string, { parts: string[][]; images: { image: Image; reason: string }[]; failed: Set<string>; unverified: Set<string> }>();
+  const groups = new Map<
+    string,
+    { kind: ReasonKind; parts: string[][]; images: { image: Image; reason: string }[]; failed: Set<string>; unverified: Set<string> }
+  >();
   for (const image of byVerdict(report.images)) {
-    if (image.verdict.status === 'verified') continue;
+    // An observe-only image holds nothing back: the policy doesn't gate on it.
+    if (image.verdict.status === 'verified' || isObserveOnly(image)) continue;
     for (const reason of new Set(image.verdict.reasons.length > 0 ? image.verdict.reasons : ['no reason given'])) {
+      const kind = reasonKind(reason, image.verdict.status);
       const parts = reason.split(/(\d+)/);
-      const key = parts.map((p, i) => (i % 2 === 1 ? '#' : p)).join('');
+      const key = `${kind}:${parts.map((p, i) => (i % 2 === 1 ? '#' : p)).join('')}`;
       let g = groups.get(key);
-      if (!g) groups.set(key, (g = { parts: [], images: [], failed: new Set(), unverified: new Set() }));
+      if (!g) groups.set(key, (g = { kind, parts: [], images: [], failed: new Set(), unverified: new Set() }));
       g.parts.push(parts);
       g.images.push({ image, reason });
       (image.verdict.status === 'failed' ? g.failed : g.unverified).add(image.id);
     }
   }
+  const kindOrder = (k: ReasonKind) => (k === 'failed' ? 0 : 1);
   return [...groups]
     .map(([key, g]): ReasonGroup => {
       const first = g.parts[0];
@@ -52,9 +106,9 @@ export function reasonGroups(report: EstateReport): ReasonGroup[] {
           return lo === hi ? p : `${lo}–${hi}`;
         })
         .join('');
-      return { key, text, images: g.images, failed: g.failed.size, unverified: g.unverified.size };
+      return { key, kind: g.kind, text, images: g.images, failed: g.failed.size, unverified: g.unverified.size };
     })
-    .sort((a, b) => b.failed - a.failed || b.images.length - a.images.length || a.text.localeCompare(b.text));
+    .sort((a, b) => kindOrder(a.kind) - kindOrder(b.kind) || b.images.length - a.images.length || a.text.localeCompare(b.text));
 }
 
 // ── Scan age ────────────────────────────────────────────────────────────
@@ -121,6 +175,13 @@ export function oldScans(report: EstateReport, days: number): ScanAge[] {
   return scanAges(report).dated.filter((s) => s.ms > days * DAY);
 }
 
+// ── Rescans ─────────────────────────────────────────────────────────────
+
+/** Whether the run scanned images itself (estate verify --rescan): the policy says so, or the summary counts it. */
+export function rescannedRun(report: EstateReport): boolean {
+  return report.policy.rescan === true || report.summary.rescan !== undefined;
+}
+
 // ── Lists ───────────────────────────────────────────────────────────────
 
 export interface ImageList {
@@ -138,31 +199,45 @@ export interface ImageList {
 export function imageLists(report: EstateReport, scanDays: number): ImageList[] {
   const all = byVerdict(report.images);
   const where = (f: (i: Image) => boolean) => all.filter(f);
+  // The verdict lists count what summary.verdicts counts: the images the policy gates on.
+  const gating = (status: string) => (i: Image) => i.verdict.status === status && !isObserveOnly(i);
+  const apart = all.some(isObserveOnly) ? " Images the policy only observes aren't counted here; they are listed apart." : '';
   const old = new Set(oldScans(report, scanDays).map((s) => s.image.id));
   const undated = new Set(scanAges(report).undated.map((i) => i.id));
-  const severe = (i: Image) => (i.vulnerabilities ? i.vulnerabilities.counts.critical + i.vulnerabilities.counts.high : 0);
+  // Critical and high findings in the worse of the scans the policy gated on.
+  const scans = gatedScans(report.policy);
+  const severe = (i: Image) =>
+    Math.max(0, ...scans.map((k) => scanOf(i, k)).map((v) => (v ? v.counts.critical + v.counts.high : 0)));
+  const rescanned = rescannedRun(report);
   const stale = staleImages(report);
   return [
     {
       key: 'verified',
       title: 'Verified images',
-      lede: 'Images that meet every requirement in the policy.',
+      lede: `Images that meet every requirement in the policy.${apart}`,
       empty: 'No image is verified.',
-      images: where((i) => i.verdict.status === 'verified'),
+      images: where(gating('verified')),
     },
     {
       key: 'failed',
       title: 'Failed images',
-      lede: 'Images that violate at least one requirement in the policy.',
+      lede: `Images that violate at least one requirement in the policy.${apart}`,
       empty: 'No image failed.',
-      images: where((i) => i.verdict.status === 'failed'),
+      images: where(gating('failed')),
     },
     {
       key: 'unverified',
       title: 'Unverified images',
-      lede: "Images for which at least one requirement couldn't be decided: not a pass, and not a failure.",
+      lede: `Images for which at least one requirement couldn't be decided: not a pass, and not a failure.${apart}`,
       empty: 'No image is unverified.',
-      images: where((i) => i.verdict.status === 'unverified'),
+      images: where(gating('unverified')),
+    },
+    {
+      key: 'observe-only',
+      title: 'Observe-only images',
+      lede: "Images the policy observes without gating on (policy.observe): each has a verdict, but isn't counted with the verified, failed, or unverified images, and doesn't fail the run.",
+      empty: 'The policy gates on every image.',
+      images: where(isObserveOnly),
     },
     {
       key: 'stale-base',
@@ -195,7 +270,7 @@ export function imageLists(report: EstateReport, scanDays: number): ImageList[] 
     {
       key: 'critical-high',
       title: 'Images with critical or high findings',
-      lede: 'Images whose vulnerability data has critical or high findings, the most first. The findings page lists them by advisory, fixable first.',
+      lede: `Images whose vulnerability data has critical or high findings, the most first${rescanned ? ", in the worse of the scans the policy gated on" : ''}. The findings page lists them by advisory, fixable first.`,
       empty: 'No image with vulnerability data has a critical or high finding.',
       images: all.filter((i) => severe(i) > 0).sort((a, b) => severe(b) - severe(a) || imageLabel(a).localeCompare(imageLabel(b))),
     },
@@ -206,6 +281,17 @@ export function imageLists(report: EstateReport, scanDays: number): ImageList[] 
       empty: 'Every image has vulnerability data.',
       images: where((i) => !i.vulnerabilities),
     },
+    ...(rescanned
+      ? [
+          {
+            key: 'not-rescanned',
+            title: "Images this run couldn't rescan",
+            lede: "Images whose verified SBOMs this run couldn't scan itself, or didn't: one has none for a platform, a platform image couldn't be read, or the scanner failed. Their current vulnerabilities are unknown, not clean; each page says why.",
+            empty: 'This run rescanned every image.',
+            images: where((i) => i.rescan?.status !== 'scanned'),
+          },
+        ]
+      : []),
     {
       key: 'old-scans',
       title: `Scans older than ${plural(scanDays, 'day')}`,
@@ -268,8 +354,17 @@ export function outstanding(report: EstateReport, scanDays: number): Outstanding
   };
   add(summary.verdicts.failed, `${plural(summary.verdicts.failed, 'image fails', 'images fail')} the policy`, listPath('failed'), 'bad');
   add(summary.verdicts.unverified, `${plural(summary.verdicts.unverified, 'image is', 'images are')} unverified`, listPath('unverified'), 'unknown');
+  // With a rescan, both scans: the publishers', as of each image's build, and this run's.
+  const r = summary.rescan;
+  const inScans = r ? " in the publishers' scans" : '';
   for (const sev of ['critical', 'high'] as const) {
-    add(v.counts[sev], `${plural(v.counts[sev], `${sev} finding`)} (${v.fixable[sev]} with a fix)`, 'findings/', sev === 'critical' ? 'bad' : 'warn');
+    add(v.counts[sev], `${plural(v.counts[sev], `${sev} finding`)}${inScans} (${v.fixable[sev]} with a fix)`, 'findings/', sev === 'critical' ? 'bad' : 'warn');
+  }
+  if (r) {
+    for (const sev of ['critical', 'high'] as const) {
+      add(r.counts[sev], `${plural(r.counts[sev], `${sev} finding`)} in this run's scan (${r.fixable[sev]} with a fix)`, 'findings/', sev === 'critical' ? 'bad' : 'warn');
+    }
+    add(r.unknown, `${plural(r.unknown, 'image', 'images')} this run couldn't rescan`, listPath('not-rescanned'), 'unknown');
   }
   add(summary.bases.stale, `${plural(summary.bases.stale, 'image', 'images')} on a stale base`, listPath('stale-base'), 'warn');
   const repro = summary.reproducibility;

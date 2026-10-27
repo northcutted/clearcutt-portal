@@ -126,20 +126,184 @@ describe('the example site', () => {
   });
 
   test('an image with no vulnerability data says unknown, never zero', () => {
-    const page = text(read(site, 'images/docker-io-library-redis/index.html'));
-    assert.match(page, /how many vulnerabilities it has is unknown/);
+    const page = text(read(site, 'images/docker-io-library-redis-7/index.html'));
+    assert.match(page, /No vulnerability data from the publisher, so what the build-time scan found is unknown/);
     assert.doesNotMatch(page, /0 findings|No findings/);
+    // From a run that didn't rescan, it says so in one scan's words.
+    const norescan = build(editedBundle(MINIMAL, (r) => {
+      delete r.policy.rescan;
+      delete r.policy.scanSource;
+      delete r.summary.rescan;
+      for (const image of r.images) delete image.rescan;
+    }));
+    const single = text(read(norescan, 'images/docker-io-library-redis-7/index.html'));
+    assert.match(single, /This image has no vulnerability data, so how many vulnerabilities it has is unknown/);
+    assert.doesNotMatch(single, /0 findings|No findings|At build time|this run's scan/);
+    assert.match(text(read(norescan, 'images/ghcr-io-acme-images-billing-1-4-2/index.html')), /From the publisher's signed report \(grype 0\.118\.0\), made 2026-10-06 05:41 UTC\. The findings describe that day\./);
   });
 
   test('an image whose base is unknown says so, with the reasons', () => {
-    const page = text(read(site, 'images/docker-io-library-redis/index.html'));
+    const page = text(read(site, 'images/docker-io-library-redis-7/index.html'));
     assert.match(page, /No base could be determined/);
     assert.match(page, /no observed image.s layers are a prefix of this image/);
   });
 
   test('unknown evidence is shown as unknown', () => {
-    const page = text(read(site, 'images/docker-io-library-redis/index.html'));
+    const page = text(read(site, 'images/docker-io-library-redis-7/index.html'));
     assert.match(page, /SBOM \? Unknown/);
+  });
+
+  const vulnsOf = (page: string) => page.slice(page.indexOf('Vulnerabilities Two scans'), page.indexOf('Tests and rebuilds'));
+
+  test("an image's page shows both scans side by side, each with its database's day", () => {
+    const vulns = vulnsOf(shown(read(site, 'images/ghcr-io-acme-images-billing-1-4-2/index.html')));
+    assert.match(vulns, /At build time · the publisher's scan Report ✓ Verified grype 0\.118\.0 Scanned 2026-10-06 05:41 UTC Database its build time isn't recorded/);
+    assert.match(vulns, /Now · this run's scan ✓ Scanned ✓ linux\/amd64: Scanned Scanner grype 0\.121\.0 Scanned 2026-10-06 06:00 UTC Database built 2026-10-06 06:00 UTC \(schema v6\.1\.10\)/);
+    assert.match(vulns, /The policy's limit \(critical, fixable only\) gated on both scans: an image fails when either finds enough/);
+    assert.match(vulns, /At build time Findings 0 1 2 0 0 0 With a fix 0 0 1 0 0 0 Now Findings 1 1 1 0 0 0 With a fix 1 1 1 0 0 0/);
+    assert.match(vulns, /This run's scan counts 1 advisory the publisher's doesn't: CVE-2026-2000\./);
+    assert.match(vulns, /At build time 2 findings in the publisher's scan, fix first .* Now 3 findings in this run's scan, fix first/);
+  });
+
+  test("a rescan that couldn't run is couldn't check, never clean", () => {
+    for (const id of ['docker-io-library-redis-7', 'cgr-dev-chainguard-static']) {
+      const vulns = vulnsOf(shown(read(site, `images/${id}/index.html`)));
+      assert.match(vulns, /Now · this run's scan \? Couldn't check/, id);
+      assert.match(vulns, /Now Findings \? \? \? \? \? \? With a fix \? \? \? \? \? \?/, id);
+      assert.match(vulns, /\? means unknown: there are no findings from that scan to count, which isn't zero\./, id);
+      assert.doesNotMatch(vulns, /No findings|0 findings|in this run's scan, fix first/, id);
+    }
+    assert.match(
+      shown(read(site, 'images/cgr-dev-chainguard-static/index.html')),
+      /\? Couldn't check The image's current vulnerabilities are unknown: linux\/amd64: no verified SBOM .* \? linux\/amd64: Couldn't check \? linux\/arm64: Couldn't check/,
+    );
+    // A run that rescanned, but not this image: unknown too.
+    const skipped = build(editedBundle(MINIMAL, (r) => delete r.images.find((i: any) => i.id === 'ghcr-io-acme-images-hello-app').rescan));
+    const vulns = vulnsOf(shown(read(skipped, 'images/ghcr-io-acme-images-hello-app/index.html')));
+    assert.match(vulns, /Now · this run's scan \? Couldn't check This run rescanned images, but not this one, so its current vulnerabilities are unknown\./);
+    assert.match(vulns, /Now Findings \? \? \? \? \? \?/);
+  });
+
+  test("the overview counts this run's scan beside the publishers', and fixes first what fails the gate", () => {
+    const html = read(site, 'index.html');
+    const page = shown(html);
+    // The finding that fails billing on the rescan is the first to fix.
+    const fixFirst = shown(html.slice(html.indexOf('id="fix-first"'), html.indexOf('id="stale"')));
+    assert.match(fixFirst, /from both scans, the scans the policy gated on\./);
+    assert.match(fixFirst, /Finding Severity Fixed in Package Images CVE-2026-2000 .*? critical v0\.47\.0 golang\.org\/x\/net v0\.38\.0 1 CVE-2026-1234 .*? high v0\.45\.0 golang\.org\/x\/net v0\.38\.0 1/);
+    // Both scans' totals: tiles, what is outstanding, and the table.
+    assert.match(page, /1 Critical and high, at build time 0 with a fix, in the publishers' scans of 2 images \(a floor\)/);
+    assert.match(page, /2 Critical and high, now 2 with a fix, in this run's scan of 2 images \(a floor\); database built 2026-10-06/);
+    assert.match(page, /2 Rescanned of 4 images; 2 couldn't be, so their current vulnerabilities are unknown/);
+    assert.match(page, /2 Suppressed, now findings VEX statements or the scanner's own rules suppressed in this run's scan/);
+    assert.match(page, /Also outstanding: ! 1 high finding in the publishers' scans \(0 with a fix\) ✕ 1 critical finding in this run's scan \(1 with a fix\) ! 1 high finding in this run's scan \(1 with a fix\) \? 2 images this run couldn't rescan/);
+    const vulns = shown(html.slice(html.indexOf('id="vulns"'), html.indexOf('id="policy"')));
+    assert.match(vulns, /this run's own scan of 2 images' verified SBOMs with grype 0\.121\.0, against a vulnerability database built 2026-10-06 06:00 UTC \(schema v6\.1\.10\); 2 images couldn't be rescanned, so this is a floor too/);
+    assert.match(vulns, /At build time Findings 0 1 2 0 0 0 With a fix 0 0 1 0 0 0 Now Findings 1 1 1 0 0 0 With a fix 1 1 1 0 0 0/);
+    assert.match(vulns, /This run's scan suppressed 2 findings by a VEX statement or a rule of the scanner's own/);
+    assert.match(html, /href="\/portal\/lists\/not-rescanned\/"/);
+    assert.match(shown(read(site, 'lists/not-rescanned/index.html')), /Images this run couldn't rescan .*redis:7.*static:latest/);
+  });
+
+  test("the findings pages are those of the scans the policy gated on, each saying which scan found it", () => {
+    const index = read(site, 'findings/index.html');
+    const ids = [...index.matchAll(/<a class="mono" href="\/portal\/findings\/[^"]+\/">([^<]+)<\/a>/g)].map((m) => m[1]);
+    assert.equal(ids[0], 'CVE-2026-2000');
+    assert.match(shown(index), /3 advisories in the 2 images with vulnerability data from both scans, the scans the policy gated on/);
+    assert.match(shown(index), /CVE-2026-2000 .*? critical v0\.47\.0 golang\.org\/x\/net v0\.38\.0 1 this run's/);
+    assert.match(shown(index), /CVE-2026-1234 .*? high v0\.45\.0 golang\.org\/x\/net v0\.38\.0 1 both/);
+    assert.match(shown(index), /2 images have no data from a scan the policy gated on, so whether they have any of these is unknown/);
+    const page = shown(read(site, 'findings/cve-2026-1234/index.html'));
+    assert.match(page, /Image Package Version Fixed in Severity Platforms Scan Scanned billing:1\.4\.2 ✕ Failed golang\.org\/x\/net v0\.38\.0 no fix known high linux\/amd64 the publisher's 2026-10-06 05:41 UTC/);
+    assert.match(page, /billing:1\.4\.2 ✕ Failed golang\.org\/x\/net v0\.38\.0 v0\.45\.0 high linux\/amd64 this run's database built 2026-10-06 06:00 UTC/);
+    // The rescan's own advisories have pages, so the image page links them.
+    assert.match(read(site, 'images/ghcr-io-acme-images-billing-1-4-2/index.html'), /href="\/portal\/findings\/cve-2026-2000\/">CVE-2026-2000<\/a>/);
+    // The package page lists what the gated scans found in each version.
+    assert.match(shown(read(site, 'packages/golang-stdlib/index.html')), /Advisories in stdlib go1\.27\.0, from both scans Advisory Severity Fixed in Images that count it Suppressed in GHSA-xxxx-yyyy-zzzz medium go1\.27\.1 1 0/);
+  });
+
+  test('the policy says whether the run rescanned, which scan gated, and which VEX documents and patterns were in force', () => {
+    for (const page of ['index.html', 'about/index.html']) {
+      const html = read(site, page);
+      const policy = shown(html.slice(html.indexOf('id="policy"'), html.indexOf('</section>', html.indexOf('id="policy"'))));
+      assert.match(policy, /Vulnerabilities fail at critical or above, counting only findings with a fix, in both scans: an image fails when either finds enough, and is unverified when either is unknown/, page);
+      assert.match(policy, /Rescan yes: this run scanned each image's verified SBOMs itself, against a vulnerability database of its day/, page);
+      assert.match(policy, /VEX documents OpenVEX documents applied to this run's rescans: .* vex\/acme\.openvex\.json \(https:\/\/acme\.example\/vex\/2026-10\) by acme security, 2 statements/, page);
+      assert.match(policy, /Observe-only Images matching these .* cgr\.dev\/chainguard\/\*/, page);
+      assert.match(policy, /Trusted signers role image: an image's signature and attestations/, page);
+      assert.doesNotMatch(policy, /Provenance builders/, page);
+    }
+    // Builders, when the policy names them; and a run without a rescan says so.
+    const other = build(
+      editedBundle(MINIMAL, (r) => {
+        r.policy.provenanceBuilders = ['https://github.com/acme/builder/.github/workflows/build.yml@refs/tags/v1'];
+        delete r.policy.rescan;
+        delete r.policy.scanSource;
+        delete r.policy.vex;
+        delete r.summary.rescan;
+        for (const image of r.images) delete image.rescan;
+      }),
+    );
+    const policy = shown(read(other, 'about/index.html'));
+    assert.match(policy, /Provenance builders Verified SLSA provenance must name one of these builders; provenance that names another, or none, fails\. https:\/\/github\.com\/acme\/builder\/\.github\/workflows\/build\.yml@refs\/tags\/v1/);
+    assert.match(policy, /Rescan no: the findings are the publishers' scans, each as of the day it ran/);
+    assert.match(policy, /Vulnerabilities fail at critical or above, counting only findings with a fix Rescan no/);
+    assert.doesNotMatch(policy, /VEX documents/);
+  });
+
+  test('an observe-only image is counted apart, marked, and holds nothing back', () => {
+    const html = read(site, 'index.html');
+    const page = shown(html);
+    assert.match(page, /✕ Policy does not pass: of 3 gating images, 2 fail it\. 1 more image is observe-only ?: it has a verdict, but the policy doesn't gate on it\./);
+    assert.match(page, /1 – Observe-only Observed, not gating/);
+    assert.match(html, /<a class="tile tone-muted tile-link" href="\/portal\/lists\/observe-only\/">/);
+    // On no reason card, and last in the table, with its own verdict and a mark.
+    const reasons = html.slice(html.indexOf('id="attention"'), html.indexOf('id="fix-first"'));
+    assert.doesNotMatch(reasons, /\/images\/cgr-dev-chainguard-static\//);
+    assert.match(shown(reasons), /Observe-only images hold nothing back/);
+    const table = html.slice(html.indexOf('<table class="images"'), html.indexOf('</table>', html.indexOf('<table class="images"')));
+    const order = [...table.matchAll(/<a href="\/portal\/images\/([^/]+)\/">/g)].map((m) => m[1]);
+    assert.equal(order.at(-1), 'cgr-dev-chainguard-static');
+    assert.match(table, /<td data-sort-value="3 0">.*?✕<\/span>Failed<\/button>.*?–<\/span>Observe-only<\/button>/s);
+    // Its page says what it is; the lists count it apart.
+    assert.match(shown(read(site, 'images/cgr-dev-chainguard-static/index.html')), /✕ Failed – Observe-only The policy observes this image without gating on it/);
+    assert.match(shown(read(site, 'lists/observe-only/index.html')), /Observe-only images .* static:latest/);
+    assert.doesNotMatch(read(site, 'lists/failed/index.html'), /\/images\/cgr-dev-chainguard-static\//);
+    assert.match(shown(read(site, 'lists/failed/index.html')), /Images the policy only observes aren't counted here; they are listed apart\./);
+  });
+
+  test("the images table gives this run's scan beside the publisher's, or says it couldn't check", () => {
+    const html = read(site, 'index.html');
+    const table = html.slice(html.indexOf('<table class="images"'), html.indexOf('</table>', html.indexOf('<table class="images"')));
+    const row = (id: string) => shown(table.slice(table.indexOf(`/images/${id}/`), table.indexOf('</tr>', table.indexOf(`/images/${id}/`))));
+    assert.match(row('ghcr-io-acme-images-billing-1-4-2'), /0 C · 1 H now 1 C · 1 H/);
+    assert.match(row('docker-io-library-redis-7'), /\? Unknown \? now: couldn't check/);
+    assert.match(row('ghcr-io-acme-images-hello-app'), /0 findings now 0 C · 0 H/);
+    // Sorted worst first by the worse of the two scans.
+    assert.match(table, /data-sort-value="1 1 2 0"/);
+  });
+
+  test('a suppressed finding stays listed, open, with the statement that suppressed it', () => {
+    const html = read(site, 'images/ghcr-io-acme-images-billing-1-4-2/index.html');
+    const page = shown(html);
+    assert.match(page, /2 suppressed in this run's scan by a VEX statement or the scanner \(not counted\)/);
+    assert.match(
+      page,
+      /CVE-2026-9999 CVE record .*? github\.com\/acme\/lib v1\.2\.0 medium no fix known linux\/amd64 ○ Suppressed A VEX statement in vex\/acme\.openvex\.json \(https:\/\/acme\.example\/vex\/2026-10\): not_affected, vulnerable_code_not_in_execute_path, about pkg:oci\/billing\?repository_url=ghcr\.io\/acme\/images\/billing\./,
+    );
+    assert.match(page, /CVE-2026-0042 CVE record .*? linux-headers 6\.12 low no fix known linux\/amd64 ○ Suppressed A rule of the scanner's own: ignored by grype's own rules \(exact-indirect-match\)\./);
+    assert.match(page, /1 suppressed in the publisher's scan .* ○ Suppressed The publisher's scan suppressed it, with a statement this run didn't see\./);
+    assert.match(html, /<details open class="findings"[^>]*>\s*<summary>2 suppressed in this run&#39;s scan/);
+  });
+
+  test("an image's page lists what it failed apart from what couldn't be checked", () => {
+    const page = shown(read(site, 'images/docker-io-library-redis-7/index.html'));
+    const head = page.slice(0, page.indexOf('Identity Digest'));
+    assert.match(head, /✕ Failed signature is missing vulnerabilityScan is missing provenance is missing \? Couldn't be checked · not a pass, and not a failure none of its evidence is verified/);
+    const unknown = head.slice(head.indexOf("Couldn't be checked"));
+    assert.match(unknown, /sbom is unknown \(couldn't be read or checked\)/);
+    assert.match(unknown, /current vulnerabilities are unknown \(the rescan is unknown/);
+    assert.doesNotMatch(unknown, /signature is missing/);
   });
 
   test('present evidence is shown as unverified, not verified', () => {
@@ -148,7 +312,7 @@ describe('the example site', () => {
   });
 
   test('estate vulnerability totals are called a floor when some images are not scanned', () => {
-    assert.match(text(read(site, 'index.html')), /these totals are a floor for the estate, not its total/);
+    assert.match(text(read(site, "index.html")), /these totals are a floor/);
   });
 
   test('package pages name the images they cannot speak for', () => {
@@ -227,12 +391,12 @@ describe('the example site', () => {
     for (const c of commands) assert.doesNotMatch(c, /hello-app:latest/);
     // Copy buttons wait for the script, which unhides them where the clipboard works.
     assert.match(html, /<button type="button" class="copy" data-copy aria-label="Copy the Signature command" hidden>Copy<\/button>/);
-    assert.match(shown(read(site, 'images/docker-io-library-redis/index.html')), /No command for SBOM: it isn't verified, so there is no trusted signer to check it against\./);
+    assert.match(shown(read(site, 'images/docker-io-library-redis-7/index.html')), /No command for SBOM: it isn't verified, so there is no trusted signer to check it against\./);
   });
 
   test('a reproduction says what checked it: this run, or an attestation and where it ran', () => {
     assert.match(shown(read(site, 'images/ghcr-io-acme-images-hello-app/index.html')), /Checked by this run, which rebuilt it\./);
-    const html = read(site, 'images/ghcr-io-acme-images-billing/index.html');
+    const html = read(site, 'images/ghcr-io-acme-images-billing-1-4-2/index.html');
     const page = shown(html);
     assert.match(page, /Checked by a clearcutt-factory reproduction attestation, verified against a trusted signer; this run didn't rebuild it\./);
     assert.match(page, /Attestation signed by https:\/\/github\.com\/acme\/images\/\.github\/workflows\/fleet\.yml@refs\/heads\/main \(issuer https:\/\/token\.actions\.githubusercontent\.com\) ghcr\.io\/acme\/images\/billing@sha256:a?(ba)+b?/);
@@ -302,11 +466,11 @@ describe('the example site', () => {
       assert.match(svg, /aria-label="[^"]+"/);
     }
     assert.match(html, /aria-label="Signatures verified\. 2 runs; latest [^"]+\. Every value is in the table of every run below\."/);
-    assert.match(text(html), /Not scanned Signatures verified Reproduced/);
+    assert.match(text(html), /Not scanned Critical, rescan High, rescan Not rescanned Signatures verified Reproduced/);
   });
 
   test('a rebased image names what it was rebased from', () => {
-    const page = text(read(site, 'images/ghcr-io-acme-images-billing/index.html'));
+    const page = text(read(site, 'images/ghcr-io-acme-images-billing-1-4-2/index.html'));
     assert.match(page, /Rebased from ghcr\.io\/acme\/images\/billing@sha256:0{64} onto/);
   });
 });
@@ -315,6 +479,13 @@ describe('a report written by someone hostile', () => {
   let site: string;
   before(() => {
     const bundle = editedBundle(MINIMAL, (r) => {
+      const byId = (id: string) => r.images.find((i: any) => i.id === id);
+      r.images = [
+        byId('cgr-dev-chainguard-static'),
+        byId('ghcr-io-acme-images-hello-app'),
+        byId('ghcr-io-acme-images-billing-1-4-2'),
+        byId('docker-io-library-redis-7'),
+      ];
       r.images[0].source = { url: 'javascript:alert(document.domain)', basis: 'label' };
       r.images[2].source = { url: 'https://github.com@evil.example/acme', basis: 'annotation' };
       r.images[3].source = { url: 'https://example.test/acme/redis', basis: 'label' };
@@ -353,17 +524,17 @@ describe('a report written by someone hostile', () => {
     const page = read(site, 'images/cgr-dev-chainguard-static/index.html');
     assert.doesNotMatch(page, /href="javascript:/i);
     assert.match(page, /<code>javascript:alert\(document\.domain\)<\/code> <span class="dim small">\(not linked/);
-    assert.match(read(site, 'images/ghcr-io-acme-images-billing/index.html'), /<code>https:\/\/github\.com@evil\.example\/acme<\/code>/);
+    assert.match(read(site, 'images/ghcr-io-acme-images-billing-1-4-2/index.html'), /<code>https:\/\/github\.com@evil\.example\/acme<\/code>/);
   });
 
   test("a reproduction's run that is not http(s) is shown as text", () => {
-    const page = read(site, 'images/ghcr-io-acme-images-billing/index.html');
+    const page = read(site, 'images/ghcr-io-acme-images-billing-1-4-2/index.html');
     assert.match(page, /Run: <code>javascript:alert\(document\.domain\)<\/code> <span class="dim small">\(not linked/);
   });
 
   test('an http(s) source URL is a link', () => {
     assert.match(
-      read(site, 'images/docker-io-library-redis/index.html'),
+      read(site, 'images/docker-io-library-redis-7/index.html'),
       /<a href="https:\/\/example\.test\/acme\/redis" rel="noreferrer">https:\/\/example\.test\/acme\/redis<\/a>/,
     );
   });
@@ -377,7 +548,7 @@ describe('a report written by someone hostile', () => {
   });
 
   test('markup in report text is escaped', () => {
-    const page = read(site, 'images/docker-io-library-redis/index.html');
+    const page = read(site, 'images/docker-io-library-redis-7/index.html');
     assert.doesNotMatch(page, /<script>alert|<img src=x/);
     assert.match(page, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
   });
@@ -386,7 +557,7 @@ describe('a report written by someone hostile', () => {
     const pages = readdirSync(path.join(site, 'findings')).sort();
     assert.ok(pages.includes('etc-passwd') && pages.includes('script-alert-1-script'), pages.join(' '));
     assert.ok(!existsSync(path.join(site, 'etc')));
-    for (const page of ['findings/index.html', 'images/ghcr-io-acme-images-billing/index.html']) {
+    for (const page of ['findings/index.html', 'images/ghcr-io-acme-images-billing-1-4-2/index.html']) {
       const html = read(site, page);
       // Inside a quoted attribute, where < is text, it may stay as it is.
       assert.doesNotMatch(html.replace(/="[^"]*"/g, '=""'), /<script>alert/);
@@ -406,11 +577,18 @@ describe('the fixture site', () => {
   test('why images fall short: one card per reason, with every image it holds back', () => {
     const html = read(site, 'index.html');
     const section = html.slice(html.indexOf('id="attention"'), html.indexOf('id="fix-first"'));
-    assert.deepEqual(
-      [...section.matchAll(/<h3>([^<]+)<\/h3>/g)].map((m) => m[1]),
-      ['Vulnerabilities are unknown (no scan)', 'Provenance is missing', 'Sbom is missing', 'Signature is missing'],
-    );
-    assert.match(shown(section), /Vulnerabilities are unknown \(no scan\) 4 images: 2 failed, 2 unverified amazonlinux:2023 ✕ Failed debian:trixie-slim ✕ Failed static:latest \? Unverified wolfi-base:latest \? Unverified/);
+    const failed = section.slice(section.indexOf('id="reasons-failed"'), section.indexOf('id="reasons-unknown"'));
+    const unknown = section.slice(section.indexOf('id="reasons-unknown"'));
+    const cards = (part: string) => [...part.matchAll(/<h4>([^<]+)<\/h4>/g)].map((m) => m[1]);
+    assert.deepEqual(cards(failed), ['Provenance is missing', 'Sbom is missing', 'Signature is missing']);
+    // A failed image's reasons that weren't failures are in a group of their own.
+    assert.deepEqual(cards(unknown), [
+      'Vulnerabilities are unknown (no scan)',
+      'None of its evidence is verified, so a trusted signer vouched for nothing about it',
+    ]);
+    assert.match(shown(failed), /✕ Failed · 3 reasons The check ran, and the image fell short/);
+    assert.match(shown(unknown), /\? Couldn't be checked · 2 reasons The requirement couldn't be decided.*Not a pass, and not a failure\./);
+    assert.match(shown(unknown), /Vulnerabilities are unknown \(no scan\) 4 images: 2 failed, 2 unverified amazonlinux:2023 ✕ Failed debian:trixie-slim ✕ Failed static:latest \? Unverified wolfi-base:latest \? Unverified/);
   });
 
   test('every headline number links to the list of what it counts', () => {
@@ -424,7 +602,7 @@ describe('the fixture site', () => {
     const failed = shown(read(site, 'lists/failed/index.html'));
     assert.match(failed, /Failed images.*2 images/);
     const rows = [...read(site, 'lists/failed/index.html').matchAll(/<a href="\/images\/([^/]+)\/">/g)].map((m) => m[1]);
-    assert.deepEqual(rows, ['amazonlinux-2023', 'debian-trixie-slim']);
+    assert.deepEqual(rows, ['docker-io-library-amazonlinux-2023', 'docker-io-library-debian-trixie-slim']);
     assert.match(shown(read(site, 'lists/not-reproduced/index.html')), /No rebuild gave a different digest/);
   });
 
@@ -455,12 +633,12 @@ describe('the fixture site', () => {
   });
 
   test("an image's findings are fix first, each opening the advisory's page", () => {
-    const html = read(site, 'images/debian-tools/index.html');
+    const html = read(site, 'images/ghcr-io-northcutted-images-debian-tools/index.html');
     const rows = [...html.matchAll(/<tr data-text="([^"]+)">/g)].map((m) => m[1]);
     const first = rows.findIndex((r) => r.endsWith(' critical'));
     const fixableHigh = rows.findIndex((r) => r.startsWith('go-2026-6603 '));
     assert.ok(fixableHigh >= 0 && fixableHigh < first, 'a fixable high comes before a critical with no fix');
-    assert.match(html, /<a class="mono" href="\/findings\/cve-2026-10536\/">CVE-2026-10536<\/a>/);
+    assert.match(html, /<a class="mono nowrap" href="\/findings\/cve-2026-10536\/">CVE-2026-10536<\/a>/);
   });
 
   test('the images table reads in verdict order without script, and says how to sort with it', () => {
@@ -468,7 +646,7 @@ describe('the fixture site', () => {
     const table = html.slice(html.indexOf('<table class="images" data-sortable>'));
     assert.match(table, /<th data-sort="text"[^>]*>Image<\/th>/);
     const order = [...table.slice(0, table.indexOf('</table>')).matchAll(/<a href="\/images\/([^/]+)\/">/g)].map((m) => m[1]);
-    assert.deepEqual(order.slice(0, 4), ['amazonlinux-2023', 'debian-trixie-slim', 'static', 'wolfi-base']);
+    assert.deepEqual(order.slice(0, 4), ['docker-io-library-amazonlinux-2023', 'docker-io-library-debian-trixie-slim', 'cgr-dev-chainguard-static', 'cgr-dev-chainguard-wolfi-base']);
     assert.match(html, /<p class="small dim sort-hint" data-sort-hint hidden>/);
   });
 
@@ -482,19 +660,19 @@ describe('the fixture site', () => {
   });
 
   test("a smoke test the recipe declares reads as declared, not as a generic present", () => {
-    const page = shown(read(site, 'images/debian-tools/index.html'));
+    const page = shown(read(site, 'images/ghcr-io-northcutted-images-debian-tools/index.html'));
     assert.match(page, /Tests ○ Declared in recipe .*declared in the recipe .*declares a smoke test \(\/usr\/local\/bin\/rg --version\)/);
-    assert.match(text(read(site, 'images/debian-tools/index.html')), /Tests ○ Declared in recipe Declared in recipe\. The image's verified recipe declares a smoke test/);
+    assert.match(text(read(site, 'images/ghcr-io-northcutted-images-debian-tools/index.html')), /Tests ○ Declared in recipe Declared in recipe\. The image's verified recipe declares a smoke test/);
     assert.match(shown(read(site, 'about/index.html')), /Declared in recipe .* Nothing attests that the test ran/);
   });
 
   test('a proven base says which platform images were compared', () => {
-    const page = shown(read(site, 'images/platform-tools/index.html'));
+    const page = shown(read(site, 'images/ghcr-io-northcutted-images-platform-tools/index.html'));
     assert.match(page, /Proven by layer digests, comparing the linux\/amd64 images\./);
   });
 
   test('an image says where its package list was read from', () => {
-    const page = shown(read(site, 'images/platform-tools/index.html'));
+    const page = shown(read(site, 'images/ghcr-io-northcutted-images-platform-tools/index.html'));
     assert.match(page, /Read from its SBOM, which is ✓ Verified; the union of the linux\/amd64, linux\/arm64 images' lists\./);
     const pkg = shown(read(site, 'packages/index.html'));
     assert.doesNotMatch(pkg, /of\d/);
@@ -510,7 +688,7 @@ describe('the fixture site', () => {
   });
 
   test('an app on a stack defined beside it says so', () => {
-    const page = shown(read(site, 'images/hello-app/index.html'));
+    const page = shown(read(site, 'images/ghcr-io-northcutted-images-hello-app/index.html'));
     assert.match(page, /Stack go defined beside the app, not in a registry; its definition's digest is sha256:cfdf348cb280\./);
     assert.match(shown(read(site, 'stacks/index.html')), /No registry stacks in this report[\s\S]*Apps on stacks not listed here[\s\S]*hello-app:latest on go at sha256:cfdf348cb280/);
     assert.match(read(site, 'index.html'), /<a href="\/stacks\/">Stacks<\/a>/);
@@ -521,7 +699,7 @@ describe('the fixture site', () => {
     assert.match(page, /The previous run recorded no per-image rows \(clearcutt-verify writes them from v0\.15\)/);
     assert.doesNotMatch(page, /isn't recorded\./);
     assert.match(page, /UTC\. 3 runs recorded/);
-    const image = shown(read(site, 'images/debian-tools/index.html'));
+    const image = shown(read(site, 'images/ghcr-io-northcutted-images-debian-tools/index.html'));
     assert.match(image, /This image over time .* 2026-10-10 16:51 UTC sha256:867c6cbf7f44 ✓ Verified ✓ Proven, ✓ current/);
     assert.match(image, /2 earlier runs recorded no per-image rows and aren't shown/);
   });
@@ -548,7 +726,7 @@ describe('a report using everything clearcutt-verify v0.15 writes', () => {
   });
 
   test("an app's page names its registry stack, the version's currency and signature, and links to it", () => {
-    const html = read(site, 'images/hello-app/index.html');
+    const html = read(site, 'images/ghcr-io-northcutted-images-hello-app/index.html');
     assert.match(shown(html), /Stack go from the registry stack ghcr\.io\/northcutted\/stacks\/go:1, pinned at sha256:cfdf348cb280\. Version: ! Older version .* Signature: ✓ Verified/);
     assert.match(html, /href="\/stacks\/#stack-ghcr-io-northcutted-stacks-go"/);
     assert.match(read(site, 'stacks/index.html'), /id="stack-ghcr-io-northcutted-stacks-go"/);
@@ -561,26 +739,26 @@ describe('a report using everything clearcutt-verify v0.15 writes', () => {
   test('the policy shows the scan-age limit and the stack signers', () => {
     const page = shown(read(site, 'about/index.html'));
     assert.match(page, /Scan age unverified when the vulnerability scan is more than 7 days old/);
-    assert.match(page, /Stack signers Identity matching \^https:\/\/github\\\.com\/northcutted\/clearcutt-factory\//);
-    assert.match(shown(read(site, 'images/hello-app/index.html')), /The findings describe that day, within the policy's limit of 7 days\./);
+    assert.match(page, /Stack signers role stack: clearcutt-factory stacks Identity matching \^https:\/\/github\\\.com\/northcutted\/clearcutt-factory\//);
+    assert.match(shown(read(site, 'images/ghcr-io-northcutted-images-hello-app/index.html')), /The findings describe that day, within the policy's limit of 7 days\./);
   });
 
   test('a base digest of one platform image says which', () => {
-    assert.match(shown(read(site, 'images/platform-tools/index.html')), /sha256:1c451d46a0d5\w+ \(its linux\/amd64 image\)/);
+    assert.match(shown(read(site, 'images/ghcr-io-northcutted-images-platform-tools/index.html')), /sha256:1c451d46a0d5\w+ \(its linux\/amd64 image\)/);
     assert.match(shown(read(site, 'bases/index.html')), /Newest observed: cgr\.dev\/chainguard\/wolfi-base:latest sha256:1c451d46a0d5 \(its linux\/amd64 image\)/);
   });
 
   test('a package list whose source is not recorded says so', () => {
-    assert.match(shown(read(site, 'images/debian-tools/index.html')), /Where this package set was read from isn't recorded\./);
+    assert.match(shown(read(site, 'images/ghcr-io-northcutted-images-debian-tools/index.html')), /Where this package set was read from isn't recorded\./);
   });
 
   test("an image's page shows it run by run, with trends", () => {
-    const page = shown(read(site, 'images/debian-tools/index.html'));
+    const page = shown(read(site, 'images/ghcr-io-northcutted-images-debian-tools/index.html'));
     assert.match(page, /2026-10-10 16:51 UTC sha256:867c6cbf7f44 rebuilt, same base ✓ Verified/);
     assert.match(page, /2026-10-06 23:30 UTC sha256:dddddddddddd ✕ Failed .* 30 /);
     assert.match(page, /1 earlier run recorded no per-image rows and isn't shown/);
-    assert.match(read(site, 'images/debian-tools/index.html'), /aria-label="Critical findings\. 2 runs; latest [^"]*: 25\. lowest 25, highest 30\. Every value is in the table above\."/);
-    assert.match(shown(read(site, 'images/static/index.html')), /2026-10-06 23:30 UTC Not in this run\./);
+    assert.match(read(site, 'images/ghcr-io-northcutted-images-debian-tools/index.html'), /aria-label="Critical findings\. 2 runs; latest [^"]*: 25\. lowest 25, highest 30\. Every value is in the table above\."/);
+    assert.match(shown(read(site, 'images/cgr-dev-chainguard-static/index.html')), /2026-10-06 23:30 UTC Not in this run\./);
   });
 
   test('the latest two runs side by side: each image before and after, and how it changed', () => {
@@ -620,6 +798,42 @@ describe('a report using everything clearcutt-verify v0.15 writes', () => {
   });
 });
 
+describe('fresh scan and observe-only history', () => {
+ let site: string;
+ before(() => {
+  const counts=(critical:number)=>({critical,high:1,medium:0,low:0,negligible:0,unknown:0});
+  site=build(editedBundle(v015Bundle(),()=>{},h=>{
+   const [latest,previous]=h.entries;
+   const id='ghcr-io-northcutted-images-debian-tools';
+   Object.assign(latest.images.find((i:any)=>i.id===id),{rescanVulnerabilities:counts(2),observeOnly:true});
+   Object.assign(previous.images.find((i:any)=>i.id===id),{rescanVulnerabilities:counts(5)});
+   latest.summary.rescan={scanned:1,unknown:latest.summary.images-1,counts:counts(2),fixable:counts(2),suppressed:0};
+   latest.summary.verdicts.verified--;
+   latest.summary.verdicts.observeOnly=1;
+  }));
+ });
+ test('history labels line up with observe-only and rescan cells',()=>{
+  const html=read(site,'history/index.html');
+  const table=html.match(/<table\b[^>]*class="runs"[^>]*>([\s\S]*?)<\/table>/)![1];
+  const headings=[...table.matchAll(/<th\b[^>]*>([\s\S]*?)<\/th>/g)].map(m=>text(m[1]));
+  assert.deepEqual(headings.slice(4,10),['Unverified','Observe-only','Stale','Proven','Claimed','Unresolved']);
+  const first=table.match(/<tbody[^>]*>\s*<tr[^>]*>([\s\S]*?)<\/tr>/)![1];
+  const cells=[...first.matchAll(/<td\b[^>]*>([\s\S]*?)<\/td>/g)].map(m=>text(m[1]).trim());
+  assert.equal(cells[headings.indexOf('Observe-only')],'1');
+  assert.equal(cells[headings.indexOf('Critical, rescan')],'2');
+  assert.match(shown(html),/Critical findings in this run's scan 5 → 2/);
+  assert.match(shown(html),/Now observe-only: its verdict no longer gates/);
+ });
+ test('comparisons and the image page retain separate scan counts',()=>{
+  const compare=shown(read(site,'history/changes/20261006T233046Z--20261010T165146Z/index.html'));
+  assert.match(compare,/This run's scan: critical 5 → 2, high 1/);
+  assert.match(compare,/gating → observe-only/);
+  const image=shown(read(site,'images/ghcr-io-northcutted-images-debian-tools/index.html'));
+  assert.match(image,/Critical, rescan High, rescan/);
+  assert.match(image,/observe-only/);
+ });
+});
+
 describe('a report from a newer clearcutt-verify', () => {
   // Fields this contract doesn't have yet, and images that trust left bare:
   // newer clearcutt-verify reads nothing from evidence no trusted signer
@@ -628,17 +842,17 @@ describe('a report from a newer clearcutt-verify', () => {
   before(() => {
     const bundle = editedBundle(FIXTURE, (r) => {
       const image = (id: string) => r.images.find((i: any) => i.id === id);
-      Object.assign(image('platform-tools').base, { drift: 'stale', versionsBehind: 1, daysBehind: 0, daysBehindUnknown: true });
-      image('platform-tools').evidence.signature.someLaterField = 'ignored';
+      Object.assign(image('ghcr-io-northcutted-images-platform-tools').base, { drift: 'stale', versionsBehind: 1, daysBehind: 0, daysBehindUnknown: true });
+      image('ghcr-io-northcutted-images-platform-tools').evidence.signature.someLaterField = 'ignored';
       r.someLaterSection = [{ anything: true }];
       r.metadata.generator = { name: 'clearcutt-verify', version: 'v99.0.0' };
-      const bare = image('debian-tools');
+      const bare = image('ghcr-io-northcutted-images-debian-tools');
       bare.verdict = { status: 'unverified', reasons: ['sbom is present but not from a trusted signer'] };
       for (const key of ['vulnerabilities', 'packages', 'packagesSource', 'factory']) delete bare[key];
-      for (const pkg of r.packages) pkg.images = pkg.images.filter((id: string) => id !== 'debian-tools');
+      for (const pkg of r.packages) pkg.images = pkg.images.filter((id: string) => id !== 'ghcr-io-northcutted-images-debian-tools');
       r.packages = r.packages.filter((pkg: any) => pkg.images.length > 0);
-      image('wolfi-base').packagesSource.status = 'present';
-      image('static').evidence.signature = {
+      image('cgr-dev-chainguard-wolfi-base').packagesSource.status = 'present';
+      image('cgr-dev-chainguard-static').evidence.signature = {
         status: 'failed',
         source: 'cosign-signature',
         signer: { identity: 'https://github.com/someone/else/.github/workflows/sign.yml@refs/heads/main', issuer: 'https://token.actions.githubusercontent.com' },
@@ -649,7 +863,7 @@ describe('a report from a newer clearcutt-verify', () => {
   });
 
   test("what this portal's contract doesn't cover is in every page's footer and on the about page", () => {
-    for (const page of ['index.html', 'images/platform-tools/index.html', 'about/index.html']) {
+    for (const page of ['index.html', 'images/ghcr-io-northcutted-images-platform-tools/index.html', 'about/index.html']) {
       const text = shown(read(site, page));
       assert.match(text, /This report goes beyond what this portal knows\./, page);
       assert.match(text, /estate-report\.json has 2 fields this portal's contract doesn't define, so no page shows them: images\[\]\.evidence\.signature\.someLaterField, someLaterSection\./, page);
@@ -659,7 +873,7 @@ describe('a report from a newer clearcutt-verify', () => {
   });
 
   test('a stale base whose age is unknown says so, never 0 days', () => {
-    const page = shown(read(site, 'images/platform-tools/index.html'));
+    const page = shown(read(site, 'images/ghcr-io-northcutted-images-platform-tools/index.html'));
     assert.match(page, /! Stale 1 version behind; how many days couldn't be measured/);
     assert.doesNotMatch(page, /0 days behind/);
     assert.match(shown(read(site, 'bases/index.html')), /platform-tools:latest ✓ Proven ! behind, age unknown/);
@@ -668,8 +882,8 @@ describe('a report from a newer clearcutt-verify', () => {
   });
 
   test('an image with nothing trusted to read from says what is unknown', () => {
-    const page = shown(read(site, 'images/debian-tools/index.html'));
-    assert.match(page, /\? Unverified sbom is present but not from a trusted signer/);
+    const page = shown(read(site, 'images/ghcr-io-northcutted-images-debian-tools/index.html'));
+    assert.match(page, /\? Unverified \? Couldn't be checked · not a pass, and not a failure sbom is present but not from a trusted signer/);
     assert.match(page, /This image has no vulnerability data, so how many vulnerabilities it has is unknown\./);
     assert.match(page, /The report has no package set for this image, so what it ships is unknown\./);
     assert.doesNotMatch(page, /clearcutt-factory App|Stack go|undefined|NaN/);
@@ -678,13 +892,13 @@ describe('a report from a newer clearcutt-verify', () => {
   });
 
   test("a signer is shown as checked only on verified evidence", () => {
-    const page = shown(read(site, 'images/static/index.html'));
+    const page = shown(read(site, 'images/cgr-dev-chainguard-static/index.html'));
     assert.match(page, /Signature ✕ Failed https:\/\/github\.com\/someone\/else\/\S+ issuer \S+ as its certificate claims; not checked/);
     assert.equal(page.match(/as its certificate claims/g)?.length, 1);
   });
 
   test('a package list read from unverified SBOMs is flagged as possibly incomplete', () => {
-    assert.match(shown(read(site, 'images/wolfi-base/index.html')), /which is ○ Present, unverified; .*No trusted signer verified all of it, so the list may not be complete\./);
+    assert.match(shown(read(site, 'images/cgr-dev-chainguard-wolfi-base/index.html')), /which is ○ Present, unverified; .*No trusted signer verified all of it, so the list may not be complete\./);
     assert.match(shown(read(site, 'packages/index.html')), /1 image's package list rests on SBOMs no trusted signer verified, so it may not be complete: wolfi-base:latest\./);
   });
 });
@@ -699,11 +913,11 @@ describe('runs that list fixable findings and package digests', () => {
       editedBundle(FIXTURE, () => {}, (h) => {
         const [latest, previous] = h.entries;
         previous.images = structuredClone(latest.images).map((i: any) => {
-          if (i.id === 'debian-tools') {
+          if (i.id === 'ghcr-io-northcutted-images-debian-tools') {
             const ids = [...i.fixableFindings.filter((f: string) => f !== 'GO-2026-6629'), 'CVE-2026-0001'].sort();
             return { ...i, digest: `sha256:${'d'.repeat(64)}`, fixableFindings: ids, packagesDigest: `sha256:${'0'.repeat(64)}` };
           }
-          if (i.id === 'static') delete i.packagesDigest;
+          if (i.id === 'cgr-dev-chainguard-static') delete i.packagesDigest;
           return i;
         });
       }),
@@ -735,10 +949,10 @@ describe('an image whose own packages are unknown', () => {
   before(() => {
     site = build(
       editedBundle(FIXTURE, (r) => {
-        const tools = r.images.find((i: any) => i.id === 'platform-tools');
+        const tools = r.images.find((i: any) => i.id === 'ghcr-io-northcutted-images-platform-tools');
         delete tools.packages;
         delete tools.packagesSource;
-        for (const pkg of r.packages) pkg.images = pkg.images.filter((id: string) => id !== 'platform-tools');
+        for (const pkg of r.packages) pkg.images = pkg.images.filter((id: string) => id !== 'ghcr-io-northcutted-images-platform-tools');
         r.packages = r.packages.filter((pkg: any) => pkg.images.length > 0);
       }),
     );
@@ -755,19 +969,19 @@ describe('an image whose own packages are unknown', () => {
 
   test('is in the search index with its base link', () => {
     const index = JSON.parse(read(site, 'packages/search-index.json'));
-    assert.deepEqual(index.images.find((i: any) => i.id === 'platform-tools'), {
-      id: 'platform-tools',
+    assert.deepEqual(index.images.find((i: any) => i.id === 'ghcr-io-northcutted-images-platform-tools'), {
+      id: 'ghcr-io-northcutted-images-platform-tools',
       label: 'platform-tools:latest',
-      href: '/images/platform-tools/',
+      href: '/images/ghcr-io-northcutted-images-platform-tools/',
       packages: 'unknown',
-      base: { id: 'wolfi-base', strength: 'proof', exact: true },
+      base: { id: 'cgr-dev-chainguard-wolfi-base', strength: 'proof', exact: true },
     });
   });
 });
 
 describe('a rebased image with per-image history', () => {
   test('lists each rebase from the run that first recorded it', () => {
-    const billing = 'ghcr-io-acme-images-billing';
+    const billing = 'ghcr-io-acme-images-billing-1-4-2';
     const bundle = editedBundle(
       MINIMAL,
       () => {},
@@ -806,7 +1020,7 @@ describe('a history longer than the site shows', () => {
     const pairs = readdirSync(path.join(site, 'history/changes'), { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name).sort();
     assert.deepEqual(pairs, ['20261006T233046Z--20261010T165146Z', '20261006T233046Z--latest']);
     assert.match(shown(read(site, 'history/changes/index.html')), /This site compares the latest 2 runs; 1 older one is in estate-history\.json\./);
-    assert.match(shown(read(site, 'images/debian-tools/index.html')), /This shows the latest 2 runs; 1 older one is in estate-history\.json\./);
+    assert.match(shown(read(site, 'images/ghcr-io-northcutted-images-debian-tools/index.html')), /This shows the latest 2 runs; 1 older one is in estate-history\.json\./);
   });
 });
 
@@ -817,12 +1031,12 @@ describe('an estate whose policy passes, with work outstanding', () => {
       editedBundle(FIXTURE, (r) => {
         for (const image of r.images) image.verdict = { status: 'verified', reasons: [] };
         r.summary.verdicts = { verified: r.images.length, failed: 0, unverified: 0 };
-        for (const id of ['platform-tools', 'hello-app']) {
+        for (const id of ['ghcr-io-northcutted-images-platform-tools', 'ghcr-io-northcutted-images-hello-app']) {
           Object.assign(r.images.find((i: any) => i.id === id).base, { drift: 'stale', daysBehind: 3, versionsBehind: 1 });
         }
         r.summary.bases.stale = 2;
         r.summary.bases.current -= 2;
-        r.images.find((i: any) => i.id === 'amazonlinux-tools').vulnerabilities.scannedAt = '2026-09-30T16:00:00Z';
+        r.images.find((i: any) => i.id === 'ghcr-io-northcutted-images-amazonlinux-tools').vulnerabilities.scannedAt = '2026-09-30T16:00:00Z';
       }),
     );
   });
@@ -852,7 +1066,7 @@ describe('a report at the edges of what the schema allows', () => {
         FIXTURE,
         (r) => {
           // A SOURCE_DATE_EPOCH past what a date can hold.
-          r.images.find((i: any) => i.id === 'hello-app').factory.sourceDateEpoch = 1e20;
+          r.images.find((i: any) => i.id === 'ghcr-io-northcutted-images-hello-app').factory.sourceDateEpoch = 1e20;
           // Nothing was rebuilt: no image reproduced.
           for (const image of r.images) {
             if (image.reproducibility.status === 'reproduced') {
@@ -873,11 +1087,11 @@ describe('a report at the edges of what the schema allows', () => {
   test('a history with no runs says so on every page that shows history', () => {
     assert.match(shown(read(site, 'history/index.html')), /No runs in the history/);
     assert.match(shown(read(site, 'history/changes/index.html')), /The history lists no runs, so there is nothing to compare/);
-    assert.match(shown(read(site, 'images/hello-app/index.html')), /The history lists no runs, so there is only this run/);
+    assert.match(shown(read(site, 'images/ghcr-io-northcutted-images-hello-app/index.html')), /The history lists no runs, so there is only this run/);
   });
 
   test('a SOURCE_DATE_EPOCH no date can hold is shown as the number it is', () => {
-    assert.match(shown(read(site, 'images/hello-app/index.html')), /files clamped to SOURCE_DATE_EPOCH 100000000000000000000, which is not a date this site can show/);
+    assert.match(shown(read(site, 'images/ghcr-io-northcutted-images-hello-app/index.html')), /files clamped to SOURCE_DATE_EPOCH 100000000000000000000, which is not a date this site can show/);
   });
 
   test('the Reproduced tile is not green when nothing reproduced', () => {
@@ -885,6 +1099,135 @@ describe('a report at the edges of what the schema allows', () => {
     const tile = html.match(/class="tile tone-([a-z]+)[^"]*"(?:(?!class="tile ).)*?>Reproduced</s);
     assert.ok(tile, 'a Reproduced tile');
     assert.equal(tile[1], 'unknown');
+  });
+});
+
+describe('a claimed base with no version identified', () => {
+  // clearcutt-verify v0.17: an edge from org.opencontainers.image.base.name or
+  // build history names the repository only: no digest, no imageId (or, from
+  // a hand-written report, empty ones), drift unknown, 0 days behind.
+  let site: string;
+  before(() => {
+    const claimed = { repository: 'cgr.dev/chainguard/static', ref: 'cgr.dev/chainguard/static', drift: 'unknown', versionsBehind: 0, daysBehind: 0 };
+    site = build(
+      editedBundle(MINIMAL, (r) => {
+        const byId = (id: string) => r.images.find((i: any) => i.id === id);
+        byId('ghcr-io-acme-images-billing-1-4-2').base = { ...claimed, method: 'oci-base-name', strength: 'assisted' };
+        byId('ghcr-io-acme-images-hello-app').base = { ...claimed, method: 'history', strength: 'weak', digest: '', imageId: '' };
+      }),
+    );
+  });
+
+  test('builds, and says the version is unknown instead of linking a base', () => {
+    for (const id of ['ghcr-io-acme-images-billing-1-4-2', 'ghcr-io-acme-images-hello-app']) {
+      const html = read(site, `images/${id}/index.html`);
+      const base = html.slice(html.indexOf('id="base"'), html.indexOf('id="evidence"'));
+      assert.match(shown(base), /Built on cgr\.dev\/chainguard\/static A claimed base, no version identified: the image names this repository, but not which version of it/, id);
+      assert.doesNotMatch(base, /href="\/images\/cgr-dev-chainguard-static\/"/, id);
+      assert.doesNotMatch(shown(base), /unknown\s*\(its|sha256:/, id);
+      assert.match(shown(base), /\? Unknown With no version identified, how far behind it is is unknown\./, id);
+    }
+    const bases = shown(read(site, 'bases/index.html'));
+    assert.match(bases, /billing:1\.4\.2 ○ Assisted \? Unknown on cgr\.dev\/chainguard\/static \(claimed base, no version identified\)/);
+    assert.match(bases, /hello-app:latest ○ Weak \? Unknown on cgr\.dev\/chainguard\/static \(claimed base, no version identified\)/);
+    // The static image's page lists no image built on it: nothing linked to it.
+    assert.doesNotMatch(shown(read(site, 'images/cgr-dev-chainguard-static/index.html')), /Built on this image/);
+  });
+
+  test('drift past the limit from a claimed base is unverified, not failed; from a proven one, failed', () => {
+    const drifted = build(
+      editedBundle(MINIMAL, (r) => {
+        r.policy.maxDaysBehind = 30;
+        const byId = (id: string) => r.images.find((i: any) => i.id === id);
+        Object.assign(byId('ghcr-io-acme-images-billing-1-4-2').base, { strength: 'declared', method: 'oci-base-digest', drift: 'stale', daysBehind: 40, versionsBehind: 2 });
+        Object.assign(byId('ghcr-io-acme-images-hello-app').base, { drift: 'stale', daysBehind: 41, versionsBehind: 2 });
+      }),
+    );
+    const overview = shown(read(drifted, 'index.html'));
+    assert.match(overview, /The policy fails images more than 30 days behind a base proven by layer digests; behind a base they only claim, they are unverified\./);
+    assert.match(overview, /billing:1\.4\.2 \S+ ○ Declared 2 40 \(over the limit by a claim: unverified, not failed\)/);
+    assert.match(overview, /hello-app:latest \S+ ✓ Proven 2 41 \(over the limit\)/);
+    assert.match(overview, /Base age fail when more than 30 days behind a base proven by layer digests; unverified when that far behind a base the image only claims/);
+    assert.match(shown(read(drifted, 'bases/index.html')), /○ Declared 2 40 \(over 30 by a claim: unverified, not failed\)/);
+  });
+});
+
+describe("a run that read only some platforms, and an image whose platforms couldn't be read", () => {
+  let site: string;
+  before(() => {
+    site = build(
+      editedBundle(MINIMAL, (r) => {
+        r.metadata.platforms = ['linux/amd64'];
+        // As clearcutt-verify before v0.17.0 wrote an unreadable platform list.
+        r.images.find((i: any) => i.id === 'docker-io-library-redis-7').platforms = null;
+      }),
+    );
+  });
+
+  test('the run says which platforms it read, and an image says which of its own it did not', () => {
+    assert.match(shown(read(site, 'index.html')), /It read only their linux\/amd64 platform images \(--platforms\), so per-platform evidence, findings, and packages describe those alone\./);
+    assert.match(shown(read(site, 'about/index.html')), /Platforms read only linux\/amd64 \(estate verify --platforms\)/);
+    assert.match(shown(read(site, 'bases/index.html')), /with 2 history entries, reading only the linux\/amd64 platform images\./);
+    const hello = read(site, 'images/ghcr-io-acme-images-hello-app/index.html');
+    assert.match(shown(hello), /This run read only the linux\/amd64 platform images \(estate verify --platforms\): this image's linux\/arm64 image wasn't read, so its SBOMs and vulnerability reports weren't looked at/);
+    assert.match(shown(hello), /linux\/amd64 \S+ \d+ [\d.]+ \w+ read linux\/arm64 \S+ \d+ [\d.]+ \w+ not read/);
+    // The verdict is reached again reading what this run read.
+    assert.match(hello, /--platforms=linux\/amd64 \\/);
+    assert.doesNotMatch(hello, /--platforms=linux\/amd64,linux\/arm64/);
+    // An image all of whose platforms were read has nothing to say.
+    assert.doesNotMatch(shown(read(site, 'images/ghcr-io-acme-images-billing-1-4-2/index.html')), /wasn't read, so/);
+  });
+
+  test("an image whose platform list couldn't be read says its platforms are unknown", () => {
+    const page = shown(read(site, 'images/docker-io-library-redis-7/index.html'));
+    assert.match(page, /Platforms \? Unknown The report lists no platform images: this image's platform list couldn't be read, so which platforms it has is unknown\./);
+  });
+
+  test('a run that read every platform says so', () => {
+    const plain = build(FIXTURE);
+    assert.match(shown(read(plain, 'about/index.html')), /Platforms read every platform image of every image/);
+    assert.doesNotMatch(shown(read(plain, 'index.html')), /--platforms/);
+  });
+});
+
+describe('what a v0.17.0 report reads from provenance and rebase records', () => {
+  let site: string;
+  before(() => {
+    site = build(
+      editedBundle(MINIMAL, (r) => {
+        const byId = (id: string) => r.images.find((i: any) => i.id === id);
+        r.policy.provenanceBuilders = ['https://github.com/northcutted/clearcutt-factory/.github/workflows/images.yml@refs/tags/v0.3.0'];
+        byId('ghcr-io-acme-images-hello-app').provenance.builderChecked = true;
+        // A builder check that failed: nothing is read from that provenance.
+        const redis = byId('docker-io-library-redis-7');
+        redis.evidence.provenance = { status: 'failed', detail: 'The provenance names builder https://example.test/other, which policy.provenanceBuilders does not list.' };
+        // A smoke test the verified rebase record says passed.
+        const billing = byId('ghcr-io-acme-images-billing-1-4-2');
+        const { status, ...record } = billing.evidence.rebase;
+        billing.evidence.tests = { ...record, status: 'verified', detail: 'The verified rebase record says the smoke test (GET :8080/) passed on linux/amd64 before clearcutt-factory published the rebased image.' };
+      }),
+    );
+  });
+
+  test('provenance says whether its builder was checked or only read', () => {
+    const hello = shown(read(site, 'images/ghcr-io-acme-images-hello-app/index.html'));
+    assert.match(hello, /Provenance ✓ Builder checked builder https:\/\/github\.com\/northcutted\/clearcutt-factory\/\.github\/workflows\/images\.yml@refs\/tags\/v0\.3\.0 build type https:\/\/github\.com\/northcutted\/clearcutt-factory\/build\/v1/);
+    const billing = shown(read(site, 'images/ghcr-io-acme-images-billing-1-4-2/index.html'));
+    assert.match(billing, /Provenance ○ Builder read, not checked builder \S+ build type \S+ Read from provenance whose signature verified, but not evaluated/);
+    const redis = shown(read(site, 'images/docker-io-library-redis-7/index.html'));
+    assert.match(redis, /Provenance Nothing was read from it: the provenance failed verification \(the policy requires it to name one of its builders/);
+    assert.match(shown(read(site, 'about/index.html')), /Provenance builders .* https:\/\/github\.com\/northcutted\/clearcutt-factory\/\.github\/workflows\/images\.yml@refs\/tags\/v0\.3\.0/);
+    // An older report, with no provenance details, shows no such row.
+    assert.doesNotMatch(shown(read(build(FIXTURE), 'images/ghcr-io-northcutted-images-debian-tools/index.html')), /Builder (checked|read)/);
+  });
+
+  test("a smoke test read from the rebase record says where it was found, and the record's command checks it", () => {
+    const html = read(site, 'images/ghcr-io-acme-images-billing-1-4-2/index.html');
+    const page = shown(html);
+    assert.match(page, /Tests ✓ Verified https:\/\/github\.com\/acme\/images\/\S+ issuer \S+ in the rebase record \(cosign attestation\)/);
+    assert.match(page, /Rebase record\. Checks the clearcutt-factory rebase record was signed by the trusted signer, and prints it\. Its test field is the smoke test the Tests row reads/);
+    assert.doesNotMatch(page, /No command for [^.]*Tests/);
+    assert.doesNotMatch(html, /aria-label="Copy the Tests command"/);
   });
 });
 

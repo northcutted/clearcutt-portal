@@ -99,6 +99,10 @@ export interface Image {
    */
   id: string;
   /**
+   * ObserveOnly marks an image the policy observes but doesn't gate on (policy.observe): it has a verdict, but isn't counted in summary.verdicts and doesn't fail estate verify --fail-on. Absent, the image gates.
+   */
+  observeOnly?: boolean;
+  /**
    * Packages is how many package versions the image ships, when known.
    */
   packages?: number;
@@ -108,10 +112,18 @@ export interface Image {
   packagesSource?: PackagesSource;
   platforms: Platform[];
   /**
+   * Provenance is what the image's verified SLSA provenance says about who built it, read but (unless policy.provenanceBuilders names it) not evaluated: a reader shouldn't take it as checked.
+   */
+  provenance?: Provenance;
+  /**
    * Repository is registry/path without tag or digest.
    */
   repository: string;
   reproducibility: Reproducibility;
+  /**
+   * Rescan is this run's own scan of the image's verified SBOMs (estate verify --rescan), beside the publisher's: what a vulnerability database of this run's day says about the same packages. Absent when the run didn't rescan.
+   */
+  rescan?: Rescan;
   /**
    * Root says why the image has no parent, when it is a root.
    */
@@ -130,7 +142,7 @@ export interface Image {
   unresolved?: string[];
   verdict: Verdict;
   /**
-   * Vulnerabilities is absent when the image has no vulnerability data; that means unknown, not clean. Findings come only from verified vulnerability attestations.
+   * Vulnerabilities is absent when the image has no vulnerability data; that means unknown, not clean. Findings come only from verified vulnerability attestations: what the publisher's scan found, on the day it ran (scannedAt).
    */
   vulnerabilities?: Vulnerabilities;
   warnings: string[];
@@ -228,7 +240,7 @@ export interface Evidence {
    */
   signature: EvidenceItem;
   /**
-   * Tests is evidence that the image was tested (a smoke test or test attestation).
+   * Tests is evidence that the image was tested: a test-result attestation; the smoke test a verified clearcutt-factory rebase record says passed on every platform (it then names that record: predicateType, ref, signer); or, present with source recipe, the smoke test a verified recipe declares.
    */
   tests: EvidenceItem;
   /**
@@ -274,7 +286,7 @@ export interface EvidenceItem {
    */
   source?: string;
   /**
-   * Status is verified (found and checked against a trusted signer), present (found but not checked: no trusted signer applies, or it can't be checked), failed (found, and the check failed), missing (looked for, none), unknown (couldn't be looked for), or not-applicable (e.g. a rebase record for an image never rebased).
+   * Status is verified (found and checked against a trusted signer), present (found but not checked: no trusted signer applies, or it can't be checked), failed (found, and the check failed), missing (looked for, none), unknown (couldn't be looked for or checked), or not-applicable (a rebase record for an image never rebased, or the recipe of a rebased image whose rebase record is verified).
    */
   status: 'verified' | 'present' | 'failed' | 'missing' | 'unknown' | 'not-applicable';
   /**
@@ -411,6 +423,26 @@ export interface Platform {
   size: number;
 }
 /**
+ * Provenance is what verified SLSA provenance says about the build, as read: clearcutt-verify checks the provenance's signature and reads the source repository and commit from it (source, basis provenance); it doesn't evaluate the builder, the build type, or the materials unless the policy asks (policy.provenanceBuilders).
+ *
+ * This interface was referenced by `EstateReport`'s JSON-Schema
+ * via the `definition` "Provenance".
+ */
+export interface Provenance {
+  /**
+   * BuildType is buildDefinition.buildType (v1) or buildType (v0.2).
+   */
+  buildType?: string;
+  /**
+   * BuilderChecked is true when the policy's provenanceBuilders named the builder and it matched; false (absent), the builder wasn't evaluated.
+   */
+  builderChecked?: boolean;
+  /**
+   * BuilderID is runDetails.builder.id (SLSA v1) or builder.id (v0.2).
+   */
+  builderId?: string;
+}
+/**
  * Reproducibility is whether rebuilding the image gives the same digest.
  *
  * This interface was referenced by `EstateReport`'s JSON-Schema
@@ -486,6 +518,146 @@ export interface ReproductionBuilder {
   workflow?: string;
 }
 /**
+ * Rescan is this run's own vulnerability scan of an image: grype over the image's verified SBOMs, one per platform image, against a database of the run's day (estate verify --rescan). It is read only from SBOMs a trusted signer verified; an unverified SBOM is never scanned.
+ *
+ * This interface was referenced by `EstateReport`'s JSON-Schema
+ * via the `definition` "Rescan".
+ */
+export interface Rescan {
+  /**
+   * Detail explains an unknown status.
+   */
+  detail?: string;
+  /**
+   * Platforms gives the status per platform image.
+   */
+  platforms?: {
+    [k: string]: string;
+  };
+  /**
+   * Status is scanned (every platform image's verified SBOM was scanned) or unknown (some platform image has no verified SBOM, not every platform image could be read, or grype couldn't scan it): the image's current vulnerabilities are then unknown, never clean.
+   */
+  status: 'scanned' | 'unknown';
+  /**
+   * Vulnerabilities are the findings (source scan), when scanned.
+   */
+  vulnerabilities?: Vulnerabilities;
+}
+/**
+ * Vulnerabilities is an image's vulnerability findings.
+ *
+ * This interface was referenced by `EstateReport`'s JSON-Schema
+ * via the `definition` "Vulnerabilities".
+ */
+export interface Vulnerabilities {
+  counts: SeverityCounts;
+  /**
+   * Database is the vulnerability database the scan used, when known (source scan).
+   */
+  database?: ScannerDatabase;
+  /**
+   * Findings are deduplicated across platforms.
+   */
+  findings: Finding[];
+  fixable: SeverityCounts;
+  /**
+   * ScannedAt is when the scan ran (RFC 3339); findings describe that day.
+   */
+  scannedAt?: string;
+  /**
+   * Scanner is the scanner and version, e.g. grype 0.118.0.
+   */
+  scanner?: string;
+  /**
+   * Source is attestation (the publisher's signed report) or scan (this run scanned the image or its SBOM).
+   */
+  source: 'attestation' | 'scan';
+}
+/**
+ * SeverityCounts counts findings by severity.
+ *
+ * This interface was referenced by `EstateReport`'s JSON-Schema
+ * via the `definition` "SeverityCounts".
+ */
+export interface SeverityCounts {
+  critical: number;
+  high: number;
+  low: number;
+  medium: number;
+  negligible: number;
+  unknown: number;
+}
+/**
+ * ScannerDatabase is the vulnerability database a scan used.
+ *
+ * This interface was referenced by `EstateReport`'s JSON-Schema
+ * via the `definition` "ScannerDatabase".
+ */
+export interface ScannerDatabase {
+  /**
+   * Built is when the database was built (RFC 3339): findings know nothing published after it.
+   */
+  built?: string;
+  /**
+   * Schema is the database schema version, e.g. v6.1.10.
+   */
+  schema?: string;
+}
+/**
+ * Finding is one vulnerability in one package version.
+ *
+ * This interface was referenced by `EstateReport`'s JSON-Schema
+ * via the `definition` "Finding".
+ */
+export interface Finding {
+  /**
+   * FixedIn lists versions with a fix; empty when none is known.
+   */
+  fixedIn?: string[];
+  id: string;
+  package: string;
+  /**
+   * Platforms are the platform images it was found in.
+   */
+  platforms: string[];
+  severity: 'critical' | 'high' | 'medium' | 'low' | 'negligible' | 'unknown';
+  /**
+   * Suppressed says a VEX statement covers it (it is not counted).
+   */
+  suppressed?: boolean;
+  /**
+   * SuppressedBy names the statement, for findings this run's rescan suppressed with the policy's VEX documents. Absent on a suppressed finding, the publisher's scan suppressed it with a statement this run didn't see.
+   */
+  suppressedBy?: Suppression;
+  version: string;
+}
+/**
+ * Suppression is what suppressed a finding in this run's rescan.
+ *
+ * This interface was referenced by `EstateReport`'s JSON-Schema
+ * via the `definition` "Suppression".
+ */
+export interface Suppression {
+  document?: string;
+  /**
+   * File is the document's path as the policy named it, and Document its @id (source vex).
+   */
+  file?: string;
+  justification?: string;
+  /**
+   * Product is the statement's product @id as written in the document: the image (pkg:oci/…, or a reference) or a package purl.
+   */
+  product?: string;
+  /**
+   * Source is vex (a statement in one of the policy's OpenVEX documents) or scanner (a rule of grype's own, such as the one for kernel headers).
+   */
+  source: 'vex' | 'scanner';
+  /**
+   * Status is the statement's status (not_affected or fixed) and Justification its justification, when it gives one.
+   */
+  status?: string;
+}
+/**
  * SourceRef is the code an image was built from.
  *
  * This interface was referenced by `EstateReport`'s JSON-Schema
@@ -522,70 +694,6 @@ export interface Verdict {
   status: 'verified' | 'failed' | 'unverified';
 }
 /**
- * Vulnerabilities is an image's vulnerability findings.
- *
- * This interface was referenced by `EstateReport`'s JSON-Schema
- * via the `definition` "Vulnerabilities".
- */
-export interface Vulnerabilities {
-  counts: SeverityCounts;
-  /**
-   * Findings are deduplicated across platforms.
-   */
-  findings: Finding[];
-  fixable: SeverityCounts;
-  /**
-   * ScannedAt is when the scan ran (RFC 3339); findings describe that day.
-   */
-  scannedAt?: string;
-  /**
-   * Scanner is the scanner and version, e.g. grype 0.118.0.
-   */
-  scanner?: string;
-  /**
-   * Source is attestation (the publisher's signed report) or scan (this run scanned the image or its SBOM).
-   */
-  source: 'attestation' | 'scan';
-}
-/**
- * SeverityCounts counts findings by severity.
- *
- * This interface was referenced by `EstateReport`'s JSON-Schema
- * via the `definition` "SeverityCounts".
- */
-export interface SeverityCounts {
-  critical: number;
-  high: number;
-  low: number;
-  medium: number;
-  negligible: number;
-  unknown: number;
-}
-/**
- * Finding is one vulnerability in one package version.
- *
- * This interface was referenced by `EstateReport`'s JSON-Schema
- * via the `definition` "Finding".
- */
-export interface Finding {
-  /**
-   * FixedIn lists versions with a fix; empty when none is known.
-   */
-  fixedIn?: string[];
-  id: string;
-  package: string;
-  /**
-   * Platforms are the platform images it was found in.
-   */
-  platforms: string[];
-  severity: 'critical' | 'high' | 'medium' | 'low' | 'negligible' | 'unknown';
-  /**
-   * Suppressed says a VEX statement covers it (it is not counted).
-   */
-  suppressed?: boolean;
-  version: string;
-}
-/**
  * Metadata identifies the estate and the run.
  *
  * This interface was referenced by `EstateReport`'s JSON-Schema
@@ -601,6 +709,10 @@ export interface Metadata {
    * Name identifies the estate, e.g. acme-production.
    */
   name: string;
+  /**
+   * Platforms, when set, are the only platform images this run read (estate verify --platforms), e.g. linux/amd64: evidence attached to an image's other platform images (SBOMs and vulnerability reports) wasn't looked at, so per-platform evidence, findings, and packages describe these platforms only. Absent, every platform image was read.
+   */
+  platforms?: string[];
   /**
    * Sources are the registries and repositories that were read.
    */
@@ -675,9 +787,17 @@ export interface Policy {
    */
   maxScanAgeDays?: number;
   /**
+   * Observe lists the patterns (path globs over repository, or repository:tag) of the images that are observe-only: in the report with a verdict, but not gating (not counted in summary.verdicts, and not failing --fail-on).
+   */
+  observe?: string[];
+  /**
    * OnlyFixed counts only vulnerabilities that have a fix toward FailOn.
    */
   onlyFixed?: boolean;
+  /**
+   * ProvenanceBuilders, when set, are the builder IDs verified SLSA provenance must name (runDetails.builder.id, or builder.id in v0.2); provenance naming another is failed. Without it, the builder isn't evaluated.
+   */
+  provenanceBuilders?: string[];
   /**
    * Reproduce reports whether this run checked that images reproduce: those without a verified reproduction attestation were rebuilt, and one that doesn't reproduce, or couldn't be checked, falls short.
    */
@@ -687,6 +807,14 @@ export interface Policy {
    */
   required: ('signature' | 'sbom' | 'vulnerabilityScan' | 'provenance' | 'recipe' | 'tests')[];
   /**
+   * Rescan reports whether this run scanned each image's verified SBOMs itself (estate verify --rescan); each image's rescan says what it found.
+   */
+  rescan?: boolean;
+  /**
+   * ScanSource says which vulnerability findings FailOn gated on: attestation (the publisher's verified scan; the default without Rescan), rescan (this run's own scan), or worst (both: an image fails when either finds enough, and is unverified when either is unknown; the default with Rescan).
+   */
+  scanSource?: 'attestation' | 'rescan' | 'worst';
+  /**
    * StackSigners are who may sign clearcutt-factory stacks: a trust policy's stack signers. Registry stacks the estate's apps are built on are verified against them.
    */
   stackSigners?: Signer[];
@@ -694,6 +822,34 @@ export interface Policy {
    * TrustedSigners are the identities whose signatures and attestations count as verified. Empty means nothing can be verified, only present, and every image's verdict is unverified.
    */
   trustedSigners: Signer[];
+  /**
+   * VEX lists the OpenVEX documents applied to this run's rescans. Every finding they suppressed is still listed, marked suppressed, with the statement that did it.
+   */
+  vex?: VEXDocument[];
+}
+/**
+ * VEXDocument is an OpenVEX document a policy applied.
+ *
+ * This interface was referenced by `EstateReport`'s JSON-Schema
+ * via the `definition` "VEXDocument".
+ */
+export interface VEXDocument {
+  /**
+   * Author is the document's author.
+   */
+  author?: string;
+  /**
+   * File is the path the policy named, as written there.
+   */
+  file: string;
+  /**
+   * ID is the document's @id.
+   */
+  id?: string;
+  /**
+   * Statements is how many statements it holds.
+   */
+  statements: number;
 }
 /**
  * Stack is a clearcutt-factory stack published to a registry (stack push), as the estate's apps use it: one per repository and tag, so apps on ghcr.io/acme/stacks/go:1 and :2 are on two stacks.
@@ -769,6 +925,10 @@ export interface Summary {
    */
   reproducibility: ReproducibilityCounts;
   /**
+   * Rescan totals this run's own scans (policy.rescan); absent when the run didn't rescan.
+   */
+  rescan?: RescanSummary;
+  /**
    * Verdicts counts images by verdict.status.
    */
   verdicts: VerdictCounts;
@@ -840,6 +1000,33 @@ export interface ReproducibilityCounts {
   reproduced: number;
 }
 /**
+ * RescanSummary totals this run's own vulnerability scans.
+ *
+ * This interface was referenced by `EstateReport`'s JSON-Schema
+ * via the `definition` "RescanSummary".
+ */
+export interface RescanSummary {
+  /**
+   * Counts and Fixable total the rescans' counted findings.
+   */
+  counts: SeverityCounts;
+  database?: ScannerDatabase;
+  fixable: SeverityCounts;
+  /**
+   * Scanned is how many images every platform image of which was rescanned; Unknown how many weren't (no verified SBOM, or grype couldn't scan it): their current vulnerabilities are unknown, not zero.
+   */
+  scanned: number;
+  /**
+   * Scanner is the scanner that rescanned, e.g. grype 0.120.1, and Database its vulnerability database.
+   */
+  scanner?: string;
+  /**
+   * Suppressed is how many findings VEX statements suppressed across rescans.
+   */
+  suppressed: number;
+  unknown: number;
+}
+/**
  * VerdictCounts counts images by verdict.
  *
  * This interface was referenced by `EstateReport`'s JSON-Schema
@@ -847,6 +1034,10 @@ export interface ReproducibilityCounts {
  */
 export interface VerdictCounts {
   failed: number;
+  /**
+   * ObserveOnly counts the images that are observe-only (policy.observe): they have a verdict but aren't counted above, so verified + failed + unverified + observeOnly is summary.images.
+   */
+  observeOnly?: number;
   unverified: number;
   verified: number;
 }
@@ -920,6 +1111,10 @@ export interface HistoryImage {
   fixableFindings?: string[];
   id: string;
   /**
+   * ObserveOnly marks an image that didn't gate in that run.
+   */
+  observeOnly?: boolean;
+  /**
    * PackagesDigest identifies the image's package set, read from verified SBOMs: sha256:<hex> of its package versions as "type name version" lines, sorted, each ending in a newline. It changes when any package does. Absent when the package set is unknown.
    */
   packagesDigest?: string;
@@ -931,6 +1126,10 @@ export interface HistoryImage {
    * RebasedFrom is the image whose layers were rebased into this one.
    */
   rebasedFrom?: string;
+  /**
+   * RescanVulnerabilities are the counted findings of this run's own scan (policy.rescan); absent when the run didn't rescan the image.
+   */
+  rescanVulnerabilities?: SeverityCounts;
   verdict: string;
   /**
    * Vulnerabilities are the counted findings; absent when unknown.
@@ -955,6 +1154,6 @@ export interface HistoryBase {
  * release at or before it ("none" when there is none), from contract/UPSTREAM.
  */
 export const CONTRACT_UPSTREAM: { commit: string; release: string } = {
-  commit: "365c373b678a8430348c8a84f7dd0a07877b98ed",
-  release: "v0.16.0",
+  commit: "8e1aec561ece55d8a1a9a6f7c8e11d9143bf45e4",
+  release: "v0.17.0",
 };

@@ -126,7 +126,7 @@ describe('shell words', () => {
 
 describe('image references', () => {
   test('are repository@digest', () => {
-    const debian = image(fixture, 'debian-tools');
+    const debian = image(fixture, 'ghcr-io-northcutted-images-debian-tools');
     assert.equal(pinnedRef(debian.repository, debian.digest), `ghcr.io/northcutted/images/debian-tools@${debian.digest}`);
     assert.equal(pinnedRef('localhost:5000/a/b', `sha256:${'a'.repeat(64)}`), `localhost:5000/a/b@sha256:${'a'.repeat(64)}`);
     for (const ref of fixture.images.map((i) => pinnedRef(i.repository, i.digest))) assert.equal(shellWord(ref), ref, 'needs no quotes');
@@ -164,7 +164,7 @@ describe('signers', () => {
   const policy = (...trustedSigners: Signer[]): Policy => ({ required: [], reproduce: false, trustedSigners });
 
   test("the policy's signer that accepts the certificate, with the repository it requires", () => {
-    const cert = image(fixture, 'debian-tools').evidence.signature.signer!;
+    const cert = image(fixture, 'ghcr-io-northcutted-images-debian-tools').evidence.signature.signer!;
     assert.deepEqual(identityFor(fixture.policy, cert), {
       flags: [
         ['--certificate-identity-regexp', '^https://github\\.com/northcutted/clearcutt-factory/'],
@@ -175,7 +175,7 @@ describe('signers', () => {
       fromPolicy: true,
     });
     // Chainguard's signer: no source constraint, and the workflow is in the repository that ran it.
-    const chainguard = image(fixture, 'static').evidence.signature.signer!;
+    const chainguard = image(fixture, 'cgr-dev-chainguard-static').evidence.signature.signer!;
     assert.deepEqual(identityFor(fixture.policy, chainguard).flags, [
       ['--certificate-identity-regexp', '^https://github\\.com/chainguard-images/images/'],
       ['--certificate-oidc-issuer', ISSUER],
@@ -255,7 +255,7 @@ function runCommand(shell: string, command: Command): { calls: string[][]; cwd: 
 
 describe("an image's commands", () => {
   test('a clearcutt-factory image gets a command per verified signature and attestation, a rebuild, and the verdict', () => {
-    const debian = image(fixture, 'debian-tools');
+    const debian = image(fixture, 'ghcr-io-northcutted-images-debian-tools');
     const { ref, commands, skipped, unverified } = verifyCommands(fixture, debian);
     assert.equal(ref, `ghcr.io/northcutted/images/debian-tools@${debian.digest}`);
     assert.deepEqual(skipped, []);
@@ -292,7 +292,7 @@ describe("an image's commands", () => {
   });
 
   test('every command runs as written, in every shell, with the arguments it shows', () => {
-    const debian = image(fixture, 'debian-tools');
+    const debian = image(fixture, 'ghcr-io-northcutted-images-debian-tools');
     const { commands } = verifyCommands(fixture, debian);
     for (const shell of SHELLS) {
       const signature = runCommand(shell, commands[0]).calls;
@@ -322,6 +322,23 @@ describe("an image's commands", () => {
     assert.deepEqual(Object.keys(file), ['apiVersion', 'kind', 'required', 'trustedSigners', 'failOn', 'onlyFixed', 'maxDaysBehind']);
     assert.deepEqual(file.trustedSigners, [fixture.policy.trustedSigners[0]]);
     assert.equal(file.kind, 'VerificationPolicy');
+  });
+
+  test("the verdict is reached under v0.17's policy too: its scan source, observe patterns, and builders, and a rescan", () => {
+    const policy = { ...minimal.policy, provenanceBuilders: ['https://github.com/acme/builder@v1'] };
+    const file = JSON.parse(policyFile(policy));
+    assert.deepEqual(Object.keys(file), ['apiVersion', 'kind', 'required', 'trustedSigners', 'failOn', 'onlyFixed', 'maxDaysBehind', 'scanSource', 'observe', 'provenanceBuilders']);
+    assert.deepEqual([file.scanSource, file.observe, file.provenanceBuilders], ['worst', ['cgr.dev/chainguard/*'], ['https://github.com/acme/builder@v1']]);
+    // The VEX documents aren't in the report: not written into the file, but named in what the command says.
+    assert.equal(file.vex, undefined);
+    const verdict = verifyCommands(minimal, image(minimal, 'ghcr-io-acme-images-billing-1-4-2')).commands.find((c) => c.title === 'Verdict')!;
+    assert.match(verdict.text, / \\\n {2}--rescan \\\n {2}--out=estate$/);
+    assert.match(verdict.purpose, /It rescans the image with grype, as this run did/);
+    assert.match(verdict.purpose, /This run applied a VEX document the report names but doesn't carry .*add "vex": \[its file\] to it, or the findings it suppresses will count\./);
+    // A run without a rescan or VEX says neither.
+    const plain = verifyCommands(fixture, image(fixture, 'ghcr-io-northcutted-images-debian-tools')).commands.find((c) => c.title === 'Verdict')!;
+    assert.doesNotMatch(plain.text, /--rescan/);
+    assert.doesNotMatch(plain.purpose, /grype|VEX/);
   });
 
   test("GitHub's provenance also gets gh's verifier, reading the bundle from the registry", () => {
@@ -433,7 +450,7 @@ describe("an image's commands", () => {
   });
 
   test('a hostile signer runs nothing, and a value that cannot be shown drops only its command', () => {
-    const debian = image(fixture, 'debian-tools');
+    const debian = image(fixture, 'ghcr-io-northcutted-images-debian-tools');
     const report = structuredClone(fixture);
     const evil = "https://evil/$(touch pwned)'; touch pwned; '`touch pwned`";
     report.policy.trustedSigners = [{ identity: evil, issuer: 'https://token.actions.githubusercontent.com' }];
@@ -454,7 +471,7 @@ describe("an image's commands", () => {
   });
 
   test('an image the report names oddly gets no command at all', () => {
-    const bad = image(fixture, 'debian-tools');
+    const bad = image(fixture, 'ghcr-io-northcutted-images-debian-tools');
     bad.repository = 'ghcr.io/acme/app;touch pwned';
     const result = verifyCommands(fixture, bad);
     assert.deepEqual(result.commands, []);
@@ -463,7 +480,7 @@ describe("an image's commands", () => {
   });
 
   test('evidence that is not verified gets no command, and is named', () => {
-    const redis = image(minimal, 'docker-io-library-redis');
+    const redis = image(minimal, 'docker-io-library-redis-7');
     const { commands, unverified } = verifyCommands(minimal, redis);
     assert.deepEqual(commands.map((c) => c.title), ['Verdict']);
     assert.deepEqual(unverified, ['sbom']);
@@ -473,16 +490,45 @@ describe("an image's commands", () => {
   });
 
   test('a rebased factory image repeats its rebase', () => {
-    const billing = image(minimal, 'ghcr-io-acme-images-billing');
+    const billing = image(minimal, 'ghcr-io-acme-images-billing-1-4-2');
     const titles = verifyCommands(minimal, billing).commands.map((c) => c.title);
     assert.ok(titles.includes('Repeat the rebase'));
     assert.ok(titles.includes('Rebase record'));
   });
 
+  test("a smoke test read from the rebase record is checked by the record's command, not one of its own", () => {
+    for (const status of ['verified', 'failed', 'present'] as const) {
+      const billing = structuredClone(image(minimal, 'ghcr-io-acme-images-billing-1-4-2'));
+      const rebase = billing.evidence.rebase;
+      // As clearcutt-verify v0.17.0 writes it: pointing at the verified record.
+      billing.evidence.tests = {
+        status,
+        source: rebase.source,
+        predicateType: rebase.predicateType,
+        ref: rebase.ref,
+        signer: rebase.signer,
+        timestamp: rebase.timestamp,
+        detail: 'The verified rebase record says the smoke test (GET :8080/) passed on linux/amd64 before clearcutt-factory published the rebased image.',
+      };
+      const { commands, unverified } = verifyCommands(minimal, billing);
+      assert.ok(!commands.some((c) => c.title.startsWith('Tests')), status);
+      assert.ok(!unverified.includes('tests'), `${status}: the record's signer vouched for it`);
+      const record = commands.find((c) => c.title === 'Rebase record')!;
+      assert.match(record.purpose, /Its test field is the smoke test the Tests row reads/, status);
+      assert.match(record.text, /--type=https:\/\/github\.com\/northcutted\/clearcutt-factory\/rebase\/v1/);
+    }
+    // A test attestation of its own still gets its own command.
+    const own = structuredClone(image(minimal, 'ghcr-io-acme-images-billing-1-4-2'));
+    own.evidence.tests = { ...own.evidence.rebase, status: 'verified', predicateType: 'https://in-toto.io/attestation/test-result/v0.1' };
+    const titles = verifyCommands(minimal, own).commands;
+    assert.ok(titles.some((c) => c.title === 'Tests' && /--type=https:\/\/in-toto\.io\/attestation\/test-result\/v0\.1/.test(c.text)));
+    assert.doesNotMatch(titles.find((c) => c.title === 'Rebase record')!.purpose, /test field/);
+  });
+
   test("a policy that can't be written as printable ASCII drops only the verdict command", () => {
     const report = structuredClone(fixture);
     report.policy.trustedSigners.push({ identity: 'https://github.com/acmé/x', issuer: 'https://token.actions.githubusercontent.com' });
-    const { commands, skipped } = verifyCommands(report, image(report, 'debian-tools') as Image);
+    const { commands, skipped } = verifyCommands(report, image(report, 'ghcr-io-northcutted-images-debian-tools') as Image);
     assert.ok(!commands.some((c) => c.title === 'Verdict'));
     assert.deepEqual(skipped, [{ title: 'Verdict', reason: "The report's policy has characters other than printable ASCII." }]);
   });

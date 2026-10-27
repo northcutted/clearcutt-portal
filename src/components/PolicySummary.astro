@@ -2,7 +2,7 @@
 // What the images were held to in this run.
 import type { Policy, Signer } from '../lib/contract.gen.ts';
 import { plural } from '../lib/format.ts';
-import { evidenceKindLabel } from '../lib/present.ts';
+import { evidenceKindLabel, gatingScan, scanSourceWords } from '../lib/present.ts';
 
 interface Props {
   policy: Policy;
@@ -25,18 +25,35 @@ function signerLines(s: Signer): [string, string][] {
 }
 
 const stackSigners = policy.stackSigners ?? [];
+// A trust policy gives each signer roles; the report lists them by role:
+// image signers as trustedSigners, stack signers as stackSigners. Signers of
+// the estate's own bundles (role estate) aren't in the report: whoever
+// publishes this site checks them before building it.
 const signerGroups = [
-  { label: 'Trusted signers', signers: policy.trustedSigners, none: 'none: nothing could be verified, only found' },
+  {
+    label: 'Trusted signers',
+    role: "role image: an image's signature and attestations",
+    signers: policy.trustedSigners,
+    none: 'none: nothing could be verified, only found',
+  },
   ...(stacks > 0 || stackSigners.length > 0
     ? [
         {
           label: 'Stack signers',
+          role: 'role stack: clearcutt-factory stacks',
           signers: stackSigners,
           none: "none: the stacks' signatures could be found, but not verified",
         },
       ]
     : []),
 ];
+// Fields from clearcutt-verify v0.17: a rescan, which scan gated, VEX
+// documents, observe-only patterns, and provenance builders.
+const rescanned = policy.rescan === true;
+const vex = policy.vex ?? [];
+const observe = policy.observe ?? [];
+const builders = policy.provenanceBuilders ?? [];
+const gates = rescanned || policy.scanSource !== undefined;
 const scanAge = policy.maxScanAgeDays ?? 0;
 ---
 <section aria-labelledby="policy">
@@ -47,9 +64,57 @@ const scanAge = policy.maxScanAgeDays ?? 0;
     <dt>Vulnerabilities</dt>
     <dd>
       {policy.failOn
-        ? `fail at ${policy.failOn} or above${policy.onlyFixed ? ', counting only findings with a fix' : ''}`
+        ? `fail at ${policy.failOn} or above${policy.onlyFixed ? ', counting only findings with a fix' : ''}${gates ? `, in ${scanSourceWords(gatingScan(policy))}` : ''}`
         : 'never fail on findings'}
     </dd>
+    <dt>Rescan</dt>
+    <dd>
+      {rescanned
+        ? "yes: this run scanned each image's verified SBOMs itself, against a vulnerability database of its day, beside the publisher's scan (estate verify --rescan)"
+        : "no: the findings are the publishers' scans, each as of the day it ran"}
+    </dd>
+    {(rescanned || vex.length > 0) && (
+      <>
+        <dt>VEX documents</dt>
+        <dd>
+          {vex.length === 0 ? (
+            "none: this run's rescans suppressed nothing by VEX"
+          ) : (
+            <>
+              <span class="small">OpenVEX documents applied to this run's rescans: a finding one suppresses stays listed, marked suppressed, and isn't counted.</span>
+              <ul class="vex-docs">
+                {vex.map((d) => (
+                  <li>
+                    <code>{d.file}</code>
+                    {d.id && d.id !== d.file && <> <span class="small">(<code>{d.id}</code>)</span></>}
+                    {d.author && <span class="small"> by {d.author}</span>}
+                    <span class="small">, {plural(d.statements, 'statement')}</span>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+        </dd>
+      </>
+    )}
+    {observe.length > 0 && (
+      <>
+        <dt>Observe-only</dt>
+        <dd>
+          <span class="small">Images matching these (a repository path glob, or repository:tag) are reported with a verdict, but don't gate: they aren't counted with the verified, failed, and unverified images, and don't fail the run.</span>
+          <ul class="inline-list">{observe.map((p) => <li><code>{p}</code></li>)}</ul>
+        </dd>
+      </>
+    )}
+    {builders.length > 0 && (
+      <>
+        <dt>Provenance builders</dt>
+        <dd>
+          <span class="small">Verified SLSA provenance must name one of these builders; provenance that names another, or none, fails.</span>
+          <ul class="vex-docs">{builders.map((b) => <li><code>{b}</code></li>)}</ul>
+        </dd>
+      </>
+    )}
     <dt>Scan age</dt>
     <dd>
       {scanAge > 0
@@ -57,13 +122,18 @@ const scanAge = policy.maxScanAgeDays ?? 0;
         : 'any age: a scan describes the day it was made, however long ago'}
     </dd>
     <dt>Base age</dt>
-    <dd>{policy.maxDaysBehind ? `fail when more than ${policy.maxDaysBehind} days behind` : 'no limit'}</dd>
+    <dd>
+      {policy.maxDaysBehind
+        ? `fail when more than ${policy.maxDaysBehind} days behind a base proven by layer digests; unverified when that far behind a base the image only claims`
+        : 'no limit'}
+    </dd>
     <dt>Rebuilds</dt>
     <dd>{policy.reproduce ? 'this run rebuilt images to check them' : "this run didn't rebuild images"}</dd>
     {signerGroups.map((group) => (
       <>
         <dt>{group.label}</dt>
         <dd>
+          <div class="small dim">{group.role}</div>
           {group.signers.length === 0 ? (
             group.none
           ) : (
@@ -95,5 +165,9 @@ const scanAge = policy.maxScanAgeDays ?? 0;
   }
   .signers > li + li {
     margin-top: 0.6rem;
+  }
+  .vex-docs {
+    margin: 0.3rem 0 0;
+    padding-left: 1.1rem;
   }
 </style>

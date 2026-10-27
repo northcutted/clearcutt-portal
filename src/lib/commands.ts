@@ -18,7 +18,7 @@
 //   a lookalike letter, a bidirectional override) can't be shown as exactly
 //   what runs, so the command isn't shown at all, and the page says why.
 import type { EstateReport, EvidenceItem, Image, Policy, Signer } from './contract.gen.ts';
-import { EVIDENCE_KINDS, type EvidenceKind } from './present.ts';
+import { EVIDENCE_KINDS, testsInRebaseRecord, type EvidenceKind } from './present.ts';
 
 /** Why a command isn't shown. */
 export class NoCommand extends Error {
@@ -210,6 +210,8 @@ const label = (kind: EvidenceKind) => EVIDENCE_KINDS.find((k) => k.key === kind)
 
 const ATTESTATION_KINDS: EvidenceKind[] = ['sbom', 'vulnerabilityScan', 'provenance', 'recipe', 'rebase', 'tests'];
 
+const TESTS_IN_RECORD = " Its test field is the smoke test the Tests row reads: each platform's result, as clearcutt-factory recorded it before it published the rebase.";
+
 const ATTESTATION_PURPOSE: Record<string, string> = {
   sbom: 'Checks the SBOM attestation was signed by the trusted signer, and prints it.',
   vulnerabilityScan: "Checks the vulnerability report was signed by the trusted signer, and prints it: the findings as of the day it was made.",
@@ -244,7 +246,12 @@ function signerNote(identity: Identity): string {
 
 const SIGNER_FIELDS = ['identity', 'identityRegexp', 'issuer', 'key', 'sourceRepository', 'sourceRepositoryOwner', 'sourceRef', 'sourceMatchesImage', 'tlog'] as const;
 
-/** The report's policy as a VerificationPolicy file (JSON, which is YAML too), with only the fields clearcutt-verify reads. */
+/**
+ * The report's policy as a VerificationPolicy file (JSON, which is YAML too),
+ * with only the fields clearcutt-verify reads. Not the VEX documents: the
+ * report names them (policy.vex) but doesn't carry them, so the verdict
+ * command says to add them.
+ */
 export function policyFile(policy: Policy): string {
   const signer = (s: Signer) => Object.fromEntries(SIGNER_FIELDS.filter((k) => s[k] !== undefined).map((k) => [k, s[k]]));
   return JSON.stringify({
@@ -257,6 +264,9 @@ export function policyFile(policy: Policy): string {
     ...(policy.maxDaysBehind ? { maxDaysBehind: policy.maxDaysBehind } : {}),
     ...(policy.maxScanAgeDays ? { maxScanAgeDays: policy.maxScanAgeDays } : {}),
     ...(policy.stackSigners?.length ? { stackSigners: policy.stackSigners.map(signer) } : {}),
+    ...(policy.scanSource ? { scanSource: policy.scanSource } : {}),
+    ...(policy.observe?.length ? { observe: policy.observe } : {}),
+    ...(policy.provenanceBuilders?.length ? { provenanceBuilders: policy.provenanceBuilders } : {}),
   });
 }
 
@@ -266,7 +276,13 @@ const PLATFORM = /^[a-z0-9]+(?:\/[a-z0-9._-]+){1,2}$/;
 export function verifyCommands(report: EstateReport, image: Image): Commands {
   const commands: Command[] = [];
   const skipped: Skipped[] = [];
-  const unverified = EVIDENCE_KINDS.map((k) => k.key).filter((k) => ['present', 'failed', 'unknown'].includes(image.evidence[k].status));
+  // A smoke test read from the rebase record is checked by checking the
+  // record: it gets no command of its own, and is never "unverified" for
+  // want of a signer when the record verified.
+  const testsInRecord = testsInRebaseRecord(image.evidence) && image.evidence.rebase.status === 'verified';
+  const unverified = EVIDENCE_KINDS.map((k) => k.key).filter(
+    (k) => ['present', 'failed', 'unknown'].includes(image.evidence[k].status) && !(k === 'tests' && testsInRecord),
+  );
   let ref: string;
   try {
     ref = pinnedRef(image.repository, image.digest);
@@ -302,14 +318,14 @@ export function verifyCommands(report: EstateReport, image: Image): Commands {
   // Each attestation, on the image or on each platform image it is attached to.
   for (const kind of ATTESTATION_KINDS) {
     const item = image.evidence[kind];
-    if (item.status !== 'verified' || (kind === 'tests' && item.source === 'recipe')) continue;
+    if (item.status !== 'verified' || (kind === 'tests' && (item.source === 'recipe' || testsInRecord))) continue;
     attempt(label(kind), () => {
       if (!item.predicateType) throw new UnsafeValue("the report doesn't say which predicate type it is");
       const identity = identityFor(policy, item.signer);
       const type = flag('--type', item.predicateType, 'the predicate type');
       return targets(image, item).map((t) => ({
         title: t.platform ? `${label(kind)} (${t.platform})` : label(kind),
-        purpose: `${ATTESTATION_PURPOSE[kind]}${signerNote(identity)}`,
+        purpose: `${ATTESTATION_PURPOSE[kind]}${kind === 'rebase' && testsInRecord ? TESTS_IN_RECORD : ''}${signerNote(identity)}`,
         text: shellLine(['cosign', 'verify-attestation'], [type, ...identityArgs(identity), t.ref]),
       }));
     });
@@ -318,7 +334,7 @@ export function verifyCommands(report: EstateReport, image: Image): Commands {
   // GitHub's artifact attestations, with GitHub's own verifier too.
   for (const kind of ATTESTATION_KINDS) {
     const item = image.evidence[kind];
-    if (item.status !== 'verified' || item.source !== 'github-attestation') continue;
+    if (item.status !== 'verified' || item.source !== 'github-attestation' || (kind === 'tests' && testsInRecord)) continue;
     const title = `${label(kind)} (GitHub)`;
     attempt(title, () => {
       const identity = identityFor(policy, item.signer);
@@ -381,15 +397,29 @@ export function verifyCommands(report: EstateReport, image: Image): Commands {
 
   // The verdict, from scratch, under the same policy.
   attempt('Verdict', () => {
-    const platforms = image.platforms.map((p) => p.platform);
+    // The platforms the run read: its --platforms selection when it made
+    // one (metadata.platforms), else every platform image of this one.
+    const platforms = report.metadata.platforms ?? image.platforms.map((p) => p.platform);
     for (const p of platforms) if (!PLATFORM.test(p)) throw new UnsafeValue(`the platform ${JSON.stringify(p)} isn't os/arch[/variant]`);
     const policyJson = shellWord(policyFile(policy), "the report's policy");
-    const run = [flag('--refs', 'refs.txt'), flag('--policy', 'policy.json'), ...(platforms.length > 0 ? [flag('--platforms', platforms.join(','))] : []), flag('--out', 'estate')];
+    const run = [
+      flag('--refs', 'refs.txt'),
+      flag('--policy', 'policy.json'),
+      ...(platforms.length > 0 ? [flag('--platforms', platforms.join(','))] : []),
+      // The run scanned verified SBOMs itself; so does this (it needs grype).
+      ...(policy.rescan ? ['--rescan'] : []),
+      flag('--out', 'estate'),
+    ];
+    const vex = policy.vex ?? [];
     return [
       {
         title: 'Verdict',
         purpose:
-          "Runs clearcutt-verify over this image alone, in a new directory, held to the policy this report was held to, and writes its own report to estate/estate-report.json. Its verdict should match this page's, though one image on its own can't show how far behind its base's newest version it is.",
+          "Runs clearcutt-verify over this image alone, in a new directory, held to the policy this report was held to, and writes its own report to estate/estate-report.json. Its verdict should match this page's, though one image on its own can't show how far behind its base's newest version it is." +
+          (policy.rescan ? ' It rescans the image with grype, as this run did, against a database of the day you run it.' : '') +
+          (vex.length > 0
+            ? ` This run applied ${vex.length === 1 ? 'a VEX document' : `${vex.length} VEX documents`} the report names but doesn't carry (the policy above lists them): put ${vex.length === 1 ? 'it' : 'them'} beside policy.json and add "vex": [${vex.length === 1 ? 'its file' : 'their files'}] to it, or the findings ${vex.length === 1 ? 'it suppresses' : 'they suppress'} will count.`
+            : ''),
         text: [
           'cd "$(mktemp -d)"',
           `printf '%s\\n' ${ref} > refs.txt`,

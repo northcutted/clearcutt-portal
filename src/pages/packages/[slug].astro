@@ -5,8 +5,10 @@ import PackagesUnknown from '../../components/PackagesUnknown.astro';
 import { loadBundle } from '../../lib/bundle.ts';
 import { imageLabel, imagesById, packageGroups, type PackageGroup } from '../../lib/estate.ts';
 import { plural } from '../../lib/format.ts';
+import { advisoriesIn, affectedImages } from '../../lib/findings.ts';
+import { rescannedRun } from '../../lib/overview.ts';
 import { answerFor, inheritedWords } from '../../lib/package-search.ts';
-import { evidenceKindLabel, evidenceStatus } from '../../lib/present.ts';
+import { evidenceKindLabel, evidenceStatus, gatingScan, scanSourceShort } from '../../lib/present.ts';
 import { href, imageHref, indexedPackage, searchIndex } from '../../lib/site.ts';
 
 export function getStaticPaths() {
@@ -26,6 +28,9 @@ const inheritedBy = new Map(group.versions.map((v) => [v.version, answerFor(inde
 const inheriting = new Set([...inheritedBy.values()].flatMap((list) => list.filter((i) => i.own === 'unknown').map((i) => i.id)));
 for (const id of group.images) inheriting.delete(id);
 const searchFor = href(`packages/?q=${encodeURIComponent(`${group.type}:${group.name}`)}#search`);
+// What the scans the policy gated on found in each version.
+const advisories = new Map(group.versions.map((v) => [v.version, advisoriesIn(report, group.name, v.version)]));
+const fromScans = rescannedRun(report) ? scanSourceShort(gatingScan(report.policy)) : "the publishers' scans";
 ---
 <Layout title={group.name} description={`Which images ship ${group.name}.`}>
   <header class="page-head">
@@ -70,6 +75,28 @@ const searchFor = href(`packages/?q=${encodeURIComponent(`${group.type}:${group.
           </tbody>
         </table>
       </div>
+      {(advisories.get(v.version)?.length ?? 0) > 0 && (
+        <div class="table-wrap">
+          <table>
+            <caption class="small">Advisories in {group.name} {v.version}, from {fromScans}</caption>
+            <thead><tr><th>Advisory</th><th>Severity</th><th>Fixed in</th><th class="num">Images that count it</th><th class="num">Suppressed in</th></tr></thead>
+            <tbody>
+              {advisories.get(v.version)!.map((a) => {
+                const fixes = [...new Set([...a.counted, ...a.suppressed].flatMap((o) => o.finding.fixedIn ?? []))];
+                return (
+                  <tr>
+                    <td><a class="mono nowrap" href={href(`findings/${encodeURIComponent(a.slug)}/`)}>{a.id}</a></td>
+                    <td>{a.severity}</td>
+                    <td class="mono small">{fixes.length > 0 ? fixes.join(', ') : <span class="dim">no fix known</span>}</td>
+                    <td class="num">{affectedImages(a).length}</td>
+                    <td class="num">{new Set(a.suppressed.map((o) => o.image.id)).size}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
       {(inheritedBy.get(v.version)?.length ?? 0) > 0 && (
         <div class="table-wrap">
           <table>

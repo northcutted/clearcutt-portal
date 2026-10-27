@@ -1,0 +1,22 @@
+---
+// An image's verdict as a chip, and beside it, for an image the policy only
+// observes, an "Observe-only" chip: its verdict doesn't gate.
+import type { Image } from '../lib/contract.gen.ts';
+import { isObserveOnly } from '../lib/estate.ts';
+import { OBSERVE_ONLY, verdict } from '../lib/present.ts';
+import Chip from './Chip.astro';
+import StatusText from './StatusText.astro';
+
+interface Props {
+  image: Pick<Image, 'verdict' | 'observeOnly'>;
+  /** Glyph and label inline, as in tables of runs, instead of chips. */
+  inline?: boolean;
+}
+const { image, inline = false } = Astro.props;
+const observed = isObserveOnly(image as Image);
+---
+{inline ? (
+  <><StatusText term={verdict(image.verdict.status)} />{observed && <span class="dim small"> (observe-only)</span>}</>
+) : (
+  <span class="inline-list verdict-chips"><Chip term={verdict(image.verdict.status)} />{observed && <Chip term={OBSERVE_ONLY} />}</span>
+)}

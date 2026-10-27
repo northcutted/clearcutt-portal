@@ -67,6 +67,10 @@ test('how an image changed: rebased, rebuilt with or without a new base, base mo
   assert.deepEqual([rebuiltNew.how, rebuiltNew.newBase, howWords(rebuiltNew).label], ['rebuilt', true, 'Rebuilt on a new base']);
   const rebuiltUnknown = diffImage('x', { ...before, base: undefined }, { ...before, digest: D('c') });
   assert.deepEqual([rebuiltUnknown.newBase, howWords(rebuiltUnknown).label], [null, 'Rebuilt']);
+  // A claimed base with no version identified has an empty digest, or none: not recorded, not a change.
+  const claimedBase = { ...before.base!, digest: '' };
+  const claimed = diffImage('x', { ...before, base: claimedBase }, { ...before, digest: D('c'), base: claimedBase });
+  assert.deepEqual([claimed.newBase, howWords(claimed).label], [null, 'Rebuilt']);
 
   const rebased = diffImage('x', before, { ...before, digest: D('c'), base: base(D('d')), rebasedFrom: `ghcr.io/acme/x@${D('a')}`, rebaseStatus: 'verified' });
   assert.deepEqual([rebased.how, rebased.newBase], ['rebased', true]);
@@ -103,9 +107,9 @@ test('two runs compare only when both recorded rows', () => {
     diffs.filter(changed).map((d) => [d.id, d.how]),
     [
       ['retired-image', 'removed'],
-      ['static', 'added'],
-      ['debian-tools', 'rebuilt'],
-      ['platform-tools', 'base-moved'],
+      ['cgr-dev-chainguard-static', 'added'],
+      ['ghcr-io-northcutted-images-debian-tools', 'rebuilt'],
+      ['ghcr-io-northcutted-images-platform-tools', 'base-moved'],
     ],
   );
   const hows = countHows(diffs);
@@ -216,4 +220,31 @@ test('comparison links stay put when a newer run arrives, and never change which
   const old = slugs(history);
   for (const [at, slug] of slugs(next)) if (old.has(at)) assert.equal(slug, old.get(at));
   assert.deepEqual(slugs({ ...history, entries: [...history.entries].reverse() }), old);
+});
+
+test('fresh scan history changes independently of publisher scans and unknown stays unknown', () => {
+ const before = row({id:'x',vulnerabilities:counts(0),rescanVulnerabilities:counts(3,1)});
+ const after = {...before,rescanVulnerabilities:counts(0,2)};
+ const diff = diffImage('x',before,after);
+ assert.deepEqual(diff.findingsChanged,[]);
+ assert.deepEqual(diff.rescanFindings.critical,[3,0]);
+ assert.deepEqual(diff.rescanChanged,['critical','high']);
+ assert.equal(changed(diff),true);
+ const unknown = diffImage('x',after,{...after,rescanVulnerabilities:undefined});
+ assert.deepEqual(unknown.rescanFindings.critical,[0,null]);
+ assert.equal(changed(unknown),true);
+ const added = diffImage('x',undefined,after);
+ assert.deepEqual(added.rescanFindings.high,[null,2]);
+ const removed = diffImage('x',before,undefined);
+ assert.deepEqual(removed.rescanFindings.critical,[3,null]);
+ assert.equal(changed(diffImage('x',before,before)),false);
+});
+
+test('becoming observe-only is a history change even when the verdict stays the same', () => {
+ const before=row({id:'x'});
+ const diff=diffImage('x',before,{...before,observeOnly:true});
+ assert.deepEqual(diff.observeOnly,[false,true]);
+ assert.equal(changed(diff),true);
+ assert.deepEqual(diffImage('x',{...before,observeOnly:true},before).observeOnly,[true,false]);
+ assert.equal(diffImage('x',before,{...before,observeOnly:false}).observeOnly,undefined);
 });

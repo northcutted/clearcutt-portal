@@ -6,6 +6,156 @@ between minor releases, with notes here.
 
 ## Unreleased
 
+### Added: rescans and observe-only images in history
+
+- Run comparisons and image history show fresh scan counts separately from
+  publisher scans. Missing rescan data remains unknown. A change to either
+  scan, or to whether an image gates policy, appears in the comparison.
+- The history table and trend series include rescan coverage and findings,
+  plus observe-only counts, when those fields exist in the selected runs.
+
+
+### Breaking
+
+- **Every image page moves once, with clearcutt-verify v0.17.0's reports.**
+  clearcutt-verify now makes an image's `id` from its whole reference
+  (`ghcr-io-northcutted-images-hello-app` where it was `hello-app`), and the
+  portal names pages by `id` (`images/<id>/`), so a site built from a v0.17
+  report has every image under a new address. The portal still takes IDs
+  only from the report and never derives one.
+
+### Contract: clearcutt-verify v0.17.0
+
+- `contract/` is clearcutt-verify v0.17.0's contract (`contract/UPSTREAM`
+  pins its commit and names the release). Every change is additive under
+  `clearcutt.dev/v1`: the run's `metadata.platforms`; the policy's `rescan`,
+  `scanSource`, `vex`, `observe`, and `provenanceBuilders`; an image's
+  `rescan`, `observeOnly`, and `provenance`; a scan's `database`; a
+  finding's `suppressedBy`; `summary.rescan` and
+  `summary.verdicts.observeOnly`; history rows' `rescanVulnerabilities` and
+  `observeOnly`; and the trust policy's `estate` role. The vendored example
+  and fixture bundles are v0.17's, with its image IDs, and the tests follow
+  them.
+
+### Added: provenance, and a rebase record's smoke test
+
+- An image's page says what was done with the builder its verified SLSA
+  provenance names (`images[].provenance`): "Builder checked" when the
+  policy's `provenanceBuilders` named it, otherwise "Builder read, not
+  checked", with the builder ID and build type as read. When the policy
+  names builders and the provenance failed, the page says nothing was read
+  from it.
+- Test evidence that clearcutt-verify v0.17.0 reads from a verified rebase
+  record (the smoke test clearcutt-factory ran before publishing the rebase)
+  says it was found in the rebase record, and is checked by the record's
+  own command, whose description says its test field holds the result; it
+  gets no command of its own, and isn't listed as having no trusted signer.
+
+### Added: which platforms a run read
+
+- A run that read only some platforms (`metadata.platforms`, from
+  `estate verify --platforms`) says so in the overview, the footer, and on
+  About; an image with platform images outside the selection says which
+  weren't read, and that its evidence, findings, and packages describe the
+  rest; its platforms table marks each read or not; and its verdict command
+  passes the run's selection.
+- An image whose platform list couldn't be read says its platforms are
+  unknown. clearcutt-verify before v0.17.0 wrote that list as `null`, which
+  the schema doesn't allow and used to stop the build; it now reads as the
+  empty list v0.17.0 writes.
+
+### Added: the policy's new fields
+
+- The policy (overview and About) says whether the run rescanned
+  (`policy.rescan`), which scan the vulnerability limit gated on
+  (`policy.scanSource`: the publisher's, this run's, or both), each VEX
+  document applied to the rescans (`policy.vex`: file, `@id`, author, and
+  how many statements), the observe-only patterns (`policy.observe`), and
+  the provenance builders the policy requires (`policy.provenanceBuilders`),
+  each with what it means. Each signer list names its trust-policy role
+  (`image`, `stack`).
+- The verdict command's policy file carries `scanSource`, `observe`, and
+  `provenanceBuilders`, and the command adds `--rescan` when the run
+  rescanned. The VEX documents aren't in the report, so the command says to
+  add them rather than reaching a verdict that counts what they suppressed
+  without saying so.
+
+### Changed: claimed bases
+
+- A base the image only names by repository (an `oci-base-name` or
+  `history` edge from clearcutt-verify v0.17: no digest, and no or an empty
+  `imageId`) reads "a claimed base, no version identified", links to no
+  image, and says how far behind it is is unknown. An empty `base.imageId`
+  is no link, not a bundle error (it used to stop the build); comparisons
+  and the package search take an empty base digest as not recorded.
+- Drift past `maxDaysBehind` fails an image only from a base proven by layer
+  digests: the stale tables say "over the limit by a claim: unverified, not
+  failed" for a claimed base, and the policy says so.
+
+### Added: observe-only images
+
+- An image the policy observes without gating on it (`images[].observeOnly`,
+  `policy.observe`) is counted apart: a fourth verdict tile (Observe-only,
+  from `summary.verdicts.observeOnly`) and a list of its own
+  (`lists/observe-only/`), not in the verified, failed, and unverified
+  lists, which now count exactly what `summary.verdicts` counts. The
+  overview's standing counts the gating images and says how many more are
+  observe-only. Observe-only images are on no "Not verified, and why" card,
+  and their findings aren't in "Findings to fix first" (the findings pages
+  still list them). They stay in the images table, after the gating images,
+  with their own verdict and an Observe-only mark, as on their pages, the
+  bases graph, and the finding pages.
+
+### Added: rescans and suppressions
+
+- When the run rescanned (`policy.rescan`, `images[].rescan`), an image's
+  page shows both scans side by side: the publisher's, attested when the
+  image was built, and the run's own, of the image's verified SBOMs, each
+  with its scanner, when it ran, and when its vulnerability database was
+  built (`database.built`, with its schema); the findings of each by
+  severity; which advisories one counts and the other doesn't; and which scan
+  the policy's limit gated on (`policy.scanSource`, else clearcutt-verify's
+  default). A rescan that is `unknown`, or an image the run didn't rescan, is
+  "couldn't check", with the reason and each platform's status, and its
+  counts are `?`: never clean, never zero. The images table gives this run's
+  counts under the publisher's ("now 1 C · 1 H", or "now: couldn't check"),
+  and sorts by the worse of the two. A run that didn't rescan shows one scan,
+  as before.
+- The estate's findings are those of the scans the policy gated on
+  (`policy.scanSource`: the publisher's, this run's, or both), each
+  occurrence saying which scan found it. "Findings to fix first" puts first
+  what fails the gate (in the example, the rescan's fixable critical); the
+  findings index says which scan found each advisory; an advisory's page
+  gives each image's scan and when it ran (or when its database was built);
+  and an image a gated scan has no findings for is unknown there. Package
+  pages list the advisories the gated scans found in each version.
+- The overview counts both scans: "Critical and high, at build time" and
+  "Critical and high, now" (with the database's build day), how many images
+  were rescanned and how many couldn't be (a new list,
+  `lists/not-rescanned/`), how many findings this run's scan suppressed,
+  this run's critical and high findings among what is outstanding, and a
+  table with both scans' totals, the scanner, and the database. A run
+  without a rescan reads as before.
+- A suppressed finding stays listed, in a group that is open, marked
+  Suppressed, with what suppressed it (`suppressedBy`): the VEX document's
+  file and `@id`, the statement's status, justification, and product; or the
+  scanner's own rule. One suppressed with no `suppressedBy` says the
+  publisher's scan suppressed it with a statement this run didn't see.
+
+### Changed: "couldn't be checked" apart from "failed"
+
+- The overview's "Not verified, and why" puts the requirements images
+  failed (evidence missing or failing verification, findings over the limit,
+  a base proven too far behind, a rebuild that gave another digest) in one
+  group, and those that couldn't be checked (evidence that couldn't be read
+  or checked, or that no trusted signer vouched for; vulnerabilities no scan
+  covers, or a rescan that couldn't run; drift from a base the image only
+  claims; old scans) in another. A failed image lists both kinds of reason,
+  so each reason is classed by what it says, not by the image's verdict;
+  "vulnerabilities are unknown" on a failed image used to read as a failed
+  requirement. A reason this portal doesn't recognize, on a failed image,
+  stays with the failures. Image pages list their reasons the same way.
+
 ### Added: what to fix first
 
 - The overview opens with where the estate stands: whether the policy passes,

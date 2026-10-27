@@ -156,6 +156,22 @@ function describe(errors: ErrorObject[] | null | undefined): string {
   return lines.join('\n');
 }
 
+/**
+ * What clearcutt-verify releases before v0.17.0 wrote that the schemas
+ * don't allow, read as later releases write it: an image whose platform list
+ * couldn't be read has `platforms: null` there and `[]` since. Both mean the
+ * list is unknown, and the image page says so.
+ */
+function tolerateOlderReports(doc: unknown): void {
+  const images = (doc as { images?: unknown }).images;
+  if (!Array.isArray(images)) return;
+  for (const image of images) {
+    if (image !== null && typeof image === 'object' && (image as { platforms?: unknown }).platforms === null) {
+      (image as { platforms: unknown[] }).platforms = [];
+    }
+  }
+}
+
 function readDocument<T>(file: string, kind: string, validate: ValidateFunction): T {
   let doc: unknown;
   try {
@@ -172,6 +188,7 @@ function readDocument<T>(file: string, kind: string, validate: ValidateFunction)
   if (header.kind !== kind) {
     throw new BundleError(`${file}: kind is ${JSON.stringify(header.kind)}; expected ${kind}`);
   }
+  if (kind === 'EstateReport') tolerateOlderReports(doc);
   if (!validate(doc)) {
     throw new BundleError(`${file} does not match the ${kind} schema:\n${describe(validate.errors)}`);
   }
@@ -211,8 +228,9 @@ function checkReferences(file: string, report: EstateReport): void {
     folded.set(image.id.toLowerCase(), image.id);
   }
   for (const image of report.images) {
+    // Empty is no link: a base named by repository, no version of it identified.
     const baseId = image.base?.imageId;
-    if (baseId !== undefined && !ids.has(baseId)) {
+    if (baseId !== undefined && baseId !== '' && !ids.has(baseId)) {
       problems.push(`image ${image.id}: base.imageId ${JSON.stringify(baseId)} is not an image in the report`);
     }
   }

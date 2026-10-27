@@ -133,8 +133,28 @@ test('image ids must be plain page names, since each is a directory and a URL', 
 });
 
 test('image ids may use letters, digits, dots, underscores, and dashes', () => {
-  const dir = editedBundle(MINIMAL, (r) => (r.images[3].id = 'Redis_7.2-alpine'));
-  assert.equal(readBundle(dir).report.images[3].id, 'Redis_7.2-alpine');
+  const redis = (r: any) => r.images.findIndex((i: any) => i.id === 'docker-io-library-redis-7');
+  const dir = editedBundle(MINIMAL, (r) => (r.images[redis(r)].id = 'Redis_7.2-alpine'));
+  assert.ok(readBundle(dir).report.images.some((i) => i.id === 'Redis_7.2-alpine'));
+});
+
+test('an empty base.imageId links to nothing, and is no error: a claimed base, no version identified', () => {
+  const dir = editedBundle(MINIMAL, (r) => {
+    const hello = r.images.find((i: any) => i.id === 'ghcr-io-acme-images-hello-app');
+    hello.base = { ...hello.base, method: 'oci-base-name', strength: 'assisted', drift: 'unknown', imageId: '', digest: '' };
+  });
+  assert.equal(readBundle(dir).report.images.find((i) => i.id === 'ghcr-io-acme-images-hello-app')?.base?.imageId, '');
+  // Any other ID still has to name an image in the report.
+  const bad = editedBundle(MINIMAL, (r) => (r.images.find((i: any) => i.id === 'ghcr-io-acme-images-hello-app').base.imageId = 'nowhere'));
+  assert.throws(() => readBundle(bad), /base\.imageId "nowhere" is not an image in the report/);
+});
+
+test("an older report's null platform list reads as the empty one v0.17.0 writes: unreadable", () => {
+  const dir = editedBundle(MINIMAL, (r) => (r.images.find((i: any) => i.id === 'docker-io-library-redis-7').platforms = null));
+  assert.deepEqual(readBundle(dir).report.images.find((i) => i.id === 'docker-io-library-redis-7')?.platforms, []);
+  // Anything else that isn't a list still stops the build.
+  const bad = editedBundle(MINIMAL, (r) => (r.images[0].platforms = 'linux/amd64'));
+  assert.throws(() => readBundle(bad), /platforms: must be array/);
 });
 
 test('image ids that differ only in case are refused, since they would share a directory', () => {

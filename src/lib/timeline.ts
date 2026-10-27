@@ -84,6 +84,14 @@ export interface ImageDiff {
   /** The severities whose count changed, or became known or unknown. */
   findingsChanged: Severity[];
   /**
+   * The same for the run's own scan (rescanVulnerabilities, clearcutt-verify
+   * v0.17.0): null where a run didn't rescan the image.
+   */
+  rescanFindings: Record<Severity, [number | null, number | null]>;
+  rescanChanged: Severity[];
+  /** Set when the image became observe-only, or stopped being: [before, after]. */
+  observeOnly?: [boolean, boolean];
+  /**
    * The IDs of its fixable high and critical findings in each run; null
    * when that run had no vulnerability data for it, or didn't record IDs.
    */
@@ -126,6 +134,9 @@ export function diffImage(
   const findings = Object.fromEntries(
     SEVERITIES.map((s) => [s, [before?.vulnerabilities?.[s] ?? null, after?.vulnerabilities?.[s] ?? null]]),
   ) as ImageDiff['findings'];
+  const rescanFindings = Object.fromEntries(
+    SEVERITIES.map((s) => [s, [before?.rescanVulnerabilities?.[s] ?? null, after?.rescanVulnerabilities?.[s] ?? null]]),
+  ) as ImageDiff['rescanFindings'];
   const out: ImageDiff = {
     id,
     how: 'unchanged',
@@ -133,6 +144,8 @@ export function diffImage(
     ...(after ? { after } : {}),
     findings,
     findingsChanged: before && after ? SEVERITIES.filter((s) => findings[s][0] !== findings[s][1]) : [],
+    rescanFindings,
+    rescanChanged: before && after ? SEVERITIES.filter((s) => rescanFindings[s][0] !== rescanFindings[s][1]) : [],
     fixable,
     fixed: both && x && y ? x.filter((f) => !y.includes(f)) : null,
     introduced: both && x && y ? y.filter((f) => !x.includes(f)) : null,
@@ -141,12 +154,14 @@ export function diffImage(
   };
   if (!before || !after) return { ...out, how: before ? 'removed' : 'added' };
   if (before.verdict !== after.verdict) out.verdict = [before.verdict, after.verdict];
+  if ((before.observeOnly === true) !== (after.observeOnly === true)) out.observeOnly = [before.observeOnly === true, after.observeOnly === true];
   const driftBefore = before.base?.drift ?? 'none';
   const driftAfter = after.base?.drift ?? 'none';
   if (driftBefore !== driftAfter) out.drift = [driftBefore, driftAfter];
   if (before.digest !== after.digest) {
-    const a = before.base?.digest;
-    const b = after.base?.digest;
+    // No digest (or an empty one: a claimed base, no version identified) isn't recorded.
+    const a = before.base?.digest || undefined;
+    const b = after.base?.digest || undefined;
     out.newBase = a === undefined || b === undefined ? null : a !== b;
     out.how = after.rebasedFrom !== undefined && after.rebasedFrom !== before.rebasedFrom ? 'rebased' : 'rebuilt';
   } else if (out.drift) {
@@ -170,12 +185,18 @@ export function diffRuns(older: HistoryEntry, newer: HistoryEntry): ImageDiff[] 
     .sort((x, y) => HOW_ORDER.indexOf(x.how) - HOW_ORDER.indexOf(y.how) || x.id.localeCompare(y.id));
 }
 
-/** Whether anything about the image changed: its digest, base, verdict, findings, or packages, or it came or went. */
+/**
+ * Whether anything about the image changed: its digest, base, verdict,
+ * either scan's findings, whether it gates, or its packages, or it came or
+ * went.
+ */
 export function changed(diff: ImageDiff): boolean {
   return (
     diff.how !== 'unchanged' ||
     diff.verdict !== undefined ||
     diff.findingsChanged.length > 0 ||
+    diff.rescanChanged.length > 0 ||
+    diff.observeOnly !== undefined ||
     (diff.fixed?.length ?? 0) > 0 ||
     (diff.introduced?.length ?? 0) > 0 ||
     diff.packagesChanged === true

@@ -3,9 +3,10 @@ import Layout from '../../layouts/Layout.astro';
 import Chip from '../../components/Chip.astro';
 import Digest from '../../components/Digest.astro';
 import ExternalLink from '../../components/ExternalLink.astro';
-import Findings from '../../components/Findings.astro';
+import ImageScans from '../../components/ImageScans.astro';
 import LineChart from '../../components/LineChart.astro';
 import StatusText from '../../components/StatusText.astro';
+import VerdictChip from '../../components/VerdictChip.astro';
 import VerifyCommands from '../../components/VerifyCommands.astro';
 import type { Point } from '../../lib/charts.ts';
 import type { Image } from '../../lib/contract.gen.ts';
@@ -21,10 +22,9 @@ import {
   stackAnchor,
   stackOf,
 } from '../../lib/estate.ts';
-import { bytes, daysBetween, formatEpochDay, formatTime, plural } from '../../lib/format.ts';
+import { bytes, formatEpochDay, formatTime, plural } from '../../lib/format.ts';
 import {
   EVIDENCE_KINDS,
-  SEVERITIES,
   drift,
   evidenceKindLabel,
   evidenceSource,
@@ -34,12 +34,14 @@ import {
   reproMethod,
   reproSource,
   reproducibility,
+  provenanceBuilder,
   sourceBasis,
   stackVersionTerm,
+  testsInRebaseRecord,
   strength,
   verdict,
-  vulnSource,
 } from '../../lib/present.ts';
+import { reasonKind } from '../../lib/overview.ts';
 import { historyWindow, href, imageHref } from '../../lib/site.ts';
 import { diffImage, howWords } from '../../lib/timeline.ts';
 
@@ -53,8 +55,6 @@ const byId = imagesById(report);
 const baseImage = image.base?.imageId ? byId.get(image.base.imageId) : undefined;
 const consumers = consumersOf(report, image);
 const packages = image.packages === undefined ? [] : packagesOf(report, image);
-const v = image.vulnerabilities;
-const scanAge = daysBetween(v?.scannedAt, report.metadata.generatedAt);
 const repro = image.reproducibility;
 const rebasedFrom = image.factory?.rebasedFrom;
 const rebasedFromImage = rebasedFrom
@@ -62,10 +62,13 @@ const rebasedFromImage = rebasedFrom
   : undefined;
 const signerText = (s: NonNullable<Image['evidence']['signature']['signer']>) =>
   s.identity ?? s.identityRegexp ?? s.key ?? s.sourceRepository ?? 'unknown signer';
-const maxScanAge = report.policy.maxScanAgeDays ?? 0;
 const factory = image.factory;
 const onStack = stackOf(report, image);
 const packagesSource = image.packagesSource;
+// The platforms this run read (estate verify --platforms), and this image's it didn't.
+const readPlatforms = report.metadata.platforms;
+const notRead = readPlatforms ? image.platforms.map((p) => p.platform).filter((p) => !readPlatforms.includes(p)) : [];
+const listed = (list: string[]) => list.join(', ');
 
 // This image run by run, from the history's per-image rows. Runs before
 // clearcutt-verify recorded rows can't say anything about it.
@@ -80,6 +83,16 @@ const wasRebased = rebases.length > 0 || image.evidence.rebase.status !== 'not-a
 const trend = (sev: 'critical' | 'high'): Point[] =>
   recorded.flatMap((run) => (run.row ? [{ at: run.at, value: run.row.vulnerabilities?.[sev] ?? null }] : []));
 const showTrend = recorded.filter((run) => run.row?.vulnerabilities).length >= 2;
+// Runs that rescanned (clearcutt-verify v0.17.0) counted this run's own scan too.
+const rescanRows = recorded.some((run) => run.row?.rescanVulnerabilities !== undefined);
+// The verdict's reasons: what the image failed apart from what couldn't be
+// checked, which is never a failure, and never a pass.
+const reasonLists = [
+  { kind: 'failed', term: { label: 'Failed', tone: 'bad' as const, meaning: '' }, note: '' },
+  { kind: 'unknown', term: { label: "Couldn't be checked", tone: 'unknown' as const, meaning: '' }, note: 'not a pass, and not a failure' },
+]
+  .map((l) => ({ ...l, reasons: image.verdict.reasons.filter((r) => reasonKind(r, image.verdict.status) === l.kind) }))
+  .filter((l) => l.reasons.length > 0);
 ---
 <Layout title={imageLabel(image)} description={`What clearcutt-verify found and proved about ${image.repository}.`}>
   <header class="page-head">
@@ -87,8 +100,26 @@ const showTrend = recorded.filter((run) => run.row?.vulnerabilities).length >= 2
     <h1>{imageLabel(image)}</h1>
     <p class="mono dim">{image.repository}</p>
     {image.description && <p class="lede">{image.description}</p>}
-    <p><Chip term={verdict(image.verdict.status)} /></p>
-    {image.verdict.reasons.length > 0 && <ul class="reasons">{image.verdict.reasons.map((r) => <li>{r}</li>)}</ul>}
+    <p><VerdictChip image={image} /></p>
+    {image.observeOnly && (
+      <p class="small">
+        The policy observes this image without gating on it: its verdict is reported, but isn't counted with the estate's
+        verified, failed, and unverified images, and doesn't fail the run.
+      </p>
+    )}
+    {reasonLists.map((list) => (
+      <div class="verdict-reasons">
+        <p class="small"><StatusText term={list.term} />{list.note && <span class="dim"> · {list.note}</span>}</p>
+        <ul class="reasons">{list.reasons.map((r) => <li>{r}</li>)}</ul>
+      </div>
+    ))}
+    {notRead.length > 0 && (
+      <p class="callout small">
+        This run read only the {listed(readPlatforms!)} platform images (estate verify --platforms):
+        this image's {listed(notRead)} {notRead.length === 1 ? 'image wasn\'t' : 'images weren\'t'} read, so {notRead.length === 1 ? 'its' : 'their'} SBOMs and
+        vulnerability reports weren't looked at, and the evidence, findings, and packages here describe the platforms that were.
+      </p>
+    )}
     {image.warnings.length > 0 && (
       <div class="callout">
         <h2>Problems reading this image</h2>
@@ -116,6 +147,26 @@ const showTrend = recorded.filter((run) => run.row?.vulnerabilities).length >= 2
           <span class="dim">not recorded</span>
         )}
       </dd>
+      {(image.provenance || (image.evidence.provenance.status === 'failed' && report.policy.provenanceBuilders?.length)) && (
+        <>
+          <dt>Provenance</dt>
+          <dd>
+            {image.provenance ? (
+              <>
+                <Chip term={provenanceBuilder(image.provenance)} />
+                {image.provenance.builderId && <> builder <code>{image.provenance.builderId}</code></>}
+                {image.provenance.buildType && <div class="small">build type <code>{image.provenance.buildType}</code></div>}
+                <div class="dim small">{provenanceBuilder(image.provenance).meaning}</div>
+              </>
+            ) : (
+              <span class="small">
+                Nothing was read from it: the provenance failed verification (the policy requires it to name one of its
+                builders, and one that names another, or none, fails), so neither its builder nor its source is taken from it.
+              </span>
+            )}
+          </dd>
+        </>
+      )}
       {image.factory && (
         <>
           <dt>clearcutt-factory</dt>
@@ -175,8 +226,17 @@ const showTrend = recorded.filter((run) => run.row?.vulnerabilities).length >= 2
         <dd>
           <code>{image.base.ref}</code>
           {baseImage && <> (<a href={imageHref(baseImage.id)}>{imageLabel(baseImage)}</a>)</>}
-          <br /><Digest digest={image.base.digest} full />
-          {image.base.platform && <span class="dim small"> (its {image.base.platform} image)</span>}
+          {image.base.digest ? (
+            <>
+              <br /><Digest digest={image.base.digest} full />
+              {image.base.platform && <span class="dim small"> (its {image.base.platform} image)</span>}
+            </>
+          ) : (
+            <div class="small">
+              A claimed base, no version identified: the image names this repository, but not which version of it, so
+              there is no digest to compare and no image of the report to link to.
+            </div>
+          )}
         </dd>
         <dt>How it's known</dt>
         <dd>
@@ -187,6 +247,7 @@ const showTrend = recorded.filter((run) => run.row?.vulnerabilities).length >= 2
         <dt>Currency</dt>
         <dd>
           <Chip term={drift(image.base.drift)} />
+          {!image.base.digest && image.base.drift === 'unknown' && <> With no version identified, how far behind it is is unknown.</>}
           {image.base.drift === 'stale' && (
             <>
               {' '}
@@ -247,7 +308,11 @@ const showTrend = recorded.filter((run) => run.row?.vulnerabilities).length >= 2
                     <span class="dim">—</span>
                   )}
                 </td>
-                <td class="small">{item.source ? evidenceSource(item.source) : <span class="dim">—</span>}</td>
+                <td class="small">
+                  {kind.key === 'tests' && testsInRebaseRecord(image.evidence)
+                    ? <>in the rebase record{item.source && <> ({evidenceSource(item.source)})</>}</>
+                    : item.source ? evidenceSource(item.source) : <span class="dim">—</span>}
+                </td>
                 <td class="small nowrap">{formatTime(item.timestamp) ?? <span class="dim">—</span>}</td>
                 <td class="small">
                   {item.detail}
@@ -268,41 +333,7 @@ const showTrend = recorded.filter((run) => run.row?.vulnerabilities).length >= 2
 
   <VerifyCommands report={report} image={image} />
 
-  <section aria-labelledby="vulns">
-    <h2 id="vulns">Vulnerabilities</h2>
-    {v ? (
-      <>
-        <p>
-          From {vulnSource(v.source)}{v.scanner && <> ({v.scanner})</>}, made {formatTime(v.scannedAt) ?? 'at an unknown time'}
-          {scanAge !== undefined && scanAge > 0 && <>, {plural(scanAge, 'day')} before this report</>}. The findings describe that day
-          {maxScanAge > 0 &&
-            (scanAge === undefined
-              ? `; with no scan date, the policy's limit of ${plural(maxScanAge, 'day')} can't be met`
-              : scanAge > maxScanAge
-                ? `, which is older than the policy's limit of ${plural(maxScanAge, 'day')}`
-                : `, within the policy's limit of ${plural(maxScanAge, 'day')}`)}.
-          {v.source === 'attestation' && (
-            <> The report itself is <Chip term={evidenceStatus(image.evidence.vulnerabilityScan.status)} />.</>
-          )}
-        </p>
-        <div class="table-wrap">
-          <table>
-            <thead><tr><th></th>{SEVERITIES.map((s) => <th class="num">{s}</th>)}</tr></thead>
-            <tbody>
-              <tr><td>Findings</td>{SEVERITIES.map((s) => <td class="num">{v.counts[s]}</td>)}</tr>
-              <tr><td>With a fix</td>{SEVERITIES.map((s) => <td class="num">{v.fixable[s]}</td>)}</tr>
-            </tbody>
-          </table>
-        </div>
-        <Findings findings={v.findings} />
-      </>
-    ) : (
-      <p>
-        <Chip term={{ label: 'Unknown', tone: 'unknown', meaning: 'No vulnerability data.' }} /> This image has no vulnerability
-        data, so how many vulnerabilities it has is unknown. {image.evidence.vulnerabilityScan.detail}
-      </p>
-    )}
-  </section>
+  <ImageScans report={report} image={image} />
 
   <section aria-labelledby="tests">
     <h2 id="tests">Tests and rebuilds</h2>
@@ -410,7 +441,10 @@ const showTrend = recorded.filter((run) => run.row?.vulnerabilities).length >= 2
           <table>
             <caption class="sr-only">This image in each run, newest first</caption>
             <thead>
-              <tr><th>Run</th><th>Digest</th><th>Verdict</th><th>Base</th><th class="num">Critical</th><th class="num">High</th></tr>
+              <tr>
+                <th>Run</th><th>Digest</th><th>Verdict</th><th>Base</th><th class="num">Critical</th><th class="num">High</th>
+                {rescanRows && <><th class="num">Critical, rescan</th><th class="num">High, rescan</th></>}
+              </tr>
             </thead>
             <tbody>
               {recorded.map((run, i) => {
@@ -418,7 +452,7 @@ const showTrend = recorded.filter((run) => run.row?.vulnerabilities).length >= 2
                 const older = recorded.slice(i + 1).find((r) => r.row)?.row;
                 if (!row) {
                   return (
-                    <tr><td class="nowrap">{formatTime(run.at)}</td><td colspan="5" class="dim">Not in this run.</td></tr>
+                    <tr><td class="nowrap">{formatTime(run.at)}</td><td colspan={rescanRows ? 7 : 5} class="dim">Not in this run.</td></tr>
                   );
                 }
                 return (
@@ -428,7 +462,7 @@ const showTrend = recorded.filter((run) => run.row?.vulnerabilities).length >= 2
                       <Digest digest={row.digest} />
                       {older && diffImage(image.id, older, row).how !== 'unchanged' && <div class="small">{howWords(diffImage(image.id, older, row)).label.toLowerCase()}</div>}
                     </td>
-                    <td><StatusText term={verdict(row.verdict)} /></td>
+                    <td><StatusText term={verdict(row.verdict)} />{row.observeOnly && <div class="dim small">observe-only</div>}</td>
                     <td class="small">
                       {row.base ? (
                         <>
@@ -441,6 +475,12 @@ const showTrend = recorded.filter((run) => run.row?.vulnerabilities).length >= 2
                     </td>
                     <td class="num">{row.vulnerabilities ? row.vulnerabilities.critical : '?'}</td>
                     <td class="num">{row.vulnerabilities ? row.vulnerabilities.high : '?'}</td>
+                    {rescanRows && (
+                      <>
+                        <td class="num">{row.rescanVulnerabilities ? row.rescanVulnerabilities.critical : '?'}</td>
+                        <td class="num">{row.rescanVulnerabilities ? row.rescanVulnerabilities.high : '?'}</td>
+                      </>
+                    )}
                   </tr>
                 );
               })}
@@ -448,7 +488,7 @@ const showTrend = recorded.filter((run) => run.row?.vulnerabilities).length >= 2
           </table>
         </div>
         <p class="small dim">
-          ? means unknown: the run had no vulnerability data for this image.
+          ? means unknown: the run had no vulnerability data for this image{rescanRows && ", or didn't rescan it"}.
           {olderRuns > 0 && ` This shows the latest ${plural(runs.length, 'run')}; ${plural(olderRuns, 'older one is', 'older ones are')} in estate-history.json.`}
           {unrecorded > 0 && ` ${plural(unrecorded, 'earlier run')} recorded no per-image rows and ${unrecorded === 1 ? "isn't" : "aren't"} shown.`}
         </p>
@@ -464,16 +504,26 @@ const showTrend = recorded.filter((run) => run.row?.vulnerabilities).length >= 2
 
   <section aria-labelledby="platforms">
     <h2 id="platforms">Platforms</h2>
+    {image.platforms.length === 0 ? (
+      <p>
+        <Chip term={{ label: 'Unknown', tone: 'unknown', meaning: "The image's platform list couldn't be read." }} /> The report lists no
+        platform images: this image's platform list couldn't be read, so which platforms it has is unknown.
+      </p>
+    ) : (
     <div class="table-wrap">
       <table>
-        <thead><tr><th>Platform</th><th>Digest</th><th class="num">Layers</th><th class="num">Compressed size</th></tr></thead>
+        <thead><tr><th>Platform</th><th>Digest</th><th class="num">Layers</th><th class="num">Compressed size</th>{readPlatforms && <th>This run</th>}</tr></thead>
         <tbody>
           {image.platforms.map((p) => (
-            <tr><td>{p.platform}</td><td><Digest digest={p.digest} full /></td><td class="num">{p.layers}</td><td class="num">{bytes(p.size)}</td></tr>
+            <tr>
+              <td>{p.platform}</td><td><Digest digest={p.digest} full /></td><td class="num">{p.layers}</td><td class="num">{bytes(p.size)}</td>
+              {readPlatforms && <td class="small">{readPlatforms.includes(p.platform) ? 'read' : <strong>not read</strong>}</td>}
+            </tr>
           ))}
         </tbody>
       </table>
     </div>
+    )}
   </section>
 
   <section aria-labelledby="packages">

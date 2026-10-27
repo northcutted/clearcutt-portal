@@ -6,12 +6,13 @@
 import Chip from './Chip.astro';
 import EvidenceCells from './EvidenceCells.astro';
 import StatusCell from './StatusCell.astro';
+import VerdictChip from './VerdictChip.astro';
 import VulnSummary from './VulnSummary.astro';
 import type { Image } from '../lib/contract.gen.ts';
 import { loadBundle } from '../lib/bundle.ts';
-import { daysBehind, imageLabel } from '../lib/estate.ts';
+import { daysBehind, imageLabel, isObserveOnly } from '../lib/estate.ts';
 import { formatAge, scanAges } from '../lib/overview.ts';
-import { EVIDENCE_KINDS, drift, reproducibility, strength, verdict } from '../lib/present.ts';
+import { EVIDENCE_KINDS, drift, reproducibility, strength } from '../lib/present.ts';
 import { imageHref } from '../lib/site.ts';
 
 interface Props {
@@ -27,6 +28,11 @@ const VERDICT_RANK: Record<string, number> = { failed: 0, unverified: 1, verifie
 const EVIDENCE_RANK: Record<string, number> = { failed: 0, missing: 1, unknown: 2, present: 3, verified: 4, 'not-applicable': 5 };
 const REBUILD_RANK: Record<string, number> = { 'not-reproduced': 0, 'not-checked': 1, reproduced: 2, 'no-recipe': 3 };
 const DRIFT_RANK: Record<string, number> = { stale: 0, unknown: 1, current: 2 };
+// Observe-only images after every image the policy gates on, by their own verdicts.
+const verdictKey = (image: Image) => {
+  const rank = String(VERDICT_RANK[image.verdict.status] ?? 1);
+  return isObserveOnly(image) ? `3 ${rank}` : rank;
+};
 const baseKey = (image: Image) => {
   const b = image.base;
   if (!b) return image.root ? '3' : '1';
@@ -34,10 +40,17 @@ const baseKey = (image: Image) => {
   // Stale ones by how far behind, those whose days couldn't be measured last.
   return `${DRIFT_RANK[b.drift] ?? 1} ${b.drift === 'stale' ? (days === null ? 1 : -days) : 0} ${-b.versionsBehind}`;
 };
+// The worse of the two scans when the run rescanned, severity by severity;
+// unknown only when neither scan has counts.
 const vulnKey = (image: Image) => {
-  const c = image.vulnerabilities?.counts;
-  return c ? `${c.critical} ${c.high} ${c.medium} ${c.low}` : '';
+  const scans = [image.vulnerabilities?.counts, image.rescan?.status === 'scanned' ? image.rescan.vulnerabilities?.counts : undefined].filter(
+    (c) => c !== undefined,
+  );
+  if (scans.length === 0) return '';
+  const worst = (k: 'critical' | 'high' | 'medium' | 'low') => Math.max(...scans.map((c) => c[k]));
+  return `${worst('critical')} ${worst('high')} ${worst('medium')} ${worst('low')}`;
 };
+const rescanned = report.policy.rescan === true;
 ---
 <div data-sort-root>
 <div class="table-wrap">
@@ -67,7 +80,7 @@ const vulnKey = (image: Image) => {
               <a href={imageHref(image.id)}>{imageLabel(image)}</a>
               <div class="dim small mono repo">{image.repository.split('/').map((part, i) => <>{i > 0 && <>/<wbr /></>}{part}</>)}</div>
             </td>
-            <td data-sort-value={String(VERDICT_RANK[image.verdict.status] ?? 1)}><Chip term={verdict(image.verdict.status)} /></td>
+            <td data-sort-value={verdictKey(image)}><VerdictChip image={image} /></td>
             <td data-sort-value={baseKey(image)}>
               {image.base ? (
                 <span class="inline-list">
@@ -81,7 +94,7 @@ const vulnKey = (image: Image) => {
               )}
             </td>
             <EvidenceCells image={image} rank={EVIDENCE_RANK} />
-            <td data-sort-value={vulnKey(image)}><VulnSummary vulnerabilities={image.vulnerabilities} /></td>
+            <td data-sort-value={vulnKey(image)}><VulnSummary vulnerabilities={image.vulnerabilities} rescan={image.rescan} rescanned={rescanned} /></td>
             <td class="num nowrap" data-sort-value={age === undefined ? '' : String(age)}>
               {age !== undefined ? formatAge(age) : image.vulnerabilities ? <span class="dim">no date</span> : <span class="dim">no data</span>}
             </td>

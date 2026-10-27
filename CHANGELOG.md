@@ -6,6 +6,8 @@ between minor releases, with notes here.
 
 ## Unreleased
 
+## v0.2.0 (2026-10-26)
+
 ### Added: rescans and observe-only images in history
 
 - Run comparisons and image history show fresh scan counts separately from

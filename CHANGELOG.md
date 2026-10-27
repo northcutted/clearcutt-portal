@@ -8,6 +8,12 @@ between minor releases, with notes here.
 
 ## v0.2.0 (2026-10-26)
 
+### Fixed: release checks
+
+- The contract changelog gate accepts notes under the new package version
+  during release preparation. Older release notes cannot cover subsequent
+  schema changes.
+
 ### Added: rescans and observe-only images in history
 
 - Run comparisons and image history show fresh scan counts separately from

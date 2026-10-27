@@ -6,6 +6,15 @@ between minor releases, with notes here.
 
 ## Unreleased
 
+### Added: rescans and observe-only images in history
+
+- Run comparisons and image history show fresh scan counts separately from
+  publisher scans. Missing rescan data remains unknown. A change to either
+  scan, or to whether an image gates policy, appears in the comparison.
+- The history table and trend series include rescan coverage and findings,
+  plus observe-only counts, when those fields exist in the selected runs.
+
+
 ### Breaking
 
 - **Every image page moves once, with clearcutt-verify v0.17.0's reports.**

@@ -221,3 +221,30 @@ test('comparison links stay put when a newer run arrives, and never change which
   for (const [at, slug] of slugs(next)) if (old.has(at)) assert.equal(slug, old.get(at));
   assert.deepEqual(slugs({ ...history, entries: [...history.entries].reverse() }), old);
 });
+
+test('fresh scan history changes independently of publisher scans and unknown stays unknown', () => {
+ const before = row({id:'x',vulnerabilities:counts(0),rescanVulnerabilities:counts(3,1)});
+ const after = {...before,rescanVulnerabilities:counts(0,2)};
+ const diff = diffImage('x',before,after);
+ assert.deepEqual(diff.findingsChanged,[]);
+ assert.deepEqual(diff.rescanFindings.critical,[3,0]);
+ assert.deepEqual(diff.rescanChanged,['critical','high']);
+ assert.equal(changed(diff),true);
+ const unknown = diffImage('x',after,{...after,rescanVulnerabilities:undefined});
+ assert.deepEqual(unknown.rescanFindings.critical,[0,null]);
+ assert.equal(changed(unknown),true);
+ const added = diffImage('x',undefined,after);
+ assert.deepEqual(added.rescanFindings.high,[null,2]);
+ const removed = diffImage('x',before,undefined);
+ assert.deepEqual(removed.rescanFindings.critical,[3,null]);
+ assert.equal(changed(diffImage('x',before,before)),false);
+});
+
+test('becoming observe-only is a history change even when the verdict stays the same', () => {
+ const before=row({id:'x'});
+ const diff=diffImage('x',before,{...before,observeOnly:true});
+ assert.deepEqual(diff.observeOnly,[false,true]);
+ assert.equal(changed(diff),true);
+ assert.deepEqual(diffImage('x',{...before,observeOnly:true},before).observeOnly,[true,false]);
+ assert.equal(diffImage('x',before,{...before,observeOnly:false}).observeOnly,undefined);
+});

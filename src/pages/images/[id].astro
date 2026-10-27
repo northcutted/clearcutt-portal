@@ -83,6 +83,8 @@ const wasRebased = rebases.length > 0 || image.evidence.rebase.status !== 'not-a
 const trend = (sev: 'critical' | 'high'): Point[] =>
   recorded.flatMap((run) => (run.row ? [{ at: run.at, value: run.row.vulnerabilities?.[sev] ?? null }] : []));
 const showTrend = recorded.filter((run) => run.row?.vulnerabilities).length >= 2;
+// Runs that rescanned (clearcutt-verify v0.17.0) counted this run's own scan too.
+const rescanRows = recorded.some((run) => run.row?.rescanVulnerabilities !== undefined);
 // The verdict's reasons: what the image failed apart from what couldn't be
 // checked, which is never a failure, and never a pass.
 const reasonLists = [
@@ -439,7 +441,10 @@ const reasonLists = [
           <table>
             <caption class="sr-only">This image in each run, newest first</caption>
             <thead>
-              <tr><th>Run</th><th>Digest</th><th>Verdict</th><th>Base</th><th class="num">Critical</th><th class="num">High</th></tr>
+              <tr>
+                <th>Run</th><th>Digest</th><th>Verdict</th><th>Base</th><th class="num">Critical</th><th class="num">High</th>
+                {rescanRows && <><th class="num">Critical, rescan</th><th class="num">High, rescan</th></>}
+              </tr>
             </thead>
             <tbody>
               {recorded.map((run, i) => {
@@ -447,7 +452,7 @@ const reasonLists = [
                 const older = recorded.slice(i + 1).find((r) => r.row)?.row;
                 if (!row) {
                   return (
-                    <tr><td class="nowrap">{formatTime(run.at)}</td><td colspan="5" class="dim">Not in this run.</td></tr>
+                    <tr><td class="nowrap">{formatTime(run.at)}</td><td colspan={rescanRows ? 7 : 5} class="dim">Not in this run.</td></tr>
                   );
                 }
                 return (
@@ -457,7 +462,7 @@ const reasonLists = [
                       <Digest digest={row.digest} />
                       {older && diffImage(image.id, older, row).how !== 'unchanged' && <div class="small">{howWords(diffImage(image.id, older, row)).label.toLowerCase()}</div>}
                     </td>
-                    <td><StatusText term={verdict(row.verdict)} /></td>
+                    <td><StatusText term={verdict(row.verdict)} />{row.observeOnly && <div class="dim small">observe-only</div>}</td>
                     <td class="small">
                       {row.base ? (
                         <>
@@ -470,6 +475,12 @@ const reasonLists = [
                     </td>
                     <td class="num">{row.vulnerabilities ? row.vulnerabilities.critical : '?'}</td>
                     <td class="num">{row.vulnerabilities ? row.vulnerabilities.high : '?'}</td>
+                    {rescanRows && (
+                      <>
+                        <td class="num">{row.rescanVulnerabilities ? row.rescanVulnerabilities.critical : '?'}</td>
+                        <td class="num">{row.rescanVulnerabilities ? row.rescanVulnerabilities.high : '?'}</td>
+                      </>
+                    )}
                   </tr>
                 );
               })}
@@ -477,7 +488,7 @@ const reasonLists = [
           </table>
         </div>
         <p class="small dim">
-          ? means unknown: the run had no vulnerability data for this image.
+          ? means unknown: the run had no vulnerability data for this image{rescanRows && ", or didn't rescan it"}.
           {olderRuns > 0 && ` This shows the latest ${plural(runs.length, 'run')}; ${plural(olderRuns, 'older one is', 'older ones are')} in estate-history.json.`}
           {unrecorded > 0 && ` ${plural(unrecorded, 'earlier run')} recorded no per-image rows and ${unrecorded === 1 ? "isn't" : "aren't"} shown.`}
         </p>

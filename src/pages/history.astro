@@ -55,6 +55,18 @@ function delta(m: (typeof measures)[number]): { text: string; tone: Tone } | nul
   const better = (d > 0) === (m.up === 'good');
   return { text: `${d > 0 ? '+' : ''}${d} since the previous run`, tone: better ? 'good' : 'warn' };
 }
+// From clearcutt-verify v0.17.0: observe-only images and the run's own scans,
+// when some run in the window has them.
+const hasObserved = series.some((e) => e.summary.verdicts.observeOnly !== undefined);
+const hasRescans = series.some((e) => e.summary.rescan !== undefined);
+const rescanned = (s: Summary, sev: 'critical' | 'high') => (s.rescan && s.rescan.scanned > 0 ? s.rescan.counts[sev] : null);
+if (hasObserved) measures.splice(8, 0, { title: 'Observe-only images', value: (s) => s.verdicts.observeOnly ?? 0, up: 'bad' });
+if (hasRescans) {
+  measures.push(
+    { title: "Critical findings, this run's scan", note: 'rescanned images only', value: (s) => rescanned(s, 'critical'), up: 'bad' },
+    { title: "High findings, this run's scan", note: 'rescanned images only', value: (s) => rescanned(s, 'high'), up: 'bad' },
+  );
+}
 const headline = measures.slice(0, 8);
 const changes = latest && previous ? (diffRuns(previous, latest)?.filter(changed) ?? null) : null;
 // A few finding IDs inline; the comparison page has all of them.
@@ -148,6 +160,7 @@ const count = (n: number | null) => (n === null ? '?' : String(n));
                             {c.verdict && (
                               <li>Verdict <StatusText term={verdict(c.verdict[0])} /> → <StatusText term={verdict(c.verdict[1])} /></li>
                             )}
+                            {c.observeOnly && <li>{c.observeOnly[1] ? 'Now observe-only: its verdict no longer gates' : 'No longer observe-only: its verdict gates'}</li>}
                             {b && a && b.digest !== a.digest && (
                               <li>
                                 {howWords(c).label}: <code>{shortDigest(b.digest)}</code> → <code>{shortDigest(a.digest)}</code>
@@ -161,6 +174,9 @@ const count = (n: number | null) => (n === null ? '?' : String(n));
                             )}
                             {SEVERITIES.filter((sev) => c.findingsChanged.includes(sev)).map((sev) => (
                               <li>{capital(sev)} findings {count(c.findings[sev][0])} → {count(c.findings[sev][1])}</li>
+                            ))}
+                            {SEVERITIES.filter((sev) => c.rescanChanged.includes(sev)).map((sev) => (
+                              <li>{capital(sev)} findings in this run's scan {count(c.rescanFindings[sev][0])} → {count(c.rescanFindings[sev][1])}</li>
                             ))}
                             {(c.fixed?.length ?? 0) > 0 && <li>Fixed: <span class="mono small">{ids(c.fixed!)}</span></li>}
                             {(c.introduced?.length ?? 0) > 0 && <li>New: <span class="mono small">{ids(c.introduced!)}</span></li>}
@@ -222,8 +238,10 @@ const count = (n: number | null) => (n === null ? '?' : String(n));
             <thead>
               <tr>
                 <th>Run</th><th class="num">Images</th><th class="num">Verified</th><th class="num">Failed</th><th class="num">Unverified</th>
+                {hasObserved && <th class="num">Observe-only</th>}
                 <th class="num">Stale</th><th class="num">Proven</th><th class="num">Claimed</th><th class="num">Unresolved</th>
                 <th class="num">Critical</th><th class="num">High</th><th class="num">Not scanned</th>
+                {hasRescans && <><th class="num">Critical, rescan</th><th class="num">High, rescan</th><th class="num">Not rescanned</th></>}
                 <th class="num">Signatures verified</th><th class="num">Reproduced</th>
               </tr>
             </thead>
@@ -243,6 +261,7 @@ const count = (n: number | null) => (n === null ? '?' : String(n));
                     <td class="num">{s.verdicts.verified}</td>
                     <td class="num">{s.verdicts.failed}</td>
                     <td class="num">{s.verdicts.unverified}</td>
+                    {hasObserved && <td class="num">{s.verdicts.observeOnly ?? 0}</td>}
                     <td class="num">{s.bases.stale}</td>
                     <td class="num">{s.bases.proven}</td>
                     <td class="num">{s.bases.claimed}</td>
@@ -250,6 +269,13 @@ const count = (n: number | null) => (n === null ? '?' : String(n));
                     <td class="num">{scanned ? s.vulnerabilities.counts.critical : '?'}</td>
                     <td class="num">{scanned ? s.vulnerabilities.counts.high : '?'}</td>
                     <td class="num">{s.vulnerabilities.notScanned}</td>
+                    {hasRescans && (
+                      <>
+                        <td class="num">{rescanned(s, 'critical') ?? '?'}</td>
+                        <td class="num">{rescanned(s, 'high') ?? '?'}</td>
+                        <td class="num">{s.rescan ? s.rescan.unknown : '?'}</td>
+                      </>
+                    )}
                     <td class="num">{verified(s, 'signature') ?? '?'}</td>
                     <td class="num">{s.reproducibility.reproduced}</td>
                   </tr>
@@ -258,7 +284,9 @@ const count = (n: number | null) => (n === null ? '?' : String(n));
             </tbody>
           </table>
         </div>
-        <p class="small dim">? means unknown: no image had vulnerability data in that run, or the run didn't count signatures.</p>
+        <p class="small dim">
+          ? means unknown: no image had vulnerability data in that run, or the run didn't count signatures{hasRescans && ", or didn't rescan"}.
+        </p>
       </section>
 
       <aside class="callout" aria-labelledby="limits">

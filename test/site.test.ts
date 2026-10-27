@@ -466,7 +466,7 @@ describe('the example site', () => {
       assert.match(svg, /aria-label="[^"]+"/);
     }
     assert.match(html, /aria-label="Signatures verified\. 2 runs; latest [^"]+\. Every value is in the table of every run below\."/);
-    assert.match(text(html), /Not scanned Signatures verified Reproduced/);
+    assert.match(text(html), /Not scanned Critical, rescan High, rescan Not rescanned Signatures verified Reproduced/);
   });
 
   test('a rebased image names what it was rebased from', () => {
@@ -796,6 +796,42 @@ describe('a report using everything clearcutt-verify v0.15 writes', () => {
     assert.match(page, /debian-tools:latest Verdict ✕ Failed → ✓ Verified Rebuilt, same base: sha256:dddddddddddd → sha256:867c6cbf7f44 Critical findings 30 → 25/);
     assert.match(page, /platform-tools:latest Base ! Stale → ✓ Current/);
   });
+});
+
+describe('fresh scan and observe-only history', () => {
+ let site: string;
+ before(() => {
+  const counts=(critical:number)=>({critical,high:1,medium:0,low:0,negligible:0,unknown:0});
+  site=build(editedBundle(v015Bundle(),()=>{},h=>{
+   const [latest,previous]=h.entries;
+   const id='ghcr-io-northcutted-images-debian-tools';
+   Object.assign(latest.images.find((i:any)=>i.id===id),{rescanVulnerabilities:counts(2),observeOnly:true});
+   Object.assign(previous.images.find((i:any)=>i.id===id),{rescanVulnerabilities:counts(5)});
+   latest.summary.rescan={scanned:1,unknown:latest.summary.images-1,counts:counts(2),fixable:counts(2),suppressed:0};
+   latest.summary.verdicts.verified--;
+   latest.summary.verdicts.observeOnly=1;
+  }));
+ });
+ test('history labels line up with observe-only and rescan cells',()=>{
+  const html=read(site,'history/index.html');
+  const table=html.match(/<table\b[^>]*class="runs"[^>]*>([\s\S]*?)<\/table>/)![1];
+  const headings=[...table.matchAll(/<th\b[^>]*>([\s\S]*?)<\/th>/g)].map(m=>text(m[1]));
+  assert.deepEqual(headings.slice(4,10),['Unverified','Observe-only','Stale','Proven','Claimed','Unresolved']);
+  const first=table.match(/<tbody[^>]*>\s*<tr[^>]*>([\s\S]*?)<\/tr>/)![1];
+  const cells=[...first.matchAll(/<td\b[^>]*>([\s\S]*?)<\/td>/g)].map(m=>text(m[1]).trim());
+  assert.equal(cells[headings.indexOf('Observe-only')],'1');
+  assert.equal(cells[headings.indexOf('Critical, rescan')],'2');
+  assert.match(shown(html),/Critical findings in this run's scan 5 → 2/);
+  assert.match(shown(html),/Now observe-only: its verdict no longer gates/);
+ });
+ test('comparisons and the image page retain separate scan counts',()=>{
+  const compare=shown(read(site,'history/changes/20261006T233046Z--20261010T165146Z/index.html'));
+  assert.match(compare,/This run's scan: critical 5 → 2, high 1/);
+  assert.match(compare,/gating → observe-only/);
+  const image=shown(read(site,'images/ghcr-io-northcutted-images-debian-tools/index.html'));
+  assert.match(image,/Critical, rescan High, rescan/);
+  assert.match(image,/observe-only/);
+ });
 });
 
 describe('a report from a newer clearcutt-verify', () => {

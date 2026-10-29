@@ -8,9 +8,11 @@ between minor releases, with notes here.
 
 ### Contract: clearcutt-verify v0.18.0
 
-- Built against clearcutt-verify v0.18.0's contract (schemas unchanged from
-  the commit v0.2.0 followed, so v0.17.0 and v0.18.0 reports both render).
-  A report from v0.18.0 no longer draws the "newer than this portal" warning.
+- Built against clearcutt-verify v0.18.0's contract. Its schemas are the
+  ones #13 vendored from verify's main before that release (the Notation
+  fields below); every change since v0.2.0 is additive, so v0.17.0 reports
+  still render. A report from v0.18.0 no longer draws the "newer than this
+  portal" warning.
 
 ### Contract: Notation image trust and signed VEX attribution
 

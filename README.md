@@ -56,7 +56,7 @@ jobs:
   portal:
     needs: verify   # the job that ran estate verify, estate push, and cosign sign
     # Pin by commit, like every other action; the comment is for you and Dependabot.
-    uses: northcutted/clearcutt-portal/.github/workflows/portal.yml@<commit of the release tag> # v0.2.0
+    uses: northcutted/clearcutt-portal/.github/workflows/portal.yml@<commit of the release tag> # v0.3.0
     permissions: {contents: read, pages: write, id-token: write}
     with:
       bundle-ref: ghcr.io/acme/estate:latest
@@ -64,7 +64,7 @@ jobs:
       certificate-oidc-issuer: https://token.actions.githubusercontent.com
 ```
 
-`git ls-remote https://github.com/northcutted/clearcutt-portal 'refs/tags/v0.2.0^{}'`
+`git ls-remote https://github.com/northcutted/clearcutt-portal 'refs/tags/v0.3.0^{}'`
 prints the commit to pin. The workflow builds the version it is called at:
 pinned to a release's commit (or tag), it verifies and builds that release's
 signed archive. An artifact of the same run (`bundle-artifact`) works too.

@@ -4,7 +4,15 @@ ClearCutt Portal is pre-1.0. The bundle format it reads is clearcutt-verify's
 `clearcutt.dev/v1` contract; the portal's own inputs and pages may change
 between minor releases, with notes here.
 
-## Unreleased
+## v0.3.0 (2026-10-29)
+
+### Contract: clearcutt-verify v0.18.0
+
+- Built against clearcutt-verify v0.18.0's contract. Its schemas are the
+  ones #13 vendored from verify's main before that release (the Notation
+  fields below); every change since v0.2.0 is additive, so v0.17.0 reports
+  still render. A report from v0.18.0 no longer draws the "newer than this
+  portal" warning.
 
 ### Contract: Notation image trust and signed VEX attribution
 
